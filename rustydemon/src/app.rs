@@ -21,6 +21,8 @@ pub struct SelectedFile {
     pub texture: Option<egui::TextureHandle>,
     /// Deep-search hits inside this container file.
     pub content_matches: Vec<ContentMatch>,
+    /// For .pow files: parsed power summary.
+    pub pow_summary: Option<String>,
 }
 
 impl SelectedFile {
@@ -31,6 +33,7 @@ impl SelectedFile {
             load_error: None,
             texture: None,
             content_matches: vec![],
+            pow_summary: None,
         }
     }
 }
@@ -168,6 +171,18 @@ impl CascExplorerApp {
                             .unwrap_or(false)
                         {
                             sel.texture = decode_blp_texture(&data, ctx);
+                        }
+
+                        // Parse .pow files for structured preview.
+                        if result
+                            .filename
+                            .as_deref()
+                            .map(|n| n.to_lowercase().ends_with(".pow"))
+                            .unwrap_or(false)
+                        {
+                            if let Some(pow) = crate::pow_preview::PowPreview::parse(&data) {
+                                sel.pow_summary = Some(pow.summary());
+                            }
                         }
 
                         if self.deep_search_enabled {

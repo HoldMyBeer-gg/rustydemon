@@ -48,6 +48,21 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         return;
     }
 
+    // ── .pow power preview ────────────────────────────────────────────────────
+    if let Some(summary) = &sel.pow_summary {
+        egui::ScrollArea::vertical()
+            .id_salt("pow_preview")
+            .max_height(300.0)
+            .show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut summary.as_str())
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(f32::INFINITY),
+                );
+            });
+        ui.separator();
+    }
+
     // ── BLP texture preview ────────────────────────────────────────────────────
     if let Some(tex) = &sel.texture {
         let tex_size = tex.size_vec2();
@@ -59,8 +74,14 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     }
 
     // ── Raw hex preview ────────────────────────────────────────────────────────
+    if sel.data.is_none() && sel.load_error.is_none() && app.loading {
+        ui.spinner();
+        ui.label("Loading file data…");
+        return;
+    }
+
     if let Some(data) = &sel.data {
-        if sel.texture.is_none() {
+        if sel.texture.is_none() && sel.pow_summary.is_none() {
             let preview_len = data.len().min(256);
             let hex: String = data[..preview_len]
                 .chunks(16)

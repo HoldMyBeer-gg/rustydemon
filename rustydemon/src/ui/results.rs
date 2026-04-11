@@ -239,14 +239,15 @@ fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<S
             let path_str = result.filename.as_deref().unwrap_or("");
 
             ui.push_id(result.hash, |ui| {
-                let resp = egui::Frame::none()
+            let mut label_clicked = false;
+                egui::Frame::none()
                     .inner_margin(egui::Margin::symmetric(4.0, 2.0))
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
-                        let _ = ui.selectable_label(is_multi || is_preview, display_name);
+                        label_clicked = ui.selectable_label(is_multi || is_preview, display_name).clicked();
                     });
 
-                if resp.response.clicked() {
+                if label_clicked {
                     if ctrl_held {
                         if is_multi {
                             app.multi_selected.remove(&result.hash);
