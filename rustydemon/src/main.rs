@@ -1,5 +1,6 @@
 mod app;
 mod deep_search;
+pub mod pow_preview;
 mod ui;
 
 use app::CascExplorerApp;
