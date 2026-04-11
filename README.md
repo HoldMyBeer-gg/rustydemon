@@ -68,9 +68,11 @@ sudo pacman -S gtk3 libxcb xkbcommon openssl
 sudo dnf install gtk3-devel libxcb-devel libxkbcommon-devel openssl-devel
 ```
 
-> **Steam Deck (Desktop Mode):** switch to Desktop Mode, install the Arch deps above via `pacman`, then run Rusty Demon normally.
-> Game files installed through Steam are typically on the SD card at
-> `/run/media/sdcard/steamapps/common/` — point **File → Open Game Directory…** there.
+> **Steam Deck (Desktop Mode):** SteamOS has very limited space outside `/home`, so install
+> [Homebrew](https://brew.sh), `rustup`, and `gcc` to your SD card rather than the internal drive.
+> Once Rust is available, install the Arch deps above via `pacman` and build normally.
+> Game files live at `/home/deck/.steam/steam/steamapps/common/<Game>` —
+> point **File → Open Game Directory…** there.
 
 ### Build & Run
 
