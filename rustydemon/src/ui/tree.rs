@@ -50,7 +50,14 @@ fn draw_folder_recursive(
     let root_folder = match handler.root_folder.as_ref() {
         Some(f) => f,
         None => {
-            ui.label("(load a listfile to browse)");
+            ui.label("No file names available.");
+            ui.label("Use File → Load Listfile to browse.");
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new("WoW: download from\ngithub.com/wowdev/wow-listfile")
+                    .small()
+                    .color(egui::Color32::from_gray(140)),
+            );
             return None;
         }
     };
