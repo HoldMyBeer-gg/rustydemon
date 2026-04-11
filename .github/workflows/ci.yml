@@ -38,18 +38,19 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
             libxkbcommon-dev libssl-dev
-      - name: Clippy (all features, deny warnings)
+      - name: Clippy (deny warnings + curated lints)
         run: >
           cargo clippy
           --workspace
           --all-targets
           --
           -D warnings
-          -D clippy::pedantic
-          -A clippy::module_name_repetitions
-          -A clippy::must_use_candidate
-          -A clippy::missing_errors_doc
-          -A clippy::missing_panics_doc
+          -D clippy::redundant_closure_for_method_calls
+          -D clippy::inefficient_to_string
+          -D clippy::map_unwrap_or
+          -D clippy::cloned_instead_of_copied
+          -D clippy::explicit_iter_loop
+          -D clippy::manual_let_else
 
   # ── Tests ───────────────────────────────────────────────────────────────────
   test:

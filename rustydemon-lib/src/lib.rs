@@ -84,6 +84,4 @@ pub use game::GameType;
 pub use handler::CascHandler;
 pub use jenkins96::jenkins96;
 pub use search::{SearchQuery, SearchResult};
-pub use types::{
-    ContentFlags, EKey9, EncodingEntry, IndexEntry, LocaleFlags, Md5Hash, RootEntry,
-};
+pub use types::{ContentFlags, EKey9, EncodingEntry, IndexEntry, LocaleFlags, Md5Hash, RootEntry};

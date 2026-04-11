@@ -1,10 +1,10 @@
 mod menu;
-mod tree;
-mod results;
 mod preview;
+mod results;
+mod tree;
 
-use egui::Context;
 use crate::app::CascExplorerApp;
+use egui::Context;
 
 /// Draw the entire application UI for one frame.
 pub fn draw(ctx: &Context, app: &mut CascExplorerApp) {
@@ -49,7 +49,9 @@ fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {
 
         // Process tree click — look up the hash in the root.
         if let Some(hash) = tree_click {
-            let entries = app.handler.as_ref()
+            let entries = app
+                .handler
+                .as_ref()
                 .map(|h| h.search_by_hash(hash))
                 .unwrap_or_default();
             if let Some(first) = entries.into_iter().next() {

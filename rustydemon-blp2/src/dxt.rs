@@ -31,7 +31,7 @@ pub enum DxtFlags {
 /// mipmap data produces a black region rather than a crash.
 pub fn decompress_image(width: u32, height: u32, data: &[u8], flags: DxtFlags) -> Option<Vec<u8>> {
     let n_pixels = (width as usize).checked_mul(height as usize)?;
-    let n_bytes  = n_pixels.checked_mul(4)?;
+    let n_bytes = n_pixels.checked_mul(4)?;
 
     let mut rgba = vec![0u8; n_bytes];
     let bytes_per_block: usize = if flags == DxtFlags::Dxt1 { 8 } else { 16 };
@@ -57,7 +57,8 @@ pub fn decompress_image(width: u32, height: u32, data: &[u8], flags: DxtFlags) -
                     let sy = y + py;
                     if sx < width && sy < height {
                         let dst = 4 * (width * sy + sx) as usize;
-                        rgba[dst..dst + 4].copy_from_slice(&target_rgba[target_pos..target_pos + 4]);
+                        rgba[dst..dst + 4]
+                            .copy_from_slice(&target_rgba[target_pos..target_pos + 4]);
                     }
                     target_pos += 4;
                 }
@@ -97,19 +98,25 @@ fn decompress_block(rgba: &mut [u8; 64], block: &[u8], block_idx: usize, flags: 
 ///
 /// Returns the raw 16-bit packed value so the caller can compare endpoints to
 /// select the correct interpolation codebook.
-fn unpack565(block: &[u8], block_idx: usize, packed_offset: usize, colour: &mut [u8], colour_offset: usize) -> u16 {
+fn unpack565(
+    block: &[u8],
+    block_idx: usize,
+    packed_offset: usize,
+    colour: &mut [u8],
+    colour_offset: usize,
+) -> u16 {
     let lo = block[block_idx + packed_offset] as u16;
     let hi = block[block_idx + packed_offset + 1] as u16;
     let value = lo | (hi << 8);
 
     // Expand 5-6-5 components to 8-bit by replicating the high bits into the low bits.
-    let red   = ((value >> 11) & 0x1F) as u8;
-    let green = ((value >> 5)  & 0x3F) as u8;
-    let blue  =  (value        & 0x1F) as u8;
+    let red = ((value >> 11) & 0x1F) as u8;
+    let green = ((value >> 5) & 0x3F) as u8;
+    let blue = (value & 0x1F) as u8;
 
-    colour[colour_offset]     = (red   << 3) | (red   >> 2);
+    colour[colour_offset] = (red << 3) | (red >> 2);
     colour[colour_offset + 1] = (green << 2) | (green >> 4);
-    colour[colour_offset + 2] = (blue  << 3) | (blue  >> 2);
+    colour[colour_offset + 2] = (blue << 3) | (blue >> 2);
     colour[colour_offset + 3] = 255;
 
     value
@@ -133,26 +140,26 @@ fn decompress_color(rgba: &mut [u8; 64], block: &[u8], block_idx: usize, is_dxt1
 
         if is_dxt1 && a <= b {
             // Punch-through alpha: midpoint colour + transparent black.
-            codes[8  + i] = ((c + d) / 2) as u8;
+            codes[8 + i] = ((c + d) / 2) as u8;
             codes[12 + i] = 0;
         } else {
             // Standard: two interpolated colours.
-            codes[8  + i] = ((2 * c + d) / 3) as u8;
+            codes[8 + i] = ((2 * c + d) / 3) as u8;
             codes[12 + i] = ((c + 2 * d) / 3) as u8;
         }
     }
 
-    codes[8  + 3] = 255;
+    codes[8 + 3] = 255;
     codes[12 + 3] = if is_dxt1 && a <= b { 0 } else { 255 };
 
     // Unpack the 16 2-bit indices (4 bytes, 4 indices per byte, LSB first).
     let mut indices = [0u8; 16];
     for i in 0..4 {
         let packed = block[block_idx + 4 + i];
-        indices[i * 4]     =  packed        & 0x3;
-        indices[i * 4 + 1] = (packed >> 2)  & 0x3;
-        indices[i * 4 + 2] = (packed >> 4)  & 0x3;
-        indices[i * 4 + 3] = (packed >> 6)  & 0x3;
+        indices[i * 4] = packed & 0x3;
+        indices[i * 4 + 1] = (packed >> 2) & 0x3;
+        indices[i * 4 + 2] = (packed >> 4) & 0x3;
+        indices[i * 4 + 3] = (packed >> 6) & 0x3;
     }
 
     for i in 0..16 {
@@ -196,15 +203,13 @@ fn decompress_alpha_dxt5(rgba: &mut [u8; 64], block: &[u8], block_idx: usize) {
 
     if alpha0 <= alpha1 {
         for i in 1..5usize {
-            codes[1 + i] = (((5 - i) as u32 * alpha0 as u32
-                            + i as u32 * alpha1 as u32) / 5) as u8;
+            codes[1 + i] = (((5 - i) as u32 * alpha0 as u32 + i as u32 * alpha1 as u32) / 5) as u8;
         }
         codes[6] = 0;
         codes[7] = 255;
     } else {
         for i in 1..7usize {
-            codes[i + 1] = (((7 - i) as u32 * alpha0 as u32
-                            + i as u32 * alpha1 as u32) / 7) as u8;
+            codes[i + 1] = (((7 - i) as u32 * alpha0 as u32 + i as u32 * alpha1 as u32) / 7) as u8;
         }
     }
 

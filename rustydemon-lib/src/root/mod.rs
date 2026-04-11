@@ -51,15 +51,13 @@ pub trait RootHandler {
 ///
 /// Currently supports the WoW MFST format.  Other games fall back to
 /// [`DummyRootHandler`].
-pub fn load(
-    data: Vec<u8>,
-) -> Result<Box<dyn RootHandler>, CascError> {
+pub fn load(data: Vec<u8>) -> Result<Box<dyn RootHandler>, CascError> {
     use wow::WowRootHandler;
 
     // WoW MFST magic: 'MFST' (0x4D465354) or old-style (first 4 bytes = count).
     if data.len() >= 4 {
         let maybe_magic = u32::from_le_bytes(data[..4].try_into().unwrap());
-        if maybe_magic == 0x4D46_5354 || data.len() % 28 == 0 {
+        if maybe_magic == 0x4D46_5354 || data.len().is_multiple_of(28) {
             let handler = WowRootHandler::parse(&data)?;
             return Ok(Box::new(handler));
         }
@@ -78,11 +76,19 @@ pub fn load(
 pub struct DummyRootHandler;
 
 impl RootHandler for DummyRootHandler {
-    fn count(&self) -> usize { 0 }
-    fn get_all_entries(&self, _hash: u64) -> &[RootEntry] { &[] }
+    fn count(&self) -> usize {
+        0
+    }
+    fn get_all_entries(&self, _hash: u64) -> &[RootEntry] {
+        &[]
+    }
     fn all_entries(&self) -> Box<dyn Iterator<Item = (u64, &RootEntry)> + '_> {
         Box::new(std::iter::empty())
     }
-    fn hash_for_file_data_id(&self, _id: u32) -> Option<u64> { None }
-    fn file_data_id_for_hash(&self, _hash: u64) -> Option<u32> { None }
+    fn hash_for_file_data_id(&self, _id: u32) -> Option<u64> {
+        None
+    }
+    fn file_data_id_for_hash(&self, _hash: u64) -> Option<u32> {
+        None
+    }
 }

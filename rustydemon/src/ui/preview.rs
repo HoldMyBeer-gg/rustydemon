@@ -15,7 +15,10 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         .num_columns(2)
         .spacing([4.0, 2.0])
         .show(ui, |ui| {
-            let name = sel.result.filename.as_deref()
+            let name = sel
+                .result
+                .filename
+                .as_deref()
                 .and_then(|p| p.rsplit(['/', '\\']).next())
                 .unwrap_or("(unknown)");
 
@@ -63,11 +66,16 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
                 .chunks(16)
                 .enumerate()
                 .map(|(i, row)| {
-                    let hex_part: String = row.iter()
-                        .map(|b| format!("{b:02X} "))
-                        .collect();
-                    let ascii_part: String = row.iter()
-                        .map(|&b| if b.is_ascii_graphic() || b == b' ' { b as char } else { '.' })
+                    let hex_part: String = row.iter().map(|b| format!("{b:02X} ")).collect();
+                    let ascii_part: String = row
+                        .iter()
+                        .map(|&b| {
+                            if b.is_ascii_graphic() || b == b' ' {
+                                b as char
+                            } else {
+                                '.'
+                            }
+                        })
                         .collect();
                     format!("{:04X}  {hex_part:<48}  {ascii_part}", i * 16)
                 })
@@ -89,7 +97,10 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     // ── Deep-search content matches ────────────────────────────────────────────
     if !sel.content_matches.is_empty() {
         ui.separator();
-        ui.label(format!("Deep search: {} entries", sel.content_matches.len()));
+        ui.label(format!(
+            "Deep search: {} entries",
+            sel.content_matches.len()
+        ));
         egui::ScrollArea::vertical()
             .id_salt("content_matches")
             .max_height(120.0)

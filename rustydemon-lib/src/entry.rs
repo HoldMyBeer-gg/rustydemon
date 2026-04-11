@@ -13,15 +13,19 @@ impl CascEntry {
     pub fn name(&self) -> &str {
         match self {
             Self::Folder(f) => &f.name,
-            Self::File(f)   => &f.name,
+            Self::File(f) => &f.name,
         }
     }
 
     /// Returns `true` if this is a folder.
-    pub fn is_folder(&self) -> bool { matches!(self, Self::Folder(_)) }
+    pub fn is_folder(&self) -> bool {
+        matches!(self, Self::Folder(_))
+    }
 
     /// Returns `true` if this is a file.
-    pub fn is_file(&self) -> bool { matches!(self, Self::File(_)) }
+    pub fn is_file(&self) -> bool {
+        matches!(self, Self::File(_))
+    }
 }
 
 // ── CascFolder ────────────────────────────────────────────────────────────────
@@ -41,8 +45,8 @@ impl CascFolder {
     /// Create an empty folder with the given name.
     pub fn new(name: impl Into<String>) -> Self {
         CascFolder {
-            name:    name.into(),
-            files:   HashMap::new(),
+            name: name.into(),
+            files: HashMap::new(),
             folders: HashMap::new(),
         }
     }
@@ -63,7 +67,9 @@ impl CascFolder {
     pub fn navigate(&self, path: &str) -> Option<&CascFolder> {
         let mut current = self;
         for component in path.split(['/', '\\']) {
-            if component.is_empty() { continue; }
+            if component.is_empty() {
+                continue;
+            }
             current = current.folder(component)?;
         }
         Some(current)
@@ -109,7 +115,12 @@ impl CascFile {
             .and_then(|n| n.to_str())
             .unwrap_or(&full_path)
             .to_string();
-        CascFile { name, full_path, hash, file_data_id }
+        CascFile {
+            name,
+            full_path,
+            hash,
+            file_data_id,
+        }
     }
 }
 
@@ -119,9 +130,7 @@ impl CascFile {
 ///
 /// This is used by the handler after loading the listfile to construct the
 /// navigable tree exposed to the UI.
-pub fn build_tree(
-    entries: impl IntoIterator<Item = (u64, String, Option<u32>)>,
-) -> CascFolder {
+pub fn build_tree(entries: impl IntoIterator<Item = (u64, String, Option<u32>)>) -> CascFolder {
     let mut root = CascFolder::new("(root)");
 
     for (hash, path, fdid) in entries {
@@ -133,7 +142,9 @@ pub fn build_tree(
 
 fn insert_path(root: &mut CascFolder, hash: u64, path: &str, fdid: Option<u32>) {
     let parts: Vec<&str> = path.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
-    if parts.is_empty() { return; }
+    if parts.is_empty() {
+        return;
+    }
 
     let mut folder = root;
     for &component in &parts[..parts.len() - 1] {
@@ -155,17 +166,17 @@ fn insert_path(root: &mut CascFolder, hash: u64, path: &str, fdid: Option<u32>) 
 ///
 /// Returns an iterator of `(path, Option<file_data_id>)` pairs, skipping
 /// blank lines and comments.
-pub fn parse_listfile(
-    content: &str,
-) -> impl Iterator<Item = (String, Option<u32>)> + '_ {
+pub fn parse_listfile(content: &str) -> impl Iterator<Item = (String, Option<u32>)> + '_ {
     content.lines().filter_map(|line| {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') { return None; }
+        if line.is_empty() || line.starts_with('#') {
+            return None;
+        }
 
         // Try "fileDataId;path" format first.
         if let Some(semi) = line.find(';') {
             let id_str = line[..semi].trim();
-            let path   = line[semi+1..].trim().to_string();
+            let path = line[semi + 1..].trim().to_string();
             if let Ok(id) = id_str.parse::<u32>() {
                 return Some((path, Some(id)));
             }

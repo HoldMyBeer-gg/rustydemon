@@ -55,8 +55,8 @@ impl WowRootHandler {
 
         let mut handler = WowRootHandler {
             entries_by_hash: HashMap::new(),
-            fdid_to_hash:    HashMap::new(),
-            hash_to_fdid:    HashMap::new(),
+            fdid_to_hash: HashMap::new(),
+            hash_to_fdid: HashMap::new(),
         };
 
         // Flat (pre-MFST) format: fixed 28-byte records.
@@ -79,22 +79,22 @@ impl WowRootHandler {
 
     fn parse_flat(&mut self, data: &[u8]) -> Result<(), CascError> {
         let record_size = 28usize;
-        if data.len() % record_size != 0 {
+        if !data.len().is_multiple_of(record_size) {
             return Err(CascError::InvalidData(
-                "flat root: length is not a multiple of 28".into()
+                "flat root: length is not a multiple of 28".into(),
             ));
         }
 
         let mut off = 0usize;
         while off + record_size <= data.len() {
             let mut ck = [0u8; 16];
-            ck.copy_from_slice(&data[off..off+16]);
+            ck.copy_from_slice(&data[off..off + 16]);
 
-            let hash = u64::from_le_bytes(data[off+16..off+24].try_into().unwrap());
+            let hash = u64::from_le_bytes(data[off + 16..off + 24].try_into().unwrap());
 
             let entry = RootEntry {
-                ckey:    Md5Hash(ck),
-                locale:  LocaleFlags::ALL_WOW,
+                ckey: Md5Hash(ck),
+                locale: LocaleFlags::ALL_WOW,
                 content: ContentFlags::NONE,
             };
 
@@ -121,15 +121,17 @@ impl WowRootHandler {
 
         while off < data.len() {
             // Each block starts with a count + flags.
-            if off + 12 > data.len() { break; }
+            if off + 12 > data.len() {
+                break;
+            }
 
-            let count = u32::from_le_bytes(data[off..off+4].try_into().unwrap()) as usize;
+            let count = u32::from_le_bytes(data[off..off + 4].try_into().unwrap()) as usize;
             off += 4;
 
             let (locale, content) = match version {
                 0 | 1 => {
-                    let content_raw = u32::from_le_bytes(data[off..off+4].try_into().unwrap());
-                    let locale_raw  = u32::from_le_bytes(data[off+4..off+8].try_into().unwrap());
+                    let content_raw = u32::from_le_bytes(data[off..off + 4].try_into().unwrap());
+                    let locale_raw = u32::from_le_bytes(data[off + 4..off + 8].try_into().unwrap());
                     off += 8;
                     (
                         LocaleFlags::from_bits_truncate(locale_raw),
@@ -137,14 +139,20 @@ impl WowRootHandler {
                     )
                 }
                 2 => {
-                    let locale_raw   = u32::from_le_bytes(data[off..off+4].try_into().unwrap());
-                    let content1     = u32::from_le_bytes(data[off+4..off+8].try_into().unwrap());
-                    let content2     = u32::from_le_bytes(data[off+8..off+12].try_into().unwrap());
-                    let content3     = if off + 12 < data.len() { data[off+12] } else { 0 };
+                    let locale_raw = u32::from_le_bytes(data[off..off + 4].try_into().unwrap());
+                    let content1 = u32::from_le_bytes(data[off + 4..off + 8].try_into().unwrap());
+                    let content2 = u32::from_le_bytes(data[off + 8..off + 12].try_into().unwrap());
+                    let content3 = if off + 12 < data.len() {
+                        data[off + 12]
+                    } else {
+                        0
+                    };
                     off += 13;
                     (
                         LocaleFlags::from_bits_truncate(locale_raw),
-                        ContentFlags::from_bits_truncate(content1 | content2 | ((content3 as u32) << 17)),
+                        ContentFlags::from_bits_truncate(
+                            content1 | content2 | ((content3 as u32) << 17),
+                        ),
                     )
                 }
                 _ => {
@@ -155,18 +163,21 @@ impl WowRootHandler {
 
             if locale.is_empty() {
                 return Err(CascError::InvalidData(
-                    "MFST block has LocaleFlags::NONE".into()
+                    "MFST block has LocaleFlags::NONE".into(),
                 ));
             }
 
             // FileDataId deltas (count × i32).
             let fdid_bytes = count * 4;
-            if off + fdid_bytes > data.len() { break; }
+            if off + fdid_bytes > data.len() {
+                break;
+            }
 
             let mut file_data_ids = Vec::with_capacity(count);
             let mut fdid_acc = 0i32;
             for i in 0..count {
-                let delta = i32::from_le_bytes(data[off+i*4..off+i*4+4].try_into().unwrap());
+                let delta =
+                    i32::from_le_bytes(data[off + i * 4..off + i * 4 + 4].try_into().unwrap());
                 fdid_acc += delta;
                 file_data_ids.push(fdid_acc as u32);
                 fdid_acc += 1;
@@ -175,12 +186,14 @@ impl WowRootHandler {
 
             // CKeys (count × 16 bytes).
             let ckey_bytes = count * 16;
-            if off + ckey_bytes > data.len() { break; }
+            if off + ckey_bytes > data.len() {
+                break;
+            }
 
             let mut ckeys = Vec::with_capacity(count);
             for i in 0..count {
                 let mut ck = [0u8; 16];
-                ck.copy_from_slice(&data[off+i*16..off+i*16+16]);
+                ck.copy_from_slice(&data[off + i * 16..off + i * 16 + 16]);
                 ckeys.push(Md5Hash(ck));
             }
             off += ckey_bytes;
@@ -191,12 +204,14 @@ impl WowRootHandler {
 
             if has_name_hashes {
                 let hash_bytes = count * 8;
-                if off + hash_bytes > data.len() { break; }
+                if off + hash_bytes > data.len() {
+                    break;
+                }
 
                 let mut hashes = Vec::with_capacity(count);
                 for i in 0..count {
                     hashes.push(u64::from_le_bytes(
-                        data[off+i*8..off+i*8+8].try_into().unwrap()
+                        data[off + i * 8..off + i * 8 + 8].try_into().unwrap(),
                     ));
                 }
                 off += hash_bytes;
@@ -208,7 +223,7 @@ impl WowRootHandler {
                 let fdid = file_data_ids[i];
                 let hash = match &name_hashes {
                     Some(h) => h[i],
-                    None    => file_data_id_hash(fdid),
+                    None => file_data_id_hash(fdid),
                 };
 
                 let entry = RootEntry {
@@ -228,17 +243,21 @@ impl WowRootHandler {
 }
 
 impl RootHandler for WowRootHandler {
-    fn count(&self) -> usize { self.entries_by_hash.len() }
+    fn count(&self) -> usize {
+        self.entries_by_hash.len()
+    }
 
     fn get_all_entries(&self, hash: u64) -> &[RootEntry] {
-        self.entries_by_hash.get(&hash).map(|v| v.as_slice()).unwrap_or(&[])
+        self.entries_by_hash
+            .get(&hash)
+            .map_or(&[], std::vec::Vec::as_slice)
     }
 
     fn all_entries(&self) -> Box<dyn Iterator<Item = (u64, &RootEntry)> + '_> {
         Box::new(
             self.entries_by_hash
                 .iter()
-                .flat_map(|(&h, v)| v.iter().map(move |e| (h, e)))
+                .flat_map(|(&h, v)| v.iter().map(move |e| (h, e))),
         )
     }
 

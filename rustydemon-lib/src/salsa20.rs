@@ -17,7 +17,10 @@ impl Salsa20 {
     ///
     /// Panics if `key.len()` is not 16 or 32, or if `iv.len()` is not 8.
     pub fn new(key: &[u8], iv: &[u8]) -> Self {
-        assert!(key.len() == 16 || key.len() == 32, "Salsa20 key must be 16 or 32 bytes");
+        assert!(
+            key.len() == 16 || key.len() == 32,
+            "Salsa20 key must be 16 or 32 bytes"
+        );
         assert_eq!(iv.len(), 8, "Salsa20 IV must be 8 bytes");
 
         let mut s = [0u32; 16];
@@ -29,8 +32,8 @@ impl Salsa20 {
             (0x61707865u32, 0x3120646eu32, 0x79622d36u32, 0x6b206574u32)
         };
 
-        s[0]  = c0;
-        s[5]  = c1;
+        s[0] = c0;
+        s[5] = c1;
         s[10] = c2;
         s[15] = c3;
 
@@ -81,35 +84,35 @@ impl Salsa20 {
         // 20 rounds (10 double-rounds: column then row).
         for _ in 0..10 {
             // Column round
-            qr(&mut x, 4,  0,  12, 7);
-            qr(&mut x, 8,  4,  0,  9);
-            qr(&mut x, 12, 8,  4,  13);
-            qr(&mut x, 0,  12, 8,  18);
-            qr(&mut x, 9,  5,  1,  7);
-            qr(&mut x, 13, 9,  5,  9);
-            qr(&mut x, 1,  13, 9,  13);
-            qr(&mut x, 5,  1,  13, 18);
-            qr(&mut x, 14, 10, 6,  7);
-            qr(&mut x, 2,  14, 10, 9);
-            qr(&mut x, 6,  2,  14, 13);
-            qr(&mut x, 10, 6,  2,  18);
-            qr(&mut x, 3,  15, 11, 7);
-            qr(&mut x, 7,  3,  15, 9);
-            qr(&mut x, 11, 7,  3,  13);
-            qr(&mut x, 15, 11, 7,  18);
+            qr(&mut x, 4, 0, 12, 7);
+            qr(&mut x, 8, 4, 0, 9);
+            qr(&mut x, 12, 8, 4, 13);
+            qr(&mut x, 0, 12, 8, 18);
+            qr(&mut x, 9, 5, 1, 7);
+            qr(&mut x, 13, 9, 5, 9);
+            qr(&mut x, 1, 13, 9, 13);
+            qr(&mut x, 5, 1, 13, 18);
+            qr(&mut x, 14, 10, 6, 7);
+            qr(&mut x, 2, 14, 10, 9);
+            qr(&mut x, 6, 2, 14, 13);
+            qr(&mut x, 10, 6, 2, 18);
+            qr(&mut x, 3, 15, 11, 7);
+            qr(&mut x, 7, 3, 15, 9);
+            qr(&mut x, 11, 7, 3, 13);
+            qr(&mut x, 15, 11, 7, 18);
             // Row round
-            qr(&mut x, 1,  0,  3,  7);
-            qr(&mut x, 2,  1,  0,  9);
-            qr(&mut x, 3,  2,  1,  13);
-            qr(&mut x, 0,  3,  2,  18);
-            qr(&mut x, 6,  5,  4,  7);
-            qr(&mut x, 7,  6,  5,  9);
-            qr(&mut x, 4,  7,  6,  13);
-            qr(&mut x, 5,  4,  7,  18);
-            qr(&mut x, 11, 10, 9,  7);
-            qr(&mut x, 8,  11, 10, 9);
-            qr(&mut x, 9,  8,  11, 13);
-            qr(&mut x, 10, 9,  8,  18);
+            qr(&mut x, 1, 0, 3, 7);
+            qr(&mut x, 2, 1, 0, 9);
+            qr(&mut x, 3, 2, 1, 13);
+            qr(&mut x, 0, 3, 2, 18);
+            qr(&mut x, 6, 5, 4, 7);
+            qr(&mut x, 7, 6, 5, 9);
+            qr(&mut x, 4, 7, 6, 13);
+            qr(&mut x, 5, 4, 7, 18);
+            qr(&mut x, 11, 10, 9, 7);
+            qr(&mut x, 8, 11, 10, 9);
+            qr(&mut x, 9, 8, 11, 13);
+            qr(&mut x, 10, 9, 8, 18);
             qr(&mut x, 12, 15, 14, 7);
             qr(&mut x, 13, 12, 15, 9);
             qr(&mut x, 14, 13, 12, 13);
@@ -149,7 +152,7 @@ mod tests {
     #[test]
     fn roundtrip() {
         let key = [0xAAu8; 32];
-        let iv  = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+        let iv = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
         let plaintext = b"Hello, CASC world! This is a test of Salsa20 decryption.";
 
         let mut buf = plaintext.to_vec();
@@ -163,7 +166,7 @@ mod tests {
     #[test]
     fn short_key() {
         let key = [0xBBu8; 16];
-        let iv  = [0u8; 8];
+        let iv = [0u8; 8];
         let mut data = [1u8; 128];
         Salsa20::new(&key, &iv).apply_keystream(&mut data);
     }
@@ -172,7 +175,7 @@ mod tests {
     #[test]
     fn empty_data() {
         let key = [0u8; 32];
-        let iv  = [0u8; 8];
+        let iv = [0u8; 8];
         let mut data: [u8; 0] = [];
         Salsa20::new(&key, &iv).apply_keystream(&mut data);
     }

@@ -1,5 +1,5 @@
-use rustydemon_lib::{CascFolder, CascFile};
 use crate::app::CascExplorerApp;
+use rustydemon_lib::{CascFile, CascFolder};
 
 /// Draw the left-panel file tree.
 /// Returns the hash of a file the user clicked.
@@ -19,14 +19,15 @@ pub fn draw_tree(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<u64> {
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         let id = egui::Id::new("tree_root");
-        let state = egui::collapsing_header::CollapsingState::load_with_default_open(
-            ui.ctx(), id, true,
-        );
-        state.show_header(ui, |ui| {
-            ui.label("🗂 Game Root");
-        }).body(|ui| {
-            clicked_hash = draw_folder_recursive(ui, app, "");
-        });
+        let state =
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true);
+        state
+            .show_header(ui, |ui| {
+                ui.label("🗂 Game Root");
+            })
+            .body(|ui| {
+                clicked_hash = draw_folder_recursive(ui, app, "");
+            });
     });
 
     clicked_hash
@@ -81,14 +82,16 @@ fn draw_folder_recursive(
         // Default closed except when programmatically expanded.
         let default_open = app.expanded.contains(&child_path);
         let state = egui::collapsing_header::CollapsingState::load_with_default_open(
-            ui.ctx(), id, default_open,
+            ui.ctx(),
+            id,
+            default_open,
         );
         let child_path_for_body = child_path.clone();
-        let body = state.show_header(ui, |ui| {
-            ui.label(format!("📁 {name}"));
-        }).body(|ui| {
-            draw_folder_recursive(ui, app, &child_path_for_body)
-        });
+        let body = state
+            .show_header(ui, |ui| {
+                ui.label(format!("📁 {name}"));
+            })
+            .body(|ui| draw_folder_recursive(ui, app, &child_path_for_body));
         if let Some(body_inner) = body.2 {
             if let Some(hash) = body_inner.inner {
                 clicked_hash = clicked_hash.or(Some(hash));
@@ -120,8 +123,14 @@ fn apply_expansion_commands(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     }
     app.expansion_dirty = false;
 
-    let handler = match app.handler.as_ref() { Some(h) => h, None => return };
-    let root_folder = match handler.root_folder.as_ref() { Some(f) => f, None => return };
+    let handler = match app.handler.as_ref() {
+        Some(h) => h,
+        None => return,
+    };
+    let root_folder = match handler.root_folder.as_ref() {
+        Some(f) => f,
+        None => return,
+    };
 
     // Walk every folder and set the CollapsingState according to app.expanded.
     set_folder_states(ui.ctx(), root_folder, "", &app.expanded);
@@ -149,9 +158,15 @@ fn set_folder_states(
 
 fn file_icon(name: &str) -> &'static str {
     let lower = name.to_lowercase();
-    if lower.ends_with(".blp") { "🖼" }
-    else if lower.ends_with(".m2") || lower.ends_with(".mdx") { "🧊" }
-    else if lower.ends_with(".pow") || lower.ends_with(".gam") { "⚙" }
-    else if lower.ends_with(".mp3") || lower.ends_with(".ogg") || lower.ends_with(".wav") { "🎵" }
-    else { "📄" }
+    if lower.ends_with(".blp") {
+        "🖼"
+    } else if lower.ends_with(".m2") || lower.ends_with(".mdx") {
+        "🧊"
+    } else if lower.ends_with(".pow") || lower.ends_with(".gam") {
+        "⚙"
+    } else if lower.ends_with(".mp3") || lower.ends_with(".ogg") || lower.ends_with(".wav") {
+        "🎵"
+    } else {
+        "📄"
+    }
 }

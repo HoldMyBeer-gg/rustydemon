@@ -1,5 +1,5 @@
-use rustydemon_lib::SearchResult;
 use crate::app::CascExplorerApp;
+use rustydemon_lib::SearchResult;
 
 /// Draw the center search-results panel.
 /// Returns the clicked [`SearchResult`], if any.

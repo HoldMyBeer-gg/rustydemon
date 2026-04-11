@@ -13,11 +13,15 @@ pub struct Md5Hash(pub [u8; 16]);
 impl Md5Hash {
     /// Construct from a raw byte array.
     #[inline]
-    pub fn from_bytes(b: [u8; 16]) -> Self { Self(b) }
+    pub fn from_bytes(b: [u8; 16]) -> Self {
+        Self(b)
+    }
 
     /// Parse from a 32-character hexadecimal string (case-insensitive).
     pub fn from_hex(s: &str) -> Option<Self> {
-        if s.len() != 32 { return None; }
+        if s.len() != 32 {
+            return None;
+        }
         let mut out = [0u8; 16];
         for (i, chunk) in s.as_bytes().chunks(2).enumerate() {
             let hi = hex_nibble(chunk[0])?;
@@ -43,11 +47,15 @@ impl Md5Hash {
 
     /// Borrow the underlying 16 bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8; 16] { &self.0 }
+    pub fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
 
     /// Returns `true` when all bytes are zero (the default/uninitialised value).
     #[inline]
-    pub fn is_zero(&self) -> bool { self.0 == [0u8; 16] }
+    pub fn is_zero(&self) -> bool {
+        self.0 == [0u8; 16]
+    }
 }
 
 impl fmt::Debug for Md5Hash {

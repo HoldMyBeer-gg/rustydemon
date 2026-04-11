@@ -1,5 +1,5 @@
-use egui::Context;
 use crate::app::CascExplorerApp;
+use egui::Context;
 
 pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
     egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
@@ -76,7 +76,18 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
             ui.menu_button("Tools", |ui| {
                 // Show detected products first, then a fixed fallback list.
                 let detected = app.detected_products.clone();
-                let fallback = ["fenris", "wow", "wow_classic", "hs", "s2", "hero", "pro", "w3", "osi", "d3"];
+                let fallback = [
+                    "fenris",
+                    "wow",
+                    "wow_classic",
+                    "hs",
+                    "s2",
+                    "hero",
+                    "pro",
+                    "w3",
+                    "osi",
+                    "d3",
+                ];
                 let products: Vec<&str> = if detected.is_empty() {
                     fallback.iter().copied().collect()
                 } else {
@@ -85,14 +96,21 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
 
                 ui.menu_button("Product", |ui| {
                     for product in &products {
-                        if ui.selectable_label(&app.product == product, *product).clicked() {
+                        if ui
+                            .selectable_label(&app.product == product, *product)
+                            .clicked()
+                        {
                             app.product = product.to_string();
                             ui.close_menu();
                         }
                     }
                 });
 
-                let mut validate = app.handler.as_ref().map(|h| h.validate_hashes).unwrap_or(false);
+                let mut validate = app
+                    .handler
+                    .as_ref()
+                    .map(|h| h.validate_hashes)
+                    .unwrap_or(false);
                 if ui.checkbox(&mut validate, "Validate Hashes").clicked() {
                     if let Some(h) = &mut app.handler {
                         h.validate_hashes = validate;

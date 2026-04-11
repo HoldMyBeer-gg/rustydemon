@@ -21,7 +21,9 @@ pub fn get_key(name: u64) -> Option<&'static [u8; 16]> {
 }
 
 /// Returns `true` if the given TACT key name is present in the table.
-pub fn has_key(name: u64) -> bool { get_key(name).is_some() }
+pub fn has_key(name: u64) -> bool {
+    get_key(name).is_some()
+}
 
 // ── Key table ──────────────────────────────────────────────────────────────────
 
@@ -283,6 +285,9 @@ mod tests {
 
     #[test]
     fn has_key_matches_get_key() {
-        assert_eq!(has_key(0xFB680CB6A8BF81F3), get_key(0xFB680CB6A8BF81F3).is_some());
+        assert_eq!(
+            has_key(0xFB680CB6A8BF81F3),
+            get_key(0xFB680CB6A8BF81F3).is_some()
+        );
     }
 }

@@ -34,14 +34,13 @@ impl LocalIndexHandler {
 
             // Enumerate *.idx files matching the series prefix.
             let mut candidates: Vec<std::path::PathBuf> = fs::read_dir(data_dir)?
-                .filter_map(|e| e.ok())
+                .filter_map(std::result::Result::ok)
                 .map(|e| e.path())
                 .filter(|p| {
-                    p.extension().map(|e| e == "idx").unwrap_or(false)
+                    p.extension().is_some_and(|e| e == "idx")
                         && p.file_name()
                             .and_then(|n| n.to_str())
-                            .map(|n| n.starts_with(&prefix))
-                            .unwrap_or(false)
+                            .is_some_and(|n| n.starts_with(&prefix))
                 })
                 .collect();
 
@@ -54,9 +53,10 @@ impl LocalIndexHandler {
         }
 
         if idx_files.is_empty() {
-            return Err(CascError::FileNotFound(
-                format!("no *.idx files found in {}", data_dir.display())
-            ));
+            return Err(CascError::FileNotFound(format!(
+                "no *.idx files found in {}",
+                data_dir.display()
+            )));
         }
 
         let mut handler = LocalIndexHandler {
@@ -71,7 +71,9 @@ impl LocalIndexHandler {
     }
 
     /// Number of indexed entries.
-    pub fn count(&self) -> usize { self.index.len() }
+    pub fn count(&self) -> usize {
+        self.index.len()
+    }
 
     /// Look up an encoding key, returning its archive location (or `None`).
     pub fn get_entry(&self, ekey: &Md5Hash) -> Option<&IndexEntry> {
@@ -86,17 +88,17 @@ impl LocalIndexHandler {
 
         // ── Header ────────────────────────────────────────────────────────
         let header_hash_size = read_u32_le(&mut r)? as usize;
-        let _header_hash     = read_u32_le(&mut r)?;
+        let _header_hash = read_u32_le(&mut r)?;
 
         // Skip h2 bytes + alignment to 16-byte boundary.
         let after_h2 = 8 + header_hash_size;
-        let padded   = (after_h2 + 0x0F) & !0x0F;
+        let padded = (after_h2 + 0x0F) & !0x0F;
         skip_bytes(&mut r, padded - 8)?; // we already read 8 bytes
 
         let entries_size = read_u32_le(&mut r)? as usize;
         let _entries_hash = read_u32_le(&mut r)?;
 
-        if entries_size % 18 != 0 {
+        if !entries_size.is_multiple_of(18) {
             return Err(CascError::InvalidData(format!(
                 "idx entries_size {entries_size} is not a multiple of 18"
             )));
@@ -112,10 +114,9 @@ impl LocalIndexHandler {
 
             // index: 1-byte high + 4-byte big-endian low.
             let index_high = read_u8(&mut r)?;
-            let index_low  = read_u32_be(&mut r)?;
+            let index_low = read_u32_be(&mut r)?;
 
-            let archive_index =
-                ((index_high as u32) << 2) | ((index_low & 0xC000_0000) >> 30);
+            let archive_index = ((index_high as u32) << 2) | ((index_low & 0xC000_0000) >> 30);
             let offset = index_low & 0x3FFF_FFFF;
 
             let size = read_u32_le(&mut r)?;
