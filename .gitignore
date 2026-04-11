@@ -1,2 +1,6 @@
 /target/
-CascLib/
+.claude
+.cursor
+.vscode
+.idea
+
