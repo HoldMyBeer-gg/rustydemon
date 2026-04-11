@@ -34,10 +34,7 @@ impl ContentSearcher for PowSearcher {
     }
 
     fn search(&self, data: &[u8], query: &str) -> Vec<ContentMatch> {
-        match parse_pow(data, query) {
-            Ok(matches) => matches,
-            Err(_) => vec![],
-        }
+        parse_pow(data, query).unwrap_or_default()
     }
 }
 

@@ -588,7 +588,7 @@ fn security_jpeg_header_size_too_large() {
     let mut v = blp2_header(0 /*Jpeg*/, 0, 0, 1, 1);
     append_mip_tables(&mut v, DATA_OFFSET, 0);
     // JPEG header size = MAX_JPEG_HEADER + 1 (just over the limit)
-    let bad_size: i32 = (64 * 1024 + 1) as i32;
+    let bad_size: i32 = 64 * 1024 + 1;
     v.extend_from_slice(&bad_size.to_le_bytes());
     // No actual header bytes follow.
 

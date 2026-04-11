@@ -148,10 +148,8 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
                 .map(|d| d.len() >= 4 && (d[..4] == *b"BLP2" || d[..4] == *b"BLP1"))
                 .unwrap_or(false);
 
-            if is_blp {
-                if ui.button("Export As PNG").clicked() {
-                    app.export_as_png();
-                }
+            if is_blp && ui.button("Export As PNG").clicked() {
+                app.export_as_png();
             }
 
             if ui.button("Export Raw").clicked() {

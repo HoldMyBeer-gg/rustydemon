@@ -147,19 +147,16 @@ impl TvfsRootHandler {
         };
 
         let ckey = self.get_all_entries(toc_hash)[0].ckey;
-        let ekey = match opener.encoding.best_ekey(&ckey) {
-            Some(e) => e,
-            None => return,
+        let Some(ekey) = opener.encoding.best_ekey(&ckey) else {
+            return;
         };
 
-        let toc_data = match opener.open_by_ekey(&ekey) {
-            Ok(d) => d,
-            Err(_) => return,
+        let Ok(toc_data) = opener.open_by_ekey(&ekey) else {
+            return;
         };
 
-        let toc = match CoreToc::parse(&toc_data) {
-            Ok(t) => t,
-            Err(_) => return,
+        let Ok(toc) = CoreToc::parse(&toc_data) else {
+            return;
         };
 
         // D4 TVFS paths look like:
@@ -247,7 +244,7 @@ impl TvfsRootHandler {
                     self.entries
                         .entry(new_hash)
                         .or_default()
-                        .extend(root_entries.iter().cloned());
+                        .extend(root_entries.iter().copied());
                     self.entries
                         .entry(*old_hash)
                         .or_default()
@@ -518,7 +515,7 @@ fn parse_header(data: &[u8]) -> Result<TvfsHeader, CascError> {
 
     let slice = |off: usize, sz: usize| -> Result<Vec<u8>, CascError> {
         data.get(off..off + sz)
-            .map(|s| s.to_vec())
+            .map(<[u8]>::to_vec)
             .ok_or_else(|| CascError::Config("TVFS: table extends past end of data".into()))
     };
 
@@ -595,8 +592,8 @@ fn read_u16_be(b: &[u8]) -> u16 {
 /// Read a variable-width big-endian integer (1–4 bytes).
 fn read_int_be(b: &[u8], n: usize) -> u32 {
     let mut v: u32 = 0;
-    for i in 0..n {
-        v = (v << 8) | b[i] as u32;
+    for &byte in b.iter().take(n) {
+        v = (v << 8) | byte as u32;
     }
     v
 }
