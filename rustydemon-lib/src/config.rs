@@ -101,7 +101,7 @@ impl VerBarConfig {
             } else {
                 let mut row = HashMap::new();
                 for (col, val) in cfg.columns.iter().zip(tokens.iter()) {
-                    row.insert(col.clone(), val.to_string());
+                    row.insert(col.clone(), val.trim().to_string());
                 }
                 cfg.rows.push(row);
             }
@@ -135,6 +135,12 @@ impl VerBarConfig {
 
     /// Number of data rows.
     pub fn count(&self) -> usize { self.rows.len() }
+
+    /// All values of `column` across every row (skips rows where the column is absent).
+    pub fn all_values(&self, column: &str) -> impl Iterator<Item = &str> + use<'_> {
+        let col = column.to_owned();
+        self.rows.iter().filter_map(move |r| r.get(&col).map(|s| s.as_str()))
+    }
 }
 
 // ── CascConfig ─────────────────────────────────────────────────────────────────
@@ -158,6 +164,19 @@ pub struct CascConfig {
 }
 
 impl CascConfig {
+    /// Read the product UIDs present in a `.build.info` file without fully
+    /// loading the installation.
+    ///
+    /// Returns a list of internal product UIDs (e.g. `"fenris"` for D4,
+    /// `"wow"` for World of Warcraft).  Returns an empty vec if the file does
+    /// not exist or has no `Product` column.
+    pub fn detect_products(base_path: impl AsRef<Path>) -> Vec<String> {
+        let path = base_path.as_ref().join(".build.info");
+        let Ok(file) = std::fs::File::open(&path) else { return vec![]; };
+        let Ok(info) = VerBarConfig::from_reader(file) else { return vec![]; };
+        info.all_values("Product").map(|s| s.to_owned()).collect()
+    }
+
     /// Load a local CASC installation.
     ///
     /// `base_path` should be the directory that contains the `.build.info`
@@ -179,13 +198,35 @@ impl CascConfig {
             })?,
         )?;
 
-        // Detect game type from Product column or fall back to uid detection.
-        let product_uid = build_info
-            .get("Product", product, "Product")
-            .or_else(|| build_info.rows().first()?.get("Product").map(|s| s.as_str()))
-            .unwrap_or(product);
+        // Resolve the effective product UID:
+        //   1. Try the row where Product == product (exact match).
+        //   2. If no exact match, try the row whose Product UID *starts with* product
+        //      (e.g. user types "fenris", file has "fenris_beta").
+        //   3. If still no match, fall back to the first row (single-product installs).
+        // In all cases we use the UID actually stored in the file for game-type detection
+        // so the caller doesn't need to know Blizzard's internal code names.
+        let has_product_col = build_info.columns.iter().any(|c| c == "Product");
 
-        let game_type = GameType::from_uid(product_uid)?;
+        let resolved_product: String = if has_product_col {
+            // Exact match first.
+            if build_info.get("Product", product, "Product").is_some() {
+                product.to_owned()
+            } else {
+                // Prefix/fallback: pick the first row whose UID starts with `product`,
+                // or, if nothing matches at all, use the first row's UID.
+                build_info
+                    .all_values("Product")
+                    .find(|uid| uid.starts_with(product) || product.starts_with(*uid))
+                    .or_else(|| build_info.all_values("Product").next())
+                    .map(|s| s.to_owned())
+                    .unwrap_or_else(|| product.to_owned())
+            }
+        } else {
+            // Older format: no Product column, fall back to passed-in product.
+            product.to_owned()
+        };
+
+        let game_type = GameType::from_uid(&resolved_product)?;
 
         let data_folder = game_type.data_folder().ok_or_else(|| {
             CascError::Config(format!(
@@ -211,7 +252,7 @@ impl CascConfig {
 
         // ── Build config ───────────────────────────────────────────────────
         let build_key = build_info
-            .get("Product", product, "BuildKey")
+            .get("Product", &resolved_product, "BuildKey")
             .or_else(|| build_info.rows().first()?.get("BuildKey").map(|s| s.as_str()))
             .ok_or_else(|| CascError::Config("BuildKey missing from .build.info".into()))?
             .to_lowercase();
@@ -220,7 +261,7 @@ impl CascConfig {
 
         // ── CDN config ─────────────────────────────────────────────────────
         let cdn_key = build_info
-            .get("Product", product, "CDNKey")
+            .get("Product", &resolved_product, "CDNKey")
             .or_else(|| build_info.rows().first()?.get("CDNKey").map(|s| s.as_str()))
             .ok_or_else(|| CascError::Config("CDNKey missing from .build.info".into()))?
             .to_lowercase();
@@ -230,7 +271,7 @@ impl CascConfig {
         Ok(CascConfig {
             base_path,
             game_type,
-            product: product.to_owned(),
+            product: resolved_product,
             build,
             cdn,
         })
