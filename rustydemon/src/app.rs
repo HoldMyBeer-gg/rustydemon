@@ -40,6 +40,7 @@ impl SelectedFile {
 
 // ── Background task results ────────────────────────────────────────────────────
 
+#[allow(clippy::large_enum_variant)]
 enum BgResult {
     /// A CASC archive was opened successfully.
     Opened {
@@ -435,7 +436,7 @@ impl CascExplorerApp {
         // Show result in a message box (non-blocking).
         rfd::MessageDialog::new()
             .set_title("Export Complete")
-            .set_description(&format!("Exported {ok} files ({fail} failed)"))
+            .set_description(format!("Exported {ok} files ({fail} failed)"))
             .set_level(rfd::MessageLevel::Info)
             .show();
     }
@@ -512,7 +513,7 @@ impl CascExplorerApp {
 
         rfd::MessageDialog::new()
             .set_title("Export Complete")
-            .set_description(&format!(
+            .set_description(format!(
                 "Exported {ok} files from {folder_path} ({fail} failed)"
             ))
             .set_level(rfd::MessageLevel::Info)
@@ -547,17 +548,14 @@ impl CascExplorerApp {
             .unwrap_or("export");
 
         if let Some(path) = rfd::FileDialog::new()
-            .set_file_name(&format!("{stem}.png"))
+            .set_file_name(format!("{stem}.png"))
             .add_filter("PNG image", &["png"])
             .save_file()
         {
-            match rustydemon_blp2::BlpFile::from_bytes(data.clone()) {
-                Ok(blp) => {
-                    if let Ok((pixels, w, h)) = blp.get_pixels(0) {
-                        let _ = save_rgba_as_png(&pixels, w, h, &path);
-                    }
+            if let Ok(blp) = rustydemon_blp2::BlpFile::from_bytes(data.clone()) {
+                if let Ok((pixels, w, h)) = blp.get_pixels(0) {
+                    let _ = save_rgba_as_png(&pixels, w, h, &path);
                 }
-                Err(_) => {}
             }
         }
     }

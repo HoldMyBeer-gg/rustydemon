@@ -196,15 +196,14 @@ impl CoreToc {
         cursor.read_exact(&mut buf4)?;
         let first = i32::from_le_bytes(buf4);
 
-        let num_sno_groups;
-        if first as u32 == 0xBCDE6611 {
+        let num_sno_groups = if first as u32 == 0xBCDE6611 {
             // New format with magic.
             cursor.read_exact(&mut buf4)?;
-            num_sno_groups = i32::from_le_bytes(buf4) as usize;
+            i32::from_le_bytes(buf4) as usize
         } else {
             // Old format: first i32 is the group count.
-            num_sno_groups = first as usize;
-        }
+            first as usize
+        };
 
         if num_sno_groups > 300 {
             return Err(CascError::Config(format!(

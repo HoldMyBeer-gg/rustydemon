@@ -375,7 +375,7 @@ impl CascConfig {
     /// traditional root manifest (i.e. the `root` field is all zeros or
     /// absent and `vfs-root` is present).
     pub fn is_vfs_root(&self) -> bool {
-        self.vfs_root_ekey().is_some() && self.root_ckey().map_or(true, |h| h.is_zero())
+        self.vfs_root_ekey().is_some() && self.root_ckey().is_none_or(|h| h.is_zero())
     }
 
     /// Content key for the encoding file.

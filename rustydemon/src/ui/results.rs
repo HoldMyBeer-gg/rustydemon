@@ -73,10 +73,8 @@ fn draw_folder_contents(
     ui.horizontal(|ui| {
         ui.heading(format!("{folder_path}  ({total} items)"));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if sel_count > 0 {
-                if ui.button(format!("Export {sel_count} Selected")).clicked() {
-                    app.export_selected();
-                }
+            if sel_count > 0 && ui.button(format!("Export {sel_count} Selected")).clicked() {
+                app.export_selected();
             }
             if ui.button("Export Folder").clicked() {
                 app.export_folder();

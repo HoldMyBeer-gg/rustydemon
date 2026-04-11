@@ -58,11 +58,9 @@ pub fn decode_tex(data: &[u8], filename: &str) -> Option<(Vec<u8>, u32, u32, &'s
         // Try multiple dimension candidates.
         for (w, h) in guess_all_dimensions(pixel_count) {
             let mut rgba_u32 = vec![0u32; w * h];
-            if decode_fn(data, w, h, &mut rgba_u32).is_ok() {
-                if looks_valid(&rgba_u32, w) {
-                    let rgba = u32_to_rgba(&rgba_u32);
-                    return Some((rgba, w as u32, h as u32, name));
-                }
+            if decode_fn(data, w, h, &mut rgba_u32).is_ok() && looks_valid(&rgba_u32, w) {
+                let rgba = u32_to_rgba(&rgba_u32);
+                return Some((rgba, w as u32, h as u32, name));
             }
         }
     }
@@ -78,7 +76,7 @@ fn guess_all_dimensions(pixel_count: usize) -> Vec<(usize, usize)> {
     // Try all power-of-2 width/height combos where w*h == pixel_count.
     for w_exp in 6..14u32 {
         let w = 1usize << w_exp;
-        if pixel_count % w != 0 {
+        if !pixel_count.is_multiple_of(w) {
             continue;
         }
         let h = pixel_count / w;

@@ -65,10 +65,7 @@ fn draw_folder_recursive(
     let folder: &CascFolder = if path_prefix.is_empty() {
         root_folder
     } else {
-        match root_folder.navigate(path_prefix) {
-            Some(f) => f,
-            None => return None,
-        }
+        root_folder.navigate(path_prefix)?
     };
 
     // Clone folder contents to release the borrow before calling back into app.

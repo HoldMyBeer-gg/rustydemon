@@ -121,7 +121,7 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                     "d3",
                 ];
                 let products: Vec<&str> = if detected.is_empty() {
-                    fallback.iter().copied().collect()
+                    fallback.to_vec()
                 } else {
                     detected.iter().map(|s| s.as_str()).collect()
                 };
