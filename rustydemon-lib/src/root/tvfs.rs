@@ -55,12 +55,8 @@ impl FileOpener<'_> {
             .get_entry(ekey)
             .ok_or_else(|| CascError::IndexNotFound(ekey.to_hex()))?;
 
-        let raw = crate::handler::read_data_block(
-            &self.data_path,
-            idx.index,
-            idx.offset,
-            idx.size,
-        )?;
+        let raw =
+            crate::handler::read_data_block(&self.data_path, idx.index, idx.offset, idx.size)?;
 
         blte::decode(&raw, ekey, false)
     }
@@ -141,7 +137,10 @@ impl TvfsRootHandler {
         }
 
         // Try to open the file using ekey from entries.
-        let toc_hash = if !self.get_all_entries(jenkins96("Base/CoreTOC.dat")).is_empty() {
+        let toc_hash = if !self
+            .get_all_entries(jenkins96("Base/CoreTOC.dat"))
+            .is_empty()
+        {
             jenkins96("Base/CoreTOC.dat")
         } else {
             jenkins96("base/CoreTOC.dat")
@@ -312,8 +311,7 @@ impl TvfsRootHandler {
             if entry.node_flags & TVFS_PTE_NODE_VALUE != 0 {
                 if entry.node_value & TVFS_FOLDER_NODE != 0 {
                     // Sub-directory: recurse into the next N bytes of the table.
-                    let dir_len =
-                        (entry.node_value & TVFS_FOLDER_SIZE_MASK) as usize - 4; // minus the 4-byte node value
+                    let dir_len = (entry.node_value & TVFS_FOLDER_SIZE_MASK) as usize - 4; // minus the 4-byte node value
                     if dir_len > table.len() {
                         return Err(CascError::Config(
                             "TVFS: folder size exceeds remaining path table".into(),
@@ -416,7 +414,8 @@ impl TvfsRootHandler {
 
         let mut ekey_bytes = [0u8; 16];
         let copy_len = ekey_size.min(16);
-        ekey_bytes[..copy_len].copy_from_slice(&header.cft_table[cft_offset..cft_offset + copy_len]);
+        ekey_bytes[..copy_len]
+            .copy_from_slice(&header.cft_table[cft_offset..cft_offset + copy_len]);
 
         Ok(Md5Hash::from_bytes(ekey_bytes))
     }

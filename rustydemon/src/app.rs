@@ -1,7 +1,7 @@
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use egui::Context;
 use rustydemon_lib::{CascConfig, CascHandler, LocaleFlags, SearchResult};
@@ -185,11 +185,10 @@ impl CascExplorerApp {
                             if let Some((rgba, w, h, fmt)) =
                                 crate::tex_preview::decode_tex(&data, tex_name)
                             {
-                                let color_image =
-                                    egui::ColorImage::from_rgba_unmultiplied(
-                                        [w as usize, h as usize],
-                                        &rgba,
-                                    );
+                                let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                                    [w as usize, h as usize],
+                                    &rgba,
+                                );
                                 sel.texture = Some(ctx.load_texture(
                                     "tex_preview",
                                     color_image,
@@ -682,7 +681,9 @@ pub fn detect_game_installs() -> Vec<(String, std::path::PathBuf)> {
                     let is_steam = path_str.contains("Steam")
                         || path_str.contains("steam")
                         || path_str.contains("steamapps");
-                    let launcher = if is_steam && path_str.contains("mmcblk0p1") || path_str.contains("sdcard") {
+                    let launcher = if is_steam && path_str.contains("mmcblk0p1")
+                        || path_str.contains("sdcard")
+                    {
                         "Steam Deck SD"
                     } else if is_steam {
                         "Steam"
@@ -692,10 +693,7 @@ pub fn detect_game_installs() -> Vec<(String, std::path::PathBuf)> {
                         "Battle.net"
                     };
 
-                    found.push((
-                        format!("{game_name} [{launcher}]"),
-                        path.clone(),
-                    ));
+                    found.push((format!("{game_name} [{launcher}]"), path.clone()));
                 }
             }
         }

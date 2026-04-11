@@ -74,10 +74,7 @@ fn draw_folder_contents(
         ui.heading(format!("{folder_path}  ({total} items)"));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if sel_count > 0 {
-                if ui
-                    .button(format!("Export {sel_count} Selected"))
-                    .clicked()
-                {
+                if ui.button(format!("Export {sel_count} Selected")).clicked() {
                     app.export_selected();
                 }
             }
@@ -185,10 +182,7 @@ fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<S
         if count > 0 || sel_count > 0 {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if sel_count > 0 {
-                    if ui
-                        .button(format!("Export {sel_count} Selected"))
-                        .clicked()
-                    {
+                    if ui.button(format!("Export {sel_count} Selected")).clicked() {
                         app.export_selected();
                     }
                     if ui.button("Clear Selection").clicked() {
@@ -239,12 +233,14 @@ fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<S
             let path_str = result.filename.as_deref().unwrap_or("");
 
             ui.push_id(result.hash, |ui| {
-            let mut label_clicked = false;
+                let mut label_clicked = false;
                 egui::Frame::none()
                     .inner_margin(egui::Margin::symmetric(4.0, 2.0))
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
-                        label_clicked = ui.selectable_label(is_multi || is_preview, display_name).clicked();
+                        label_clicked = ui
+                            .selectable_label(is_multi || is_preview, display_name)
+                            .clicked();
                     });
 
                 if label_clicked {
