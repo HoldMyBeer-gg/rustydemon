@@ -80,14 +80,28 @@ impl PowPreview {
         let mut out = String::new();
 
         if self.magic_ok {
-            writeln!(out, "=== Power 0x{:08X} ({}) ===", self.power_id, self.power_id).ok();
+            writeln!(
+                out,
+                "=== Power 0x{:08X} ({}) ===",
+                self.power_id, self.power_id
+            )
+            .ok();
         }
         writeln!(out, "Size: {} bytes", self.file_size).ok();
 
         // SF definitions
         if !self.sf_definitions.is_empty() {
-            writeln!(out, "\n--- Scaling Factors ({}) ---", self.sf_definitions.len()).ok();
-            writeln!(out, "  (Runtime values — resolve via d4data or in-game testing)").ok();
+            writeln!(
+                out,
+                "\n--- Scaling Factors ({}) ---",
+                self.sf_definitions.len()
+            )
+            .ok();
+            writeln!(
+                out,
+                "  (Runtime values — resolve via d4data or in-game testing)"
+            )
+            .ok();
             for sf in &self.sf_definitions {
                 writeln!(out, "  {}  = ???", sf.name).ok();
             }
@@ -184,8 +198,9 @@ fn extract_sf_defs(data: &[u8]) -> Vec<SfDef> {
                 if let Ok(sf_num) = num_str.parse::<u32>() {
                     let meta_start = i + 8;
                     if meta_start + 8 <= data.len() {
-                        let type_tag =
-                            u32::from_le_bytes(data[meta_start..meta_start + 4].try_into().unwrap());
+                        let type_tag = u32::from_le_bytes(
+                            data[meta_start..meta_start + 4].try_into().unwrap(),
+                        );
                         let index = u32::from_le_bytes(
                             data[meta_start + 4..meta_start + 8].try_into().unwrap(),
                         );
@@ -216,8 +231,17 @@ fn extract_sf_defs(data: &[u8]) -> Vec<SfDef> {
 // ── Formula extractor with typed values ───────────────────────────────────────
 
 const FORMULA_INDICATORS: &[&str] = &[
-    "SF_", "Table(", "Affix", "Attacks_Per_Second", "Owner.", "Min(", "Max(",
-    "Chance_For_", "AoE_Size", " * ", " / ",
+    "SF_",
+    "Table(",
+    "Affix",
+    "Attacks_Per_Second",
+    "Owner.",
+    "Min(",
+    "Max(",
+    "Chance_For_",
+    "AoE_Size",
+    " * ",
+    " / ",
 ];
 
 fn is_formula(s: &str) -> bool {
@@ -227,16 +251,32 @@ fn is_formula(s: &str) -> bool {
 fn classify(s: &str) -> &'static str {
     let sl = s.to_lowercase();
     if sl.contains("table(") && sl.contains('*') {
-        if sl.contains("table(34") { return "damage_scalar"; }
-        if sl.contains("table(35") { return "cooldown_scalar"; }
+        if sl.contains("table(34") {
+            return "damage_scalar";
+        }
+        if sl.contains("table(35") {
+            return "cooldown_scalar";
+        }
         return "damage_scalar";
     }
-    if sl.contains("attacks_per_second") { return "attack_speed"; }
-    if sl.contains("affix") && sl.contains("static value") { return "unique_item_affix"; }
-    if sl.contains("affix_value") { return "affix_modifier"; }
-    if sl.contains("aoe_size") || sl.contains("min(") || sl.contains("max(") { return "aoe_scaling"; }
-    if sl.contains("chance_for_double_damage") { return "crit_modifier"; }
-    if s.contains("SF_") { return "sf_expression"; }
+    if sl.contains("attacks_per_second") {
+        return "attack_speed";
+    }
+    if sl.contains("affix") && sl.contains("static value") {
+        return "unique_item_affix";
+    }
+    if sl.contains("affix_value") {
+        return "affix_modifier";
+    }
+    if sl.contains("aoe_size") || sl.contains("min(") || sl.contains("max(") {
+        return "aoe_scaling";
+    }
+    if sl.contains("chance_for_double_damage") {
+        return "crit_modifier";
+    }
+    if s.contains("SF_") {
+        return "sf_expression";
+    }
     "expression"
 }
 
@@ -330,7 +370,10 @@ fn extract_formulas(data: &[u8]) -> Vec<Formula> {
         }
 
         // Find actual null terminator for full string
-        let null_pos = data[*offset..].iter().position(|&b| b == 0).unwrap_or(s.len());
+        let null_pos = data[*offset..]
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(s.len());
         let full_str = String::from_utf8_lossy(&data[*offset..*offset + null_pos]).into_owned();
 
         let formula_end = *offset + null_pos + 1;

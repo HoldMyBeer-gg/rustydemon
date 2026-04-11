@@ -100,14 +100,13 @@ fn draw_folder_recursive(
         let child_path_for_body = child_path.clone();
 
         // CollapsingHeader makes the entire row clickable.
-        let resp = egui::CollapsingHeader::new(
-            egui::RichText::new(format!("📁 {name}"))
-                .color(if is_browsed {
-                    egui::Color32::from_rgb(100, 180, 255)
-                } else {
-                    egui::Color32::from_gray(220)
-                }),
-        )
+        let resp = egui::CollapsingHeader::new(egui::RichText::new(format!("📁 {name}")).color(
+            if is_browsed {
+                egui::Color32::from_rgb(100, 180, 255)
+            } else {
+                egui::Color32::from_gray(220)
+            },
+        ))
         .id_salt(&child_path_for_body)
         .default_open(default_open)
         .show(ui, |ui| {
@@ -213,7 +212,9 @@ fn file_icon(name: &str) -> &'static str {
         "🧊"
     } else if lower.ends_with(".pow") || lower.ends_with(".gam") {
         "⚙"
-    } else if lower.ends_with(".mp3") || lower.ends_with(".ogg") || lower.ends_with(".wav")
+    } else if lower.ends_with(".mp3")
+        || lower.ends_with(".ogg")
+        || lower.ends_with(".wav")
         || lower.ends_with(".wsb")
     {
         "🎵"

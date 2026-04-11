@@ -241,9 +241,7 @@ impl CascConfig {
 
         let resolved_product: String = if has_product_col {
             // Exact match first.
-            if build_info.get("Product", product, "Product").is_some()
-                && !product.is_empty()
-            {
+            if build_info.get("Product", product, "Product").is_some() && !product.is_empty() {
                 product.to_owned()
             } else {
                 // Prefix/fallback: pick the first row whose UID starts with `product`,
@@ -252,19 +250,15 @@ impl CascConfig {
                     .all_values("Product")
                     .filter(|s| !s.is_empty())
                     .find(|uid| uid.starts_with(product) || product.starts_with(*uid))
-                    .or_else(|| {
-                        build_info
-                            .all_values("Product")
-                            .find(|s| !s.is_empty())
-                    });
+                    .or_else(|| build_info.all_values("Product").find(|s| !s.is_empty()));
 
                 // If Product values are all empty, infer from CDN path
                 // (e.g. "tpr/fenris" → "fenris").
                 from_product
                     .or_else(|| {
-                        build_info.all_values("CDNPath").find_map(|p| {
-                            p.strip_prefix("tpr/").filter(|s| !s.is_empty())
-                        })
+                        build_info
+                            .all_values("CDNPath")
+                            .find_map(|p| p.strip_prefix("tpr/").filter(|s| !s.is_empty()))
                     })
                     .map_or_else(|| product.to_owned(), std::borrow::ToOwned::to_owned)
             }
@@ -364,8 +358,7 @@ impl CascConfig {
         for (key, vals) in self.build.iter() {
             // Match vfs-root and vfs-<digits>
             let is_vfs = key == "vfs-root"
-                || (key.starts_with("vfs-")
-                    && key[4..].bytes().all(|b| b.is_ascii_digit()));
+                || (key.starts_with("vfs-") && key[4..].bytes().all(|b| b.is_ascii_digit()));
             if !is_vfs || vals.len() < 2 {
                 continue;
             }
@@ -382,8 +375,7 @@ impl CascConfig {
     /// traditional root manifest (i.e. the `root` field is all zeros or
     /// absent and `vfs-root` is present).
     pub fn is_vfs_root(&self) -> bool {
-        self.vfs_root_ekey().is_some()
-            && self.root_ckey().map_or(true, |h| h.is_zero())
+        self.vfs_root_ekey().is_some() && self.root_ckey().map_or(true, |h| h.is_zero())
     }
 
     /// Content key for the encoding file.

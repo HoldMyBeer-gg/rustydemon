@@ -33,9 +33,12 @@ pub fn decode_tex(data: &[u8], filename: &str) -> Option<(Vec<u8>, u32, u32, &'s
     let priority: Vec<usize> = if lower.contains("_normal") {
         // Normal maps → BC5 first, then BC7
         vec![1, 0, 2, 3, 4]
-    } else if lower.contains("_rough") || lower.contains("_metallic")
-        || lower.contains("_ao") || lower.contains("_alpha")
-        || lower.contains("_opacity") || lower.contains("_mask")
+    } else if lower.contains("_rough")
+        || lower.contains("_metallic")
+        || lower.contains("_ao")
+        || lower.contains("_alpha")
+        || lower.contains("_opacity")
+        || lower.contains("_mask")
     {
         // Single-channel → BC4 first, then BC1
         vec![4, 3, 0, 1, 2]
@@ -153,8 +156,8 @@ fn looks_valid(pixels: &[u32], width: usize) -> bool {
 fn u32_to_rgba(pixels: &[u32]) -> Vec<u8> {
     let mut out = Vec::with_capacity(pixels.len() * 4);
     for &p in pixels {
-        out.push((p & 0xFF) as u8);         // R
-        out.push(((p >> 8) & 0xFF) as u8);  // G
+        out.push((p & 0xFF) as u8); // R
+        out.push(((p >> 8) & 0xFF) as u8); // G
         out.push(((p >> 16) & 0xFF) as u8); // B
         out.push(((p >> 24) & 0xFF) as u8); // A
     }
