@@ -101,7 +101,9 @@ impl CascExplorerApp {
             first
         } else {
             // No .build.info Product column — use whatever the user set, or "wow".
-            if self.product.is_empty() { self.product = "wow".into(); }
+            if self.product.is_empty() {
+                self.product = "wow".into();
+            }
             self.product.clone()
         };
 
@@ -111,7 +113,9 @@ impl CascExplorerApp {
                 let count = h.root_count();
                 self.status = format!(
                     "Opened: {} (product: {})  |  {} root entries",
-                    path.display(), h.config.product, count
+                    path.display(),
+                    h.config.product,
+                    count
                 );
                 self.handler = Some(h);
                 self.search_results.clear();
@@ -142,32 +146,45 @@ impl CascExplorerApp {
 
     /// Run a search and populate `search_results`.
     pub fn run_search(&mut self) {
-        let Some(handler) = self.handler.as_ref() else { return; };
+        let Some(handler) = self.handler.as_ref() else {
+            return;
+        };
         let query = rustydemon_lib::SearchQuery::new()
             .filename(&self.search_text)
             .limit(500);
         self.search_results = handler.search(query);
-        self.status = format!("{} results for {:?}", self.search_results.len(), self.search_text);
+        self.status = format!(
+            "{} results for {:?}",
+            self.search_results.len(),
+            self.search_text
+        );
     }
 
     /// Run the full global (deep) search — every entry, optionally searching
     /// inside container files.
     pub fn run_deep_search(&mut self) {
-        let Some(handler) = self.handler.as_ref() else { return; };
-        let query = rustydemon_lib::SearchQuery::new()
-            .filename(&self.search_text);
+        let Some(handler) = self.handler.as_ref() else {
+            return;
+        };
+        let query = rustydemon_lib::SearchQuery::new().filename(&self.search_text);
         self.search_results = handler.search(query);
         self.status = format!(
             "Deep search: {} top-level results for {:?} (deep-search into containers: {})",
             self.search_results.len(),
             self.search_text,
-            if self.deep_search_enabled { "on" } else { "off" }
+            if self.deep_search_enabled {
+                "on"
+            } else {
+                "off"
+            }
         );
     }
 
     /// Select a search result and load its raw bytes.
     pub fn select_result(&mut self, result: SearchResult, ctx: &Context) {
-        let Some(handler) = self.handler.as_ref() else { return; };
+        let Some(handler) = self.handler.as_ref() else {
+            return;
+        };
 
         let mut sel = SelectedFile::new(result.clone());
 
@@ -176,7 +193,9 @@ impl CascExplorerApp {
         match data_result {
             Ok(data) => {
                 // Check if it looks like a BLP texture.
-                if result.filename.as_deref()
+                if result
+                    .filename
+                    .as_deref()
                     .map(|n| n.to_lowercase().ends_with(".blp"))
                     .unwrap_or(false)
                 {
@@ -206,11 +225,18 @@ impl CascExplorerApp {
 
     /// Export the selected file's texture as a PNG via a native save dialog.
     pub fn export_as_png(&self) {
-        let Some(sel) = &self.selected else { return; };
-        let Some(data) = &sel.data else { return; };
+        let Some(sel) = &self.selected else {
+            return;
+        };
+        let Some(data) = &sel.data else {
+            return;
+        };
 
         // Determine a suggested file name.
-        let stem = sel.result.filename.as_deref()
+        let stem = sel
+            .result
+            .filename
+            .as_deref()
             .and_then(|n| std::path::Path::new(n).file_stem())
             .and_then(|s| s.to_str())
             .unwrap_or("export");
@@ -250,10 +276,7 @@ impl eframe::App for CascExplorerApp {
 fn decode_blp_texture(data: &[u8], ctx: &Context) -> Option<egui::TextureHandle> {
     let blp = rustydemon_blp2::BlpFile::from_bytes(data.to_vec()).ok()?;
     let (pixels, w, h) = blp.get_pixels(0).ok()?;
-    let color_image = egui::ColorImage::from_rgba_unmultiplied(
-        [w as usize, h as usize],
-        &pixels,
-    );
+    let color_image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &pixels);
     Some(ctx.load_texture("blp_preview", color_image, egui::TextureOptions::default()))
 }
 
@@ -264,8 +287,8 @@ fn save_rgba_as_png(
     path: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use image::{ImageBuffer, RgbaImage};
-    let img: RgbaImage = ImageBuffer::from_raw(w, h, pixels.to_vec())
-        .ok_or("invalid pixel buffer dimensions")?;
+    let img: RgbaImage =
+        ImageBuffer::from_raw(w, h, pixels.to_vec()).ok_or("invalid pixel buffer dimensions")?;
     img.save(path)?;
     Ok(())
 }

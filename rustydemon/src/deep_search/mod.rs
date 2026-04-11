@@ -34,7 +34,5 @@ pub trait ContentSearcher: Send + Sync {
 ///
 /// Add a new searcher here when porting a new container format.
 pub fn registry() -> Vec<Box<dyn ContentSearcher>> {
-    vec![
-        Box::new(pow::PowSearcher),
-    ]
+    vec![Box::new(pow::PowSearcher)]
 }

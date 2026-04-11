@@ -15,16 +15,16 @@ mod offsets {
     pub const FORMAT_VERSION: usize = 4;
     pub const COLOR_ENCODING: usize = 8;
     /// First mip offset (u32 LE) in the 16-entry offset table.
-    pub const MIP_OFFSET_0:   usize = 20;
+    pub const MIP_OFFSET_0: usize = 20;
     /// First mip size (u32 LE) in the 16-entry size table.
-    pub const MIP_SIZE_0:     usize = 84;
+    pub const MIP_SIZE_0: usize = 84;
 }
 
 /// BLP2 header (20 bytes): magic + version + 4 one-byte fields + width + height
 fn blp2_header(color_enc: u8, alpha_size: u8, pf: u8, width: i32, height: i32) -> Vec<u8> {
     let mut v = Vec::new();
     v.extend_from_slice(b"BLP2");
-    v.extend_from_slice(&1u32.to_le_bytes());  // format version
+    v.extend_from_slice(&1u32.to_le_bytes()); // format version
     v.push(color_enc);
     v.push(alpha_size);
     v.push(pf);
@@ -37,9 +37,13 @@ fn blp2_header(color_enc: u8, alpha_size: u8, pf: u8, width: i32, height: i32) -
 /// Appends the 16-entry offset table and 16-entry size table (128 bytes total).
 fn append_mip_tables(v: &mut Vec<u8>, first_offset: u32, first_size: u32) {
     v.extend_from_slice(&first_offset.to_le_bytes());
-    for _ in 1..16 { v.extend_from_slice(&0u32.to_le_bytes()); }
+    for _ in 1..16 {
+        v.extend_from_slice(&0u32.to_le_bytes());
+    }
     v.extend_from_slice(&first_size.to_le_bytes());
-    for _ in 1..16 { v.extend_from_slice(&0u32.to_le_bytes()); }
+    for _ in 1..16 {
+        v.extend_from_slice(&0u32.to_le_bytes());
+    }
 }
 
 /// Returns a BLP2 palette file.
@@ -86,13 +90,7 @@ fn palette_with_one(idx: u8, bgra: [u8; 4]) -> [[u8; 4]; 256] {
 ///   0..20   header
 ///   20..148 mip_tables
 ///   148..   mip_data
-fn make_blp2_dxt(
-    width: i32,
-    height: i32,
-    alpha_size: u8,
-    pf: u8,
-    mip_data: Vec<u8>,
-) -> Vec<u8> {
+fn make_blp2_dxt(width: i32, height: i32, alpha_size: u8, pf: u8, mip_data: Vec<u8>) -> Vec<u8> {
     const DATA_OFFSET: u32 = 148;
     let mut v = blp2_header(2 /*Dxt*/, alpha_size, pf, width, height);
     append_mip_tables(&mut v, DATA_OFFSET, mip_data.len() as u32);
@@ -157,18 +155,18 @@ fn palette_2x2_green_alpha8() {
     // alpha_size=8 → 4 alpha bytes follow the 4 index bytes.
     // alpha values: 0, 64, 128, 255
     let mip_data: Vec<u8> = vec![
-        1, 1, 1, 1,        // pixel indices
-        0, 64, 128, 255,   // alpha channel (8-bit per pixel)
+        1, 1, 1, 1, // pixel indices
+        0, 64, 128, 255, // alpha channel (8-bit per pixel)
     ];
     let data = make_blp2_palette(2, 2, 8, &palette, mip_data);
     let blp = BlpFile::from_bytes(data).unwrap();
     let (pixels, w, h) = blp.get_pixels(0).unwrap();
 
     assert_eq!((w, h), (2, 2));
-    assert_eq!(pixels[0..4],  [0, 128, 0, 0]);   // pixel 0: RGBA
-    assert_eq!(pixels[4..8],  [0, 128, 0, 64]);
+    assert_eq!(pixels[0..4], [0, 128, 0, 0]); // pixel 0: RGBA
+    assert_eq!(pixels[4..8], [0, 128, 0, 64]);
     assert_eq!(pixels[8..12], [0, 128, 0, 128]);
-    assert_eq!(pixels[12..16],[0, 128, 0, 255]);
+    assert_eq!(pixels[12..16], [0, 128, 0, 255]);
 }
 
 #[test]
@@ -179,15 +177,18 @@ fn palette_2x2_alpha1() {
     let mut palette = [[0u8; 4]; 256];
     palette[0] = [0xFF, 0x00, 0x00, 0x00]; // blue
     let mip_data: Vec<u8> = vec![
-        0, 0, 0, 0, // indices
+        0,
+        0,
+        0,
+        0,           // indices
         0b0000_1010, // alpha bits
     ];
     let data = make_blp2_palette(2, 2, 1, &palette, mip_data);
     let blp = BlpFile::from_bytes(data).unwrap();
     let (pixels, _, _) = blp.get_pixels(0).unwrap();
 
-    assert_eq!(pixels[3],  0x00); // pixel 0 transparent
-    assert_eq!(pixels[7],  0xFF); // pixel 1 opaque
+    assert_eq!(pixels[3], 0x00); // pixel 0 transparent
+    assert_eq!(pixels[7], 0xFF); // pixel 1 opaque
     assert_eq!(pixels[11], 0x00); // pixel 2 transparent
     assert_eq!(pixels[15], 0xFF); // pixel 3 opaque
 }
@@ -202,8 +203,8 @@ fn palette_4x1_alpha4() {
     let mut palette = [[0u8; 4]; 256];
     palette[0] = [0x00, 0x00, 0xFF, 0x00]; // red
     let mip_data: Vec<u8> = vec![
-        0, 0, 0, 0,    // indices
-        0xA5, 0xF0,    // alpha bytes
+        0, 0, 0, 0, // indices
+        0xA5, 0xF0, // alpha bytes
     ];
     let data = make_blp2_palette(4, 1, 4, &palette, mip_data);
     let blp = BlpFile::from_bytes(data).unwrap();
@@ -211,9 +212,9 @@ fn palette_4x1_alpha4() {
 
     assert_eq!((w, h), (4, 1));
     // pixel 0: even, low nibble of 0xA5 = 0x5 → (0x5 & 0x0F) << 4 = 0x50
-    assert_eq!(pixels[3],  0x50);
+    assert_eq!(pixels[3], 0x50);
     // pixel 1: odd, high nibble of 0xA5 = 0xA0 → 0xA5 & 0xF0 = 0xA0
-    assert_eq!(pixels[7],  0xA0);
+    assert_eq!(pixels[7], 0xA0);
     // pixel 2: even, low nibble of 0xF0 = 0x0 → 0x00
     assert_eq!(pixels[11], 0x00);
     // pixel 3: odd, high nibble of 0xF0 = 0xF0 → 0xF0
@@ -234,9 +235,9 @@ fn dxt1_4x4_red() {
         let r5: u8 = 255 >> 3; // 31
         let expected_r: u8 = (r5 << 3) | (r5 >> 2); // 255
         assert_eq!(chunk[0], expected_r, "red channel mismatch");
-        assert_eq!(chunk[1], 0,          "green should be 0");
-        assert_eq!(chunk[2], 0,          "blue should be 0");
-        assert_eq!(chunk[3], 255,        "alpha should be opaque");
+        assert_eq!(chunk[1], 0, "green should be 0");
+        assert_eq!(chunk[2], 0, "blue should be 0");
+        assert_eq!(chunk[3], 255, "alpha should be opaque");
     }
 }
 
@@ -299,14 +300,20 @@ fn mipmap_count_from_offset_table() {
     v.extend_from_slice(&BASE.to_le_bytes());
     v.extend_from_slice(&(BASE + 4).to_le_bytes());
     v.extend_from_slice(&(BASE + 5).to_le_bytes());
-    for _ in 3..16 { v.extend_from_slice(&0u32.to_le_bytes()); }
+    for _ in 3..16 {
+        v.extend_from_slice(&0u32.to_le_bytes());
+    }
     // mip_sizes
     v.extend_from_slice(&4u32.to_le_bytes());
     v.extend_from_slice(&1u32.to_le_bytes());
     v.extend_from_slice(&1u32.to_le_bytes());
-    for _ in 3..16 { v.extend_from_slice(&0u32.to_le_bytes()); }
+    for _ in 3..16 {
+        v.extend_from_slice(&0u32.to_le_bytes());
+    }
 
-    for entry in &palette { v.extend_from_slice(entry); }
+    for entry in &palette {
+        v.extend_from_slice(entry);
+    }
     v.extend_from_slice(&[0u8, 0, 0, 0, 0, 0]); // mip data for all 3 levels
 
     let blp = BlpFile::from_bytes(v).unwrap();
@@ -342,16 +349,24 @@ fn blp1_palette_1x1() {
     const DATA_OFFSET: u32 = 1180;
     let mut v: Vec<u8> = Vec::new();
     v.extend_from_slice(b"BLP1");
-    for val in [1i32, 0, 1, 1, 0, 0] { v.extend_from_slice(&val.to_le_bytes()); }
+    for val in [1i32, 0, 1, 1, 0, 0] {
+        v.extend_from_slice(&val.to_le_bytes());
+    }
     // mip_offsets
     v.extend_from_slice(&DATA_OFFSET.to_le_bytes());
-    for _ in 1..16 { v.extend_from_slice(&0u32.to_le_bytes()); }
+    for _ in 1..16 {
+        v.extend_from_slice(&0u32.to_le_bytes());
+    }
     // mip_sizes
     v.extend_from_slice(&1u32.to_le_bytes());
-    for _ in 1..16 { v.extend_from_slice(&0u32.to_le_bytes()); }
+    for _ in 1..16 {
+        v.extend_from_slice(&0u32.to_le_bytes());
+    }
     // palette[0] = BGRA blue
     v.extend_from_slice(&[0xFF, 0x00, 0x00, 0xFF]);
-    for _ in 1..256 { v.extend_from_slice(&[0u8; 4]); }
+    for _ in 1..256 {
+        v.extend_from_slice(&[0u8; 4]);
+    }
     // mip data
     v.push(0x00);
 
@@ -380,14 +395,16 @@ fn error_three_bytes() {
 #[test]
 fn error_invalid_magic() {
     let data = b"JUNK\x00\x00\x00\x00".to_vec();
-    assert!(matches!(BlpFile::from_bytes(data), Err(BlpError::InvalidMagic)));
+    assert!(matches!(
+        BlpFile::from_bytes(data),
+        Err(BlpError::InvalidMagic)
+    ));
 }
 
 #[test]
 fn error_blp2_bad_format_version_0() {
     let mut data = make_blp2_palette(1, 1, 0, &[[0u8; 4]; 256], vec![0]);
-    data[offsets::FORMAT_VERSION..offsets::FORMAT_VERSION + 4]
-        .copy_from_slice(&0u32.to_le_bytes());
+    data[offsets::FORMAT_VERSION..offsets::FORMAT_VERSION + 4].copy_from_slice(&0u32.to_le_bytes());
     assert!(matches!(
         BlpFile::from_bytes(data),
         Err(BlpError::InvalidFormatVersion(0))
@@ -397,8 +414,7 @@ fn error_blp2_bad_format_version_0() {
 #[test]
 fn error_blp2_bad_format_version_2() {
     let mut data = make_blp2_palette(1, 1, 0, &[[0u8; 4]; 256], vec![0]);
-    data[offsets::FORMAT_VERSION..offsets::FORMAT_VERSION + 4]
-        .copy_from_slice(&2u32.to_le_bytes());
+    data[offsets::FORMAT_VERSION..offsets::FORMAT_VERSION + 4].copy_from_slice(&2u32.to_le_bytes());
     assert!(matches!(
         BlpFile::from_bytes(data),
         Err(BlpError::InvalidFormatVersion(2))
@@ -452,8 +468,7 @@ fn error_no_mipmaps_all_offsets_zero() {
 fn security_mip_offset_beyond_eof() {
     let mut data = make_blp2_palette(1, 1, 0, &[[0u8; 4]; 256], vec![0x00]);
     let eof_plus = (data.len() as u32).wrapping_add(1024);
-    data[offsets::MIP_OFFSET_0..offsets::MIP_OFFSET_0 + 4]
-        .copy_from_slice(&eof_plus.to_le_bytes());
+    data[offsets::MIP_OFFSET_0..offsets::MIP_OFFSET_0 + 4].copy_from_slice(&eof_plus.to_le_bytes());
 
     let blp = BlpFile::from_bytes(data).unwrap();
     assert!(matches!(blp.get_pixels(0), Err(BlpError::OutOfBounds)));
@@ -463,8 +478,7 @@ fn security_mip_offset_beyond_eof() {
 #[test]
 fn security_mip_size_u32_max() {
     let mut data = make_blp2_palette(1, 1, 0, &[[0u8; 4]; 256], vec![0x00]);
-    data[offsets::MIP_SIZE_0..offsets::MIP_SIZE_0 + 4]
-        .copy_from_slice(&u32::MAX.to_le_bytes());
+    data[offsets::MIP_SIZE_0..offsets::MIP_SIZE_0 + 4].copy_from_slice(&u32::MAX.to_le_bytes());
 
     let blp = BlpFile::from_bytes(data).unwrap();
     // checked_add catches the overflow; must not panic.
@@ -476,11 +490,9 @@ fn security_mip_size_u32_max() {
 fn security_mip_offset_plus_size_wraps() {
     let mut data = make_blp2_palette(1, 1, 0, &[[0u8; 4]; 256], vec![0x00]);
     let off: u32 = u32::MAX - 1;
-    let sz:  u32 = 4;
-    data[offsets::MIP_OFFSET_0..offsets::MIP_OFFSET_0 + 4]
-        .copy_from_slice(&off.to_le_bytes());
-    data[offsets::MIP_SIZE_0..offsets::MIP_SIZE_0 + 4]
-        .copy_from_slice(&sz.to_le_bytes());
+    let sz: u32 = 4;
+    data[offsets::MIP_OFFSET_0..offsets::MIP_OFFSET_0 + 4].copy_from_slice(&off.to_le_bytes());
+    data[offsets::MIP_SIZE_0..offsets::MIP_SIZE_0 + 4].copy_from_slice(&sz.to_le_bytes());
 
     let blp = BlpFile::from_bytes(data).unwrap();
     // checked_add returns None for usize overflow; must not panic.

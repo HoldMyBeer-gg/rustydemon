@@ -29,7 +29,9 @@ impl ContentSearcher for PowSearcher {
         filename.to_lowercase().ends_with(".pow")
     }
 
-    fn format_name(&self) -> &str { ".pow (D4 skill)" }
+    fn format_name(&self) -> &str {
+        ".pow (D4 skill)"
+    }
 
     fn search(&self, data: &[u8], query: &str) -> Vec<ContentMatch> {
         match parse_pow(data, query) {
@@ -63,8 +65,8 @@ fn parse_pow(data: &[u8], query: &str) -> Result<Vec<ContentMatch>, &'static str
     let mut sections = [(0usize, 0usize); NUM_SECTIONS];
     for (i, sect) in sections.iter_mut().enumerate() {
         let base = SECTION_TABLE_OFFSET + i * 8;
-        let off  = read_u32_le(data, base).ok_or("read section offset")? as usize;
-        let sz   = read_u32_le(data, base + 4).ok_or("read section size")? as usize;
+        let off = read_u32_le(data, base).ok_or("read section offset")? as usize;
+        let sz = read_u32_le(data, base + 4).ok_or("read section size")? as usize;
         *sect = (off, sz);
     }
 
@@ -107,11 +109,14 @@ fn parse_pow(data: &[u8], query: &str) -> Result<Vec<ContentMatch>, &'static str
     // or when the power_id matches the query.
     let id_str = format!("{power_id}");
     if needle.is_empty() || id_str.contains(&needle) {
-        matches.insert(0, ContentMatch {
-            inner_path: format!("power/{power_id}"),
-            offset: Some(0x10),
-            kind: "power id".into(),
-        });
+        matches.insert(
+            0,
+            ContentMatch {
+                inner_path: format!("power/{power_id}"),
+                offset: Some(0x10),
+                kind: "power id".into(),
+            },
+        );
     }
 
     Ok(matches)

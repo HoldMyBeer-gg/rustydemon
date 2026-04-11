@@ -49,7 +49,9 @@ pub struct SearchQuery {
 
 impl SearchQuery {
     /// Create a new empty query (matches all entries).
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Filter by a case-insensitive filename substring.
     pub fn filename(mut self, s: impl Into<String>) -> Self {
@@ -117,34 +119,48 @@ impl CascHandler {
     /// ```
     pub fn search(&self, query: SearchQuery) -> Vec<SearchResult> {
         let fname_filter = query.filename_contains.as_deref();
-        let hash_filter  = query.hash_prefix.as_deref();
-        let ckey_filter  = query.ckey_prefix.as_deref();
-        let limit        = if query.limit == 0 { usize::MAX } else { query.limit };
+        let hash_filter = query.hash_prefix.as_deref();
+        let ckey_filter = query.ckey_prefix.as_deref();
+        let limit = if query.limit == 0 {
+            usize::MAX
+        } else {
+            query.limit
+        };
 
         let mut results = Vec::new();
 
         for (hash, entry) in self.root.all_entries() {
-            if results.len() >= limit { break; }
+            if results.len() >= limit {
+                break;
+            }
 
             // ── Locale filter ──────────────────────────────────────────────
             if let Some(lf) = query.locale {
-                if !entry.locale.intersects(lf) { continue; }
+                if !entry.locale.intersects(lf) {
+                    continue;
+                }
             }
 
             // ── Content-flag filter ────────────────────────────────────────
             if let Some(cf) = query.content {
-                if !entry.content.intersects(cf) { continue; }
+                if !entry.content.intersects(cf) {
+                    continue;
+                }
             }
 
             // ── Hash prefix filter ─────────────────────────────────────────
             if let Some(pfx) = hash_filter {
                 let hash_hex = format!("{hash:016X}");
-                if !hash_hex.starts_with(pfx) { continue; }
+                if !hash_hex.starts_with(pfx) {
+                    continue;
+                }
             }
 
             // ── CKey prefix filter ─────────────────────────────────────────
             if let Some(pfx) = ckey_filter {
-                if !entry.ckey.to_hex().starts_with(pfx) { continue; }
+                if !entry.ckey.to_hex().starts_with(pfx) {
+                    continue;
+                }
             }
 
             // ── Filename filter ────────────────────────────────────────────
@@ -164,9 +180,9 @@ impl CascHandler {
                 hash,
                 filename,
                 file_data_id,
-                locale:  entry.locale,
+                locale: entry.locale,
                 content: entry.content,
-                ckey:    entry.ckey,
+                ckey: entry.ckey,
             });
         }
 
@@ -188,9 +204,9 @@ impl CascHandler {
                 hash,
                 filename: filename.clone(),
                 file_data_id,
-                locale:  entry.locale,
+                locale: entry.locale,
                 content: entry.content,
-                ckey:    entry.ckey,
+                ckey: entry.ckey,
             })
             .collect()
     }

@@ -4,11 +4,7 @@ use std::{
     path::Path,
 };
 
-use crate::{
-    error::CascError,
-    game::GameType,
-    types::Md5Hash,
-};
+use crate::{error::CascError, game::GameType, types::Md5Hash};
 
 // ── KeyValueConfig ─────────────────────────────────────────────────────────────
 
@@ -28,18 +24,17 @@ impl KeyValueConfig {
         for line in BufReader::new(reader).lines() {
             let line = line?;
             let line = line.trim();
-            if line.is_empty() || line.starts_with('#') { continue; }
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
 
             let eq = line.find('=').ok_or_else(|| {
                 CascError::Config(format!("KeyValueConfig: no '=' in line: {line}"))
             })?;
 
-            let key   = line[..eq].trim().to_string();
+            let key = line[..eq].trim().to_string();
             let right = line[eq + 1..].trim();
-            let vals: Vec<String> = right
-                .split_ascii_whitespace()
-                .map(|s| s.to_owned())
-                .collect();
+            let vals: Vec<String> = right.split_ascii_whitespace().map(str::to_owned).collect();
 
             cfg.data.insert(key, vals);
         }
@@ -53,7 +48,7 @@ impl KeyValueConfig {
 
     /// Shorthand for `get(key).and_then(|v| v.first())`.
     pub fn get_first(&self, key: &str) -> Option<&str> {
-        self.data.get(key)?.first().map(|s| s.as_str())
+        self.data.get(key)?.first().map(String::as_str)
     }
 
     /// Iterate all key-value pairs.
@@ -84,7 +79,9 @@ impl VerBarConfig {
         for line in BufReader::new(reader).lines() {
             let line = line?;
             let line = line.trim();
-            if line.is_empty() || line.starts_with('#') { continue; }
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
 
             let tokens: Vec<&str> = line.split('|').collect();
 
@@ -113,33 +110,41 @@ impl VerBarConfig {
     /// Return the value of `column` in the first row where `filter_col ==
     /// filter_val`, or in the first row if no filter column exists.
     pub fn get(&self, filter_col: &str, filter_val: &str, column: &str) -> Option<&str> {
-        if self.rows.is_empty() { return None; }
+        if self.rows.is_empty() {
+            return None;
+        }
 
         let has_filter = self.columns.iter().any(|c| c == filter_col);
 
         if has_filter {
             self.rows.iter().find_map(|row| {
-                if row.get(filter_col).map(|s| s.as_str()) == Some(filter_val) {
-                    row.get(column).map(|s| s.as_str())
+                if row.get(filter_col).map(String::as_str) == Some(filter_val) {
+                    row.get(column).map(String::as_str)
                 } else {
                     None
                 }
             })
         } else {
-            self.rows.first()?.get(column).map(|s| s.as_str())
+            self.rows.first()?.get(column).map(String::as_str)
         }
     }
 
     /// Iterate all rows.
-    pub fn rows(&self) -> &[HashMap<String, String>] { &self.rows }
+    pub fn rows(&self) -> &[HashMap<String, String>] {
+        &self.rows
+    }
 
     /// Number of data rows.
-    pub fn count(&self) -> usize { self.rows.len() }
+    pub fn count(&self) -> usize {
+        self.rows.len()
+    }
 
     /// All values of `column` across every row (skips rows where the column is absent).
     pub fn all_values(&self, column: &str) -> impl Iterator<Item = &str> + use<'_> {
         let col = column.to_owned();
-        self.rows.iter().filter_map(move |r| r.get(&col).map(|s| s.as_str()))
+        self.rows
+            .iter()
+            .filter_map(move |r| r.get(&col).map(String::as_str))
     }
 }
 
@@ -172,31 +177,33 @@ impl CascConfig {
     /// not exist or has no `Product` column.
     pub fn detect_products(base_path: impl AsRef<Path>) -> Vec<String> {
         let path = base_path.as_ref().join(".build.info");
-        let Ok(file) = std::fs::File::open(&path) else { return vec![]; };
-        let Ok(info) = VerBarConfig::from_reader(file) else { return vec![]; };
-        info.all_values("Product").map(|s| s.to_owned()).collect()
+        let Ok(file) = std::fs::File::open(&path) else {
+            return vec![];
+        };
+        let Ok(info) = VerBarConfig::from_reader(file) else {
+            return vec![];
+        };
+        info.all_values("Product")
+            .map(std::borrow::ToOwned::to_owned)
+            .collect()
     }
 
     /// Load a local CASC installation.
     ///
     /// `base_path` should be the directory that contains the `.build.info`
     /// file (typically the game's installation root).
-    pub fn load_local(
-        base_path: impl AsRef<Path>,
-        product: &str,
-    ) -> Result<Self, CascError> {
+    pub fn load_local(base_path: impl AsRef<Path>, product: &str) -> Result<Self, CascError> {
         let base_path = base_path.as_ref().to_path_buf();
 
         // ── .build.info ────────────────────────────────────────────────────
         let build_info_path = base_path.join(".build.info");
-        let build_info = VerBarConfig::from_reader(
-            std::fs::File::open(&build_info_path).map_err(|e| {
+        let build_info =
+            VerBarConfig::from_reader(std::fs::File::open(&build_info_path).map_err(|e| {
                 CascError::Config(format!(
                     "Cannot open .build.info at {}: {e}",
                     build_info_path.display()
                 ))
-            })?,
-        )?;
+            })?)?;
 
         // Resolve the effective product UID:
         //   1. Try the row where Product == product (exact match).
@@ -218,8 +225,7 @@ impl CascConfig {
                     .all_values("Product")
                     .find(|uid| uid.starts_with(product) || product.starts_with(*uid))
                     .or_else(|| build_info.all_values("Product").next())
-                    .map(|s| s.to_owned())
-                    .unwrap_or_else(|| product.to_owned())
+                    .map_or_else(|| product.to_owned(), std::borrow::ToOwned::to_owned)
             }
         } else {
             // Older format: no Product column, fall back to passed-in product.
@@ -253,7 +259,13 @@ impl CascConfig {
         // ── Build config ───────────────────────────────────────────────────
         let build_key = build_info
             .get("Product", &resolved_product, "BuildKey")
-            .or_else(|| build_info.rows().first()?.get("BuildKey").map(|s| s.as_str()))
+            .or_else(|| {
+                build_info
+                    .rows()
+                    .first()?
+                    .get("BuildKey")
+                    .map(String::as_str)
+            })
             .ok_or_else(|| CascError::Config("BuildKey missing from .build.info".into()))?
             .to_lowercase();
 
@@ -262,7 +274,7 @@ impl CascConfig {
         // ── CDN config ─────────────────────────────────────────────────────
         let cdn_key = build_info
             .get("Product", &resolved_product, "CDNKey")
-            .or_else(|| build_info.rows().first()?.get("CDNKey").map(|s| s.as_str()))
+            .or_else(|| build_info.rows().first()?.get("CDNKey").map(String::as_str))
             .ok_or_else(|| CascError::Config("CDNKey missing from .build.info".into()))?
             .to_lowercase();
 
@@ -285,10 +297,14 @@ impl CascConfig {
     }
 
     /// Content key for the root manifest.
-    pub fn root_ckey(&self) -> Option<Md5Hash> { self.build_hex_key("root") }
+    pub fn root_ckey(&self) -> Option<Md5Hash> {
+        self.build_hex_key("root")
+    }
 
     /// Content key for the encoding file.
-    pub fn encoding_ckey(&self) -> Option<Md5Hash> { self.build_hex_key("encoding") }
+    pub fn encoding_ckey(&self) -> Option<Md5Hash> {
+        self.build_hex_key("encoding")
+    }
 
     /// Encoding key for the encoding file (used to open it before the encoding
     /// table itself is loaded).
@@ -298,14 +314,20 @@ impl CascConfig {
     }
 
     /// Content key for the install manifest.
-    pub fn install_ckey(&self) -> Option<Md5Hash> { self.build_hex_key("install") }
+    pub fn install_ckey(&self) -> Option<Md5Hash> {
+        self.build_hex_key("install")
+    }
 
     /// Content key for the download manifest.
-    pub fn download_ckey(&self) -> Option<Md5Hash> { self.build_hex_key("download") }
+    pub fn download_ckey(&self) -> Option<Md5Hash> {
+        self.build_hex_key("download")
+    }
 
     /// List of CDN archive IDs.
     pub fn archives(&self) -> &[String] {
-        self.cdn.get("archives").map(|v| v.as_slice()).unwrap_or(&[])
+        self.cdn
+            .get("archives")
+            .map_or(&[], std::vec::Vec::as_slice)
     }
 
     /// Local data folder path (e.g. `<base>/Data/data/`).

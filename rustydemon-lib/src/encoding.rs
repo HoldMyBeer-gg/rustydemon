@@ -43,8 +43,8 @@ impl EncodingHandler {
             )));
         }
 
-        let _ckey_len   = read_u8(&mut r)?; // always 16
-        let _ekey_len   = read_u8(&mut r)?; // always 16
+        let _ckey_len = read_u8(&mut r)?; // always 16
+        let _ekey_len = read_u8(&mut r)?; // always 16
         let ckey_page_size = read_u16_be(&mut r)? as usize * 1024;
         let ekey_page_size = read_u16_be(&mut r)? as usize * 1024;
         let ckey_page_count = read_u32_be(&mut r)? as usize;
@@ -83,36 +83,52 @@ impl EncodingHandler {
 
             // Parse entries until keysCount == 0 or we run out of space.
             loop {
-                if off >= page.len() { break; }
+                if off >= page.len() {
+                    break;
+                }
                 let keys_count = page[off] as usize;
                 off += 1;
-                if keys_count == 0 { break; }
+                if keys_count == 0 {
+                    break;
+                }
 
                 // 5-byte big-endian file size.
-                if off + 5 > page.len() { break; }
+                if off + 5 > page.len() {
+                    break;
+                }
                 let file_size = read_u40_be_slice(&page[off..]);
                 off += 5;
 
                 // CKey (16 bytes).
-                if off + 16 > page.len() { break; }
+                if off + 16 > page.len() {
+                    break;
+                }
                 let mut ckey_bytes = [0u8; 16];
-                ckey_bytes.copy_from_slice(&page[off..off+16]);
+                ckey_bytes.copy_from_slice(&page[off..off + 16]);
                 let ckey = Md5Hash(ckey_bytes);
                 off += 16;
 
                 // EKeys.
                 let mut ekeys = Vec::with_capacity(keys_count);
                 for _ in 0..keys_count {
-                    if off + 16 > page.len() { break; }
+                    if off + 16 > page.len() {
+                        break;
+                    }
                     let mut ek = [0u8; 16];
-                    ek.copy_from_slice(&page[off..off+16]);
+                    ek.copy_from_slice(&page[off..off + 16]);
                     let ekey = Md5Hash(ek);
                     ekeys.push(ekey);
                     ekey_to_ckey.insert(EKey9::from_full(&ekey), ckey);
                     off += 16;
                 }
 
-                ckey_map.insert(ckey, EncodingEntry { ekeys, size: file_size });
+                ckey_map.insert(
+                    ckey,
+                    EncodingEntry {
+                        ekeys,
+                        size: file_size,
+                    },
+                );
             }
         }
 
@@ -125,11 +141,16 @@ impl EncodingHandler {
         // (EKey pages contain eSpec indices + sizes; we don't need them for
         //  basic file extraction, so we skip them for now.)
 
-        Ok(EncodingHandler { ckey_map, ekey_to_ckey })
+        Ok(EncodingHandler {
+            ckey_map,
+            ekey_to_ckey,
+        })
     }
 
     /// Total number of known CKey entries.
-    pub fn count(&self) -> usize { self.ckey_map.len() }
+    pub fn count(&self) -> usize {
+        self.ckey_map.len()
+    }
 
     /// Look up an encoding entry by content key.
     pub fn get_entry(&self, ckey: &Md5Hash) -> Option<&EncodingEntry> {

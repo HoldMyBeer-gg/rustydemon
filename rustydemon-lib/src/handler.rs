@@ -1,15 +1,15 @@
 use std::{
+    collections::HashMap,
     fs,
     io::{Cursor, Read, Seek, SeekFrom},
     sync::Mutex,
-    collections::HashMap,
 };
 
 use crate::{
     blte,
     config::CascConfig,
     encoding::EncodingHandler,
-    entry::{CascFolder, build_tree, parse_listfile},
+    entry::{build_tree, parse_listfile, CascFolder},
     error::CascError,
     jenkins96::jenkins96,
     local_index::LocalIndexHandler,
@@ -67,23 +67,24 @@ impl CascHandler {
     ///
     /// This loads the index files, encoding file, and root manifest.  It does
     /// *not* load a listfile; call [`CascHandler::load_listfile`] separately.
-    pub fn open_local(base_path: impl AsRef<std::path::Path>, product: &str)
-        -> Result<Self, CascError>
-    {
+    pub fn open_local(
+        base_path: impl AsRef<std::path::Path>,
+        product: &str,
+    ) -> Result<Self, CascError> {
         let config = CascConfig::load_local(base_path, product)?;
 
         // ── Local index ────────────────────────────────────────────────────
         let local_index = LocalIndexHandler::load(config.data_path())?;
 
         // ── Encoding file ──────────────────────────────────────────────────
-        let enc_ekey = config.encoding_ekey().ok_or_else(|| {
-            CascError::Config("build config missing encoding ekey".into())
-        })?;
+        let enc_ekey = config
+            .encoding_ekey()
+            .ok_or_else(|| CascError::Config("build config missing encoding ekey".into()))?;
 
         let enc_data = {
-            let entry = local_index.get_entry(&enc_ekey).ok_or_else(|| {
-                CascError::IndexNotFound(enc_ekey.to_hex())
-            })?;
+            let entry = local_index
+                .get_entry(&enc_ekey)
+                .ok_or_else(|| CascError::IndexNotFound(enc_ekey.to_hex()))?;
             read_data_block(&config.data_path(), entry.index, entry.offset, entry.size)?
         };
 
@@ -91,18 +92,18 @@ impl CascHandler {
         let encoding = EncodingHandler::from_reader(Cursor::new(enc_decoded))?;
 
         // ── Root manifest ──────────────────────────────────────────────────
-        let root_ckey = config.root_ckey().ok_or_else(|| {
-            CascError::Config("build config missing root ckey".into())
-        })?;
+        let root_ckey = config
+            .root_ckey()
+            .ok_or_else(|| CascError::Config("build config missing root ckey".into()))?;
 
-        let root_ekey = encoding.best_ekey(&root_ckey).ok_or_else(|| {
-            CascError::EncodingNotFound(root_ckey.to_hex())
-        })?;
+        let root_ekey = encoding
+            .best_ekey(&root_ckey)
+            .ok_or_else(|| CascError::EncodingNotFound(root_ckey.to_hex()))?;
 
         let root_data = {
-            let entry = local_index.get_entry(&root_ekey).ok_or_else(|| {
-                CascError::IndexNotFound(root_ekey.to_hex())
-            })?;
+            let entry = local_index
+                .get_entry(&root_ekey)
+                .ok_or_else(|| CascError::IndexNotFound(root_ekey.to_hex()))?;
             read_data_block(&config.data_path(), entry.index, entry.offset, entry.size)?
         };
 
@@ -130,16 +131,24 @@ impl CascHandler {
     }
 
     /// Return the currently active locale.
-    pub fn locale(&self) -> LocaleFlags { self.locale }
+    pub fn locale(&self) -> LocaleFlags {
+        self.locale
+    }
 
     /// Number of entries in the root manifest.
-    pub fn root_count(&self) -> usize { self.root.count() }
+    pub fn root_count(&self) -> usize {
+        self.root.count()
+    }
 
     /// Number of entries in the encoding table.
-    pub fn encoding_count(&self) -> usize { self.encoding.count() }
+    pub fn encoding_count(&self) -> usize {
+        self.encoding.count()
+    }
 
     /// Number of entries in the local index.
-    pub fn local_index_count(&self) -> usize { self.local_index.count() }
+    pub fn local_index_count(&self) -> usize {
+        self.local_index.count()
+    }
 
     // ── Listfile ───────────────────────────────────────────────────────────────
 
@@ -165,7 +174,7 @@ impl CascHandler {
 
     /// Look up the filename for a hash (requires listfile to be loaded).
     pub fn filename(&self, hash: u64) -> Option<&str> {
-        self.filenames.get(&hash).map(|s| s.as_str())
+        self.filenames.get(&hash).map(std::string::String::as_str)
     }
 
     // ── File existence ─────────────────────────────────────────────────────────
@@ -183,9 +192,9 @@ impl CascHandler {
 
     /// Return `true` if a file with this FileDataId exists.
     pub fn file_exists_by_fdid(&self, id: u32) -> bool {
-        self.root.hash_for_file_data_id(id)
-            .map(|h| self.file_exists_by_hash(h))
-            .unwrap_or(false)
+        self.root
+            .hash_for_file_data_id(id)
+            .is_some_and(|h| self.file_exists_by_hash(h))
     }
 
     // ── File opening ───────────────────────────────────────────────────────────
@@ -193,11 +202,10 @@ impl CascHandler {
     /// Decode and return the raw bytes of a file by its virtual path.
     pub fn open_file_by_name(&self, path: &str) -> Result<Vec<u8>, CascError> {
         let hash = jenkins96(path);
-        self.open_file_by_hash(hash)
-            .map_err(|e| match e {
-                CascError::FileNotFound(_) => CascError::FileNotFound(path.to_owned()),
-                other => other,
-            })
+        self.open_file_by_hash(hash).map_err(|e| match e {
+            CascError::FileNotFound(_) => CascError::FileNotFound(path.to_owned()),
+            other => other,
+        })
     }
 
     /// Decode and return the raw bytes of a file by its Jenkins96 hash.
@@ -208,32 +216,30 @@ impl CascHandler {
 
     /// Decode and return the raw bytes of a file by FileDataId.
     pub fn open_file_by_fdid(&self, id: u32) -> Result<Vec<u8>, CascError> {
-        let hash = self.root.hash_for_file_data_id(id).ok_or_else(|| {
-            CascError::FileNotFound(format!("FileDataId {id}"))
-        })?;
+        let hash = self
+            .root
+            .hash_for_file_data_id(id)
+            .ok_or_else(|| CascError::FileNotFound(format!("FileDataId {id}")))?;
         self.open_file_by_hash(hash)
     }
 
     /// Decode and return the raw bytes of a file by content key.
     pub fn open_by_ckey(&self, ckey: &Md5Hash) -> Result<Vec<u8>, CascError> {
-        let ekey = self.encoding.best_ekey(ckey).ok_or_else(|| {
-            CascError::EncodingNotFound(ckey.to_hex())
-        })?;
+        let ekey = self
+            .encoding
+            .best_ekey(ckey)
+            .ok_or_else(|| CascError::EncodingNotFound(ckey.to_hex()))?;
         self.open_by_ekey(&ekey)
     }
 
     /// Decode and return the raw bytes of a file by encoding key.
     pub fn open_by_ekey(&self, ekey: &Md5Hash) -> Result<Vec<u8>, CascError> {
-        let idx = self.local_index.get_entry(ekey).ok_or_else(|| {
-            CascError::IndexNotFound(ekey.to_hex())
-        })?;
+        let idx = self
+            .local_index
+            .get_entry(ekey)
+            .ok_or_else(|| CascError::IndexNotFound(ekey.to_hex()))?;
 
-        let raw = read_data_block(
-            &self.config.data_path(),
-            idx.index,
-            idx.offset,
-            idx.size,
-        )?;
+        let raw = read_data_block(&self.config.data_path(), idx.index, idx.offset, idx.size)?;
 
         blte::decode(&raw, ekey, self.validate_hashes)
     }
@@ -271,9 +277,7 @@ fn read_data_block(
 ) -> Result<Vec<u8>, CascError> {
     let path = data_dir.join(format!("data.{archive_index:03}"));
 
-    let mut file = fs::File::open(&path).map_err(|e| {
-        CascError::Io(e)
-    })?;
+    let mut file = fs::File::open(&path).map_err(CascError::Io)?;
 
     let blte_offset = (offset as u64)
         .checked_add(DATA_HEADER_BYTES)

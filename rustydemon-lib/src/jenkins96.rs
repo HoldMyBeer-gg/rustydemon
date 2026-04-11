@@ -18,7 +18,13 @@ pub fn jenkins96(s: &str) -> u64 {
     // Normalise: '/' → '\', ASCII upper-case.
     let normalised: Vec<u8> = s
         .bytes()
-        .map(|b| if b == b'/' { b'\\' } else { b.to_ascii_uppercase() })
+        .map(|b| {
+            if b == b'/' {
+                b'\\'
+            } else {
+                b.to_ascii_uppercase()
+            }
+        })
         .collect();
 
     let orig_len = normalised.len() as u32;
@@ -35,7 +41,11 @@ pub fn jenkins96(s: &str) -> u64 {
     // Pad to a multiple of 12 bytes with zeros (matches C# Array.Resize).
     let padded_len = {
         let rem = normalised.len() % 12;
-        if rem == 0 { normalised.len() } else { normalised.len() + (12 - rem) }
+        if rem == 0 {
+            normalised.len()
+        } else {
+            normalised.len() + (12 - rem)
+        }
     };
 
     let mut data = normalised;
@@ -85,23 +95,42 @@ fn u32_le(data: &[u8], off: usize) -> u32 {
 
 #[inline]
 fn mix(a: &mut u32, b: &mut u32, c: &mut u32) {
-    *a = a.wrapping_sub(*c); *a ^= c.rotate_left(4);  *c = c.wrapping_add(*b);
-    *b = b.wrapping_sub(*a); *b ^= a.rotate_left(6);  *a = a.wrapping_add(*c);
-    *c = c.wrapping_sub(*b); *c ^= b.rotate_left(8);  *b = b.wrapping_add(*a);
-    *a = a.wrapping_sub(*c); *a ^= c.rotate_left(16); *c = c.wrapping_add(*b);
-    *b = b.wrapping_sub(*a); *b ^= a.rotate_left(19); *a = a.wrapping_add(*c);
-    *c = c.wrapping_sub(*b); *c ^= b.rotate_left(4);  *b = b.wrapping_add(*a);
+    *a = a.wrapping_sub(*c);
+    *a ^= c.rotate_left(4);
+    *c = c.wrapping_add(*b);
+    *b = b.wrapping_sub(*a);
+    *b ^= a.rotate_left(6);
+    *a = a.wrapping_add(*c);
+    *c = c.wrapping_sub(*b);
+    *c ^= b.rotate_left(8);
+    *b = b.wrapping_add(*a);
+    *a = a.wrapping_sub(*c);
+    *a ^= c.rotate_left(16);
+    *c = c.wrapping_add(*b);
+    *b = b.wrapping_sub(*a);
+    *b ^= a.rotate_left(19);
+    *a = a.wrapping_add(*c);
+    *c = c.wrapping_sub(*b);
+    *c ^= b.rotate_left(4);
+    *b = b.wrapping_add(*a);
 }
 
 #[inline]
 fn final_mix(a: &mut u32, b: &mut u32, c: &mut u32) {
-    *c ^= *b; *c = c.wrapping_sub(b.rotate_left(14));
-    *a ^= *c; *a = a.wrapping_sub(c.rotate_left(11));
-    *b ^= *a; *b = b.wrapping_sub(a.rotate_left(25));
-    *c ^= *b; *c = c.wrapping_sub(b.rotate_left(16));
-    *a ^= *c; *a = a.wrapping_sub(c.rotate_left(4));
-    *b ^= *a; *b = b.wrapping_sub(a.rotate_left(14));
-    *c ^= *b; *c = c.wrapping_sub(b.rotate_left(24));
+    *c ^= *b;
+    *c = c.wrapping_sub(b.rotate_left(14));
+    *a ^= *c;
+    *a = a.wrapping_sub(c.rotate_left(11));
+    *b ^= *a;
+    *b = b.wrapping_sub(a.rotate_left(25));
+    *c ^= *b;
+    *c = c.wrapping_sub(b.rotate_left(16));
+    *a ^= *c;
+    *a = a.wrapping_sub(c.rotate_left(4));
+    *b ^= *a;
+    *b = b.wrapping_sub(a.rotate_left(14));
+    *c ^= *b;
+    *c = c.wrapping_sub(b.rotate_left(24));
 }
 
 #[cfg(test)]

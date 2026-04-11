@@ -3,12 +3,7 @@ use std::io::Read;
 use flate2::read::ZlibDecoder;
 use md5::{Digest, Md5};
 
-use crate::{
-    error::CascError,
-    key_service,
-    salsa20::Salsa20,
-    types::Md5Hash,
-};
+use crate::{error::CascError, key_service, salsa20::Salsa20, types::Md5Hash};
 
 // Safety limits to prevent decompression bombs.
 const MAX_BLTE_BYTES: usize = 512 * 1024 * 1024; // 512 MiB
@@ -59,9 +54,9 @@ pub fn decode(data: &[u8], ekey: &Md5Hash, validate: bool) -> Result<Vec<u8>, Ca
         // No header → single implicit block.
         let payload_size = data.len() - 8;
         vec![BlockDesc {
-            comp_size:   payload_size,
+            comp_size: payload_size,
             decomp_size: payload_size.saturating_sub(1),
-            hash:        Md5Hash::default(),
+            hash: Md5Hash::default(),
         }]
     };
 
@@ -108,9 +103,9 @@ pub fn decode(data: &[u8], ekey: &Md5Hash, validate: bool) -> Result<Vec<u8>, Ca
 // ── Block descriptor ───────────────────────────────────────────────────────────
 
 struct BlockDesc {
-    comp_size:   usize,
+    comp_size: usize,
     decomp_size: usize,
-    hash:        Md5Hash,
+    hash: Md5Hash,
 }
 
 fn parse_header(data: &[u8], header_size: usize) -> Result<Vec<BlockDesc>, CascError> {
@@ -126,8 +121,7 @@ fn parse_header(data: &[u8], header_size: usize) -> Result<Vec<BlockDesc>, CascE
     }
 
     // 3-byte big-endian block count at bytes 9–11.
-    let num_blocks =
-        ((data[9] as usize) << 16) | ((data[10] as usize) << 8) | (data[11] as usize);
+    let num_blocks = ((data[9] as usize) << 16) | ((data[10] as usize) << 8) | (data[11] as usize);
 
     if num_blocks == 0 {
         return Err(CascError::Blte("BLTE block count is zero".into()));
@@ -140,16 +134,18 @@ fn parse_header(data: &[u8], header_size: usize) -> Result<Vec<BlockDesc>, CascE
         )));
     }
     if data.len() < expected_header {
-        return Err(CascError::Blte("BLTE data truncated before block table".into()));
+        return Err(CascError::Blte(
+            "BLTE data truncated before block table".into(),
+        ));
     }
 
     let mut blocks = Vec::with_capacity(num_blocks);
     let mut off = 12usize;
     for _ in 0..num_blocks {
-        let comp_size   = u32::from_be_bytes(data[off..off+4].try_into().unwrap()) as usize;
-        let decomp_size = u32::from_be_bytes(data[off+4..off+8].try_into().unwrap()) as usize;
+        let comp_size = u32::from_be_bytes(data[off..off + 4].try_into().unwrap()) as usize;
+        let decomp_size = u32::from_be_bytes(data[off + 4..off + 8].try_into().unwrap()) as usize;
         let mut hash_bytes = [0u8; 16];
-        hash_bytes.copy_from_slice(&data[off+8..off+24]);
+        hash_bytes.copy_from_slice(&data[off + 8..off + 24]);
         blocks.push(BlockDesc {
             comp_size,
             decomp_size,
@@ -177,9 +173,8 @@ fn decode_block(data: &[u8], block_idx: usize, out: &mut Vec<u8>) -> Result<(), 
             // 'Z' — zlib/deflate compressed.
             let mut dec = ZlibDecoder::new(&data[1..]);
             let mut buf = Vec::new();
-            dec.read_to_end(&mut buf).map_err(|e| {
-                CascError::Blte(format!("block {block_idx} zlib error: {e}"))
-            })?;
+            dec.read_to_end(&mut buf)
+                .map_err(|e| CascError::Blte(format!("block {block_idx} zlib error: {e}")))?;
             out.extend_from_slice(&buf);
         }
         0x45 => {
@@ -195,7 +190,7 @@ fn decode_block(data: &[u8], block_idx: usize, out: &mut Vec<u8>) -> Result<(), 
         0x46 => {
             // 'F' — frame (recursive BLTE); not implemented.
             return Err(CascError::Blte(
-                "BLTE frame blocks ('F') are not supported".into()
+                "BLTE frame blocks ('F') are not supported".into(),
             ));
         }
         t => {
@@ -225,14 +220,18 @@ fn decrypt_block(data: &[u8], block_idx: usize) -> Result<Option<Vec<u8>>, CascE
         )));
     }
     if data.len() < pos + key_name_size {
-        return Err(CascError::Blte("encrypted block: truncated key name".into()));
+        return Err(CascError::Blte(
+            "encrypted block: truncated key name".into(),
+        ));
     }
-    let key_name = u64::from_le_bytes(data[pos..pos+8].try_into().unwrap());
+    let key_name = u64::from_le_bytes(data[pos..pos + 8].try_into().unwrap());
     pos += key_name_size;
 
     // IV size (4 or 8).
     if pos >= data.len() {
-        return Err(CascError::Blte("encrypted block: truncated after key name".into()));
+        return Err(CascError::Blte(
+            "encrypted block: truncated after key name".into(),
+        ));
     }
     let iv_size = data[pos] as usize;
     pos += 1;
@@ -245,7 +244,7 @@ fn decrypt_block(data: &[u8], block_idx: usize) -> Result<Option<Vec<u8>>, CascE
         return Err(CascError::Blte("encrypted block: truncated IV".into()));
     }
     let mut iv = [0u8; 8];
-    iv[..iv_size].copy_from_slice(&data[pos..pos+iv_size]);
+    iv[..iv_size].copy_from_slice(&data[pos..pos + iv_size]);
     pos += iv_size;
 
     // Encryption type.
@@ -261,9 +260,8 @@ fn decrypt_block(data: &[u8], block_idx: usize) -> Result<Option<Vec<u8>>, CascE
     }
 
     // Look up the key.
-    let key = match key_service::get_key(key_name) {
-        Some(k) => k,
-        None => return Err(CascError::MissingKey(key_name)),
+    let Some(key) = key_service::get_key(key_name) else {
+        return Err(CascError::MissingKey(key_name));
     };
 
     let payload = &data[pos..];
@@ -310,7 +308,7 @@ mod tests {
         // Single-block BLTE with header.
         let num_blocks: u32 = 1;
         let header_size: u32 = 12 + 24;
-        let comp_size   = (compressed.len() + 1) as u32; // +1 for block-type byte
+        let comp_size = (compressed.len() + 1) as u32; // +1 for block-type byte
         let decomp_size = payload.len() as u32;
 
         let mut out = Vec::new();
@@ -325,7 +323,7 @@ mod tests {
         out.extend_from_slice(&comp_size.to_be_bytes());
         out.extend_from_slice(&decomp_size.to_be_bytes());
         out.extend_from_slice(&[0u8; 16]); // hash (skipped when validate=false)
-        // block data
+                                           // block data
         out.push(b'Z');
         out.extend_from_slice(&compressed);
         out
