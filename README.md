@@ -61,12 +61,16 @@ archives, written entirely in Rust.
 sudo apt install libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev \
                  libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
 
-# Arch
+# Arch / Steam Deck
 sudo pacman -S gtk3 libxcb xkbcommon openssl
 
 # Fedora
 sudo dnf install gtk3-devel libxcb-devel libxkbcommon-devel openssl-devel
 ```
+
+> **Steam Deck (Desktop Mode):** switch to Desktop Mode, install the Arch deps above via `pacman`, then run Rusty Demon normally.
+> Game files installed through Steam are typically on the SD card at
+> `/run/media/mmcblk0p1/steamapps/common/` — point **File → Open Game Directory…** there.
 
 ### Build & Run
 
