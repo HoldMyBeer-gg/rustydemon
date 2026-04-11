@@ -72,9 +72,13 @@ pub struct VerBarConfig {
 
 impl VerBarConfig {
     /// Parse from any `Read` source.
+    ///
+    /// Supports both pipe-delimited (Battle.net) and tab-delimited (Steam)
+    /// `.build.info` formats.
     pub fn from_reader<R: Read>(reader: R) -> Result<Self, CascError> {
         let mut cfg = VerBarConfig::default();
         let mut first_row = true;
+        let mut delimiter = '|';
 
         for line in BufReader::new(reader).lines() {
             let line = line?;
@@ -83,7 +87,13 @@ impl VerBarConfig {
                 continue;
             }
 
-            let tokens: Vec<&str> = line.split('|').collect();
+            // Auto-detect delimiter from the header row: if the line has no
+            // pipes but does contain tabs, switch to tab-delimited mode.
+            if first_row && !line.contains('|') && line.contains('\t') {
+                delimiter = '\t';
+            }
+
+            let tokens: Vec<&str> = line.split(delimiter).collect();
 
             if first_row {
                 // header row: strip type annotations after '!'
@@ -183,9 +193,24 @@ impl CascConfig {
         let Ok(info) = VerBarConfig::from_reader(file) else {
             return vec![];
         };
-        info.all_values("Product")
+        let mut products: Vec<String> = info
+            .all_values("Product")
+            .filter(|s| !s.is_empty())
             .map(std::borrow::ToOwned::to_owned)
-            .collect()
+            .collect();
+
+        // If the Product column was empty or missing, try to infer the product
+        // from the CDN path (e.g. "tpr/fenris" → "fenris").
+        if products.is_empty() {
+            products = info
+                .all_values("CDNPath")
+                .filter_map(|p| p.strip_prefix("tpr/"))
+                .filter(|s| !s.is_empty())
+                .map(std::borrow::ToOwned::to_owned)
+                .collect();
+        }
+
+        products
     }
 
     /// Load a local CASC installation.
@@ -216,15 +241,31 @@ impl CascConfig {
 
         let resolved_product: String = if has_product_col {
             // Exact match first.
-            if build_info.get("Product", product, "Product").is_some() {
+            if build_info.get("Product", product, "Product").is_some()
+                && !product.is_empty()
+            {
                 product.to_owned()
             } else {
                 // Prefix/fallback: pick the first row whose UID starts with `product`,
                 // or, if nothing matches at all, use the first row's UID.
-                build_info
+                let from_product = build_info
                     .all_values("Product")
+                    .filter(|s| !s.is_empty())
                     .find(|uid| uid.starts_with(product) || product.starts_with(*uid))
-                    .or_else(|| build_info.all_values("Product").next())
+                    .or_else(|| {
+                        build_info
+                            .all_values("Product")
+                            .find(|s| !s.is_empty())
+                    });
+
+                // If Product values are all empty, infer from CDN path
+                // (e.g. "tpr/fenris" → "fenris").
+                from_product
+                    .or_else(|| {
+                        build_info.all_values("CDNPath").find_map(|p| {
+                            p.strip_prefix("tpr/").filter(|s| !s.is_empty())
+                        })
+                    })
                     .map_or_else(|| product.to_owned(), std::borrow::ToOwned::to_owned)
             }
         } else {
@@ -299,6 +340,50 @@ impl CascConfig {
     /// Content key for the root manifest.
     pub fn root_ckey(&self) -> Option<Md5Hash> {
         self.build_hex_key("root")
+    }
+
+    /// Content key for the VFS root (used by D4, OW2, and other newer titles
+    /// that set `root = 00…00`).
+    pub fn vfs_root_ckey(&self) -> Option<Md5Hash> {
+        let hex = self.build.get_first("vfs-root")?;
+        Md5Hash::from_hex(hex)
+    }
+
+    /// Encoding key for the VFS root.
+    pub fn vfs_root_ekey(&self) -> Option<Md5Hash> {
+        let vals = self.build.get("vfs-root")?;
+        vals.get(1).and_then(|s| Md5Hash::from_hex(s))
+    }
+
+    /// All `vfs-N` entries from the build config as `(ckey, ekey)` pairs.
+    ///
+    /// These are the sub-directory VFS roots that can be recursively referenced
+    /// from the primary VFS root.
+    pub fn vfs_root_list(&self) -> Vec<(Md5Hash, Md5Hash)> {
+        let mut out = Vec::new();
+        for (key, vals) in self.build.iter() {
+            // Match vfs-root and vfs-<digits>
+            let is_vfs = key == "vfs-root"
+                || (key.starts_with("vfs-")
+                    && key[4..].bytes().all(|b| b.is_ascii_digit()));
+            if !is_vfs || vals.len() < 2 {
+                continue;
+            }
+            if let (Some(ckey), Some(ekey)) =
+                (Md5Hash::from_hex(&vals[0]), Md5Hash::from_hex(&vals[1]))
+            {
+                out.push((ckey, ekey));
+            }
+        }
+        out
+    }
+
+    /// Returns `true` when the build config uses a VFS root instead of a
+    /// traditional root manifest (i.e. the `root` field is all zeros or
+    /// absent and `vfs-root` is present).
+    pub fn is_vfs_root(&self) -> bool {
+        self.vfs_root_ekey().is_some()
+            && self.root_ckey().map_or(true, |h| h.is_zero())
     }
 
     /// Content key for the encoding file.

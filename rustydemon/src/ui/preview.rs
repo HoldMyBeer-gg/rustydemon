@@ -117,17 +117,59 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
 
     ui.separator();
 
-    // ── Export button ──────────────────────────────────────────────────────────
+    // ── Export buttons ─────────────────────────────────────────────────────────
     if sel.data.is_some() {
-        if ui.button("Export As PNG").clicked() {
-            app.export_as_png();
-        }
+        ui.horizontal(|ui| {
+            // Only show "Export As PNG" for actual BLP textures.
+            let is_blp = sel
+                .data
+                .as_ref()
+                .map(|d| d.len() >= 4 && (d[..4] == *b"BLP2" || d[..4] == *b"BLP1"))
+                .unwrap_or(false);
+
+            if is_blp {
+                if ui.button("Export As PNG").clicked() {
+                    app.export_as_png();
+                }
+            }
+
+            if ui.button("Export Raw").clicked() {
+                export_raw(app);
+            }
+        });
+    }
+}
+
+fn export_raw(app: &CascExplorerApp) {
+    let Some(sel) = &app.selected else { return };
+    let Some(data) = &sel.data else { return };
+
+    let default_name = sel
+        .result
+        .filename
+        .as_deref()
+        .and_then(|n| n.rsplit(['/', '\\']).next())
+        .unwrap_or("export.bin");
+
+    if let Some(path) = rfd::FileDialog::new()
+        .set_file_name(default_name)
+        .save_file()
+    {
+        let _ = std::fs::write(&path, data);
     }
 }
 
 fn meta_row(ui: &mut egui::Ui, label: &str, value: &str) {
     ui.label(egui::RichText::new(label).strong());
-    ui.label(value);
+    // Truncate long values to prevent the panel from expanding.
+    let max_chars = 24;
+    if value.len() > max_chars {
+        let truncated = format!("{}…", &value[..max_chars]);
+        let resp = ui.label(&truncated);
+        resp.on_hover_text(value);
+    } else {
+        ui.label(value);
+    }
     ui.end_row();
 }
 

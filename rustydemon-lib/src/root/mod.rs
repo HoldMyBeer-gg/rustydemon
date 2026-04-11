@@ -1,3 +1,5 @@
+pub mod d4;
+pub mod tvfs;
 pub mod wow;
 
 use crate::{
@@ -11,7 +13,7 @@ use crate::{
 /// over those differences, mapping filename hashes (Jenkins96 or FileDataId)
 /// to [`RootEntry`] records that contain the content key needed to look up the
 /// file in the encoding table.
-pub trait RootHandler {
+pub trait RootHandler: Send {
     /// Number of distinct filename hashes in the manifest.
     fn count(&self) -> usize;
 
@@ -45,6 +47,14 @@ pub trait RootHandler {
 
     /// Translate a Jenkins96 hash back to a FileDataId, if known.
     fn file_data_id_for_hash(&self, hash: u64) -> Option<u32>;
+
+    /// Return built-in file paths from the manifest (e.g. TVFS path table).
+    ///
+    /// Most root handlers return an empty vec; only TVFS-based handlers
+    /// populate this, letting the UI build a tree without a listfile.
+    fn builtin_paths(&self) -> Vec<(u64, String)> {
+        Vec::new()
+    }
 }
 
 /// Load the appropriate root handler for a BLTE-decoded root file.

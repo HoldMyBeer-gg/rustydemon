@@ -13,7 +13,7 @@ use crate::{
     error::CascError,
     jenkins96::jenkins96,
     local_index::LocalIndexHandler,
-    root::{self, RootHandler},
+    root::{self, tvfs::TvfsRootHandler, RootHandler},
     types::{LocaleFlags, Md5Hash},
 };
 
@@ -92,23 +92,42 @@ impl CascHandler {
         let encoding = EncodingHandler::from_reader(Cursor::new(enc_decoded))?;
 
         // ── Root manifest ──────────────────────────────────────────────────
-        let root_ckey = config
-            .root_ckey()
-            .ok_or_else(|| CascError::Config("build config missing root ckey".into()))?;
+        let root_handler: Box<dyn RootHandler> = if config.is_vfs_root() {
+            // Newer TVFS-based root (D4, OW2, etc.).
+            let vfs_ekey = config
+                .vfs_root_ekey()
+                .ok_or_else(|| CascError::Config("build config missing vfs-root ekey".into()))?;
 
-        let root_ekey = encoding
-            .best_ekey(&root_ckey)
-            .ok_or_else(|| CascError::EncodingNotFound(root_ckey.to_hex()))?;
+            let vfs_list = config.vfs_root_list();
 
-        let root_data = {
-            let entry = local_index
-                .get_entry(&root_ekey)
-                .ok_or_else(|| CascError::IndexNotFound(root_ekey.to_hex()))?;
-            read_data_block(&config.data_path(), entry.index, entry.offset, entry.size)?
+            let opener = crate::root::tvfs::FileOpener {
+                encoding: &encoding,
+                local_index: &local_index,
+                data_path: config.data_path(),
+            };
+
+            let tvfs = TvfsRootHandler::load(&vfs_ekey, &vfs_list, &opener)?;
+            Box::new(tvfs)
+        } else {
+            // Traditional root manifest (WoW, D3, etc.).
+            let root_ckey = config
+                .root_ckey()
+                .ok_or_else(|| CascError::Config("build config missing root ckey".into()))?;
+
+            let root_ekey = encoding
+                .best_ekey(&root_ckey)
+                .ok_or_else(|| CascError::EncodingNotFound(root_ckey.to_hex()))?;
+
+            let root_data = {
+                let entry = local_index
+                    .get_entry(&root_ekey)
+                    .ok_or_else(|| CascError::IndexNotFound(root_ekey.to_hex()))?;
+                read_data_block(&config.data_path(), entry.index, entry.offset, entry.size)?
+            };
+
+            let root_decoded = blte::decode(&root_data, &root_ekey, false)?;
+            root::load(root_decoded)?
         };
-
-        let root_decoded = blte::decode(&root_data, &root_ekey, false)?;
-        let root_handler = root::load(root_decoded)?;
 
         Ok(CascHandler {
             config,
@@ -169,6 +188,24 @@ impl CascHandler {
             entries.push((hash, path, fdid));
         }
 
+        self.root_folder = Some(build_tree(entries));
+    }
+
+    /// Populate the file tree from the root handler's built-in path table
+    /// (e.g. TVFS manifests that already know all file paths).
+    ///
+    /// This is a no-op if the root handler doesn't provide built-in paths.
+    pub fn load_builtin_paths(&mut self) {
+        let paths = self.root.builtin_paths();
+        if paths.is_empty() {
+            return;
+        }
+
+        let mut entries: Vec<(u64, String, Option<u32>)> = Vec::new();
+        for (hash, path) in paths {
+            self.filenames.insert(hash, path.clone());
+            entries.push((hash, path, None));
+        }
         self.root_folder = Some(build_tree(entries));
     }
 
@@ -269,7 +306,7 @@ impl CascHandler {
 ///
 /// Each block starts with a 30-byte header (16-byte reversed eKey, 4-byte
 /// size, 10 unknown bytes).  The BLTE payload follows immediately after.
-fn read_data_block(
+pub(crate) fn read_data_block(
     data_dir: &std::path::Path,
     archive_index: u32,
     offset: u32,
