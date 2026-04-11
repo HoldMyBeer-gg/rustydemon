@@ -138,33 +138,39 @@ impl PowPreview {
     }
 
     fn write_formula(&self, out: &mut String, f: &Formula) {
+        // Show the formula with a human-readable interpretation.
         writeln!(out, "  {}", f.text).ok();
 
-        // Show coefficient and table info
+        // Interpret damage formulas.
         if let Some(coeff) = f.coefficient {
-            let table_name = match f.table_id {
-                Some(34) => "Damage",
-                Some(35) => "Cooldown",
-                Some(id) => {
-                    writeln!(out, "    Table: {id}").ok();
-                    "Unknown"
+            let pct = coeff * 100.0;
+            match f.table_id {
+                Some(34) => {
+                    writeln!(out, "    → {pct:.0}% weapon damage (level-scaled)").ok();
                 }
-                None => "",
-            };
-            if !table_name.is_empty() {
-                writeln!(out, "    Coefficient: {coeff} x {table_name} Table").ok();
+                Some(35) => {
+                    writeln!(out, "    → {coeff} sec base cooldown (level-scaled)").ok();
+                }
+                Some(id) => {
+                    writeln!(out, "    → {coeff} × Table({id})").ok();
+                }
+                None => {}
             }
         }
 
-        // Show SF references
-        if !f.sf_refs.is_empty() {
-            let refs: String = f.sf_refs.join(", ");
-            writeln!(out, "    Uses: {refs}").ok();
-        }
+        // Show resolved inline values.
+        let floats: Vec<&TypedValue> = f.values.iter().filter(|v| v.kind == "float").collect();
+        let sf_vals: Vec<&TypedValue> = f.values.iter().filter(|v| v.kind == "SF ref").collect();
 
-        // Show inline typed values
-        for v in &f.values {
-            writeln!(out, "    {}: {}", v.kind, v.display).ok();
+        if !floats.is_empty() || !sf_vals.is_empty() {
+            let parts: Vec<String> = f.values.iter().map(|v| {
+                match v.kind {
+                    "float" => format!("{}", v.display),
+                    "SF ref" => format!("{}", v.display),
+                    _ => format!("{}={}", v.kind, v.display),
+                }
+            }).collect();
+            writeln!(out, "    Params: {}", parts.join(", ")).ok();
         }
     }
 }
