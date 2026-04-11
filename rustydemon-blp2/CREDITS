@@ -1,0 +1,8 @@
+The BLP parsing and DXT decompression algorithms in this crate are derived
+from SereniaBLPLib by Xalcon, used under the MIT License.
+
+  Copyright (c) 2011 Xalcon @ mmowned.com-Forum
+  https://github.com/WoW-Tools/SereniaBLPLib
+
+SereniaBLPLib itself notes that its DXT decompression algorithms were ported
+from LibSquish by Simon Brown (libsquish.googlecode.com).
