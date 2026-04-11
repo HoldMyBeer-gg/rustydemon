@@ -23,9 +23,9 @@ archives, written entirely in Rust.
 |---------|-------|
 | *screenshot coming once tested* | *screenshot coming once tested* |
 
-| Linux | Steam Deck |
-|-------|-----------|
-| *screenshot coming once tested* | ![Steam Deck](docs/screenshots/steamdeck.png) |
+| Linux | Handheld (Steam Deck, ROG Ally, etc.) |
+|-------|---------------------------------------|
+| *screenshot coming once tested* | ![Handheld Gaming System](docs/screenshots/steamdeck.png) |
 
 > PRs with real screenshots welcome — build instructions are below.
 
