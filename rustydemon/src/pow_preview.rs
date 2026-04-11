@@ -87,9 +87,9 @@ impl PowPreview {
         // SF definitions
         if !self.sf_definitions.is_empty() {
             writeln!(out, "\n--- Scaling Factors ({}) ---", self.sf_definitions.len()).ok();
+            writeln!(out, "  (Runtime values — resolve via d4data or in-game testing)").ok();
             for sf in &self.sf_definitions {
-                let tag = if sf.verified { "OK" } else { "??" };
-                writeln!(out, "  [{tag}] {:<8}  internal_idx={}", sf.name, sf.index).ok();
+                writeln!(out, "  {}  = ???", sf.name).ok();
             }
         }
 
@@ -138,7 +138,6 @@ impl PowPreview {
     }
 
     fn write_formula(&self, out: &mut String, f: &Formula) {
-        // Show the formula with a human-readable interpretation.
         writeln!(out, "  {}", f.text).ok();
 
         // Interpret damage formulas.
@@ -158,19 +157,10 @@ impl PowPreview {
             }
         }
 
-        // Show resolved inline values.
-        let floats: Vec<&TypedValue> = f.values.iter().filter(|v| v.kind == "float").collect();
-        let sf_vals: Vec<&TypedValue> = f.values.iter().filter(|v| v.kind == "SF ref").collect();
-
-        if !floats.is_empty() || !sf_vals.is_empty() {
-            let parts: Vec<String> = f.values.iter().map(|v| {
-                match v.kind {
-                    "float" => format!("{}", v.display),
-                    "SF ref" => format!("{}", v.display),
-                    _ => format!("{}={}", v.kind, v.display),
-                }
-            }).collect();
-            writeln!(out, "    Params: {}", parts.join(", ")).ok();
+        // Show SF references used.
+        if !f.sf_refs.is_empty() {
+            let refs = f.sf_refs.join(", ");
+            writeln!(out, "    Uses: {refs}").ok();
         }
     }
 }
