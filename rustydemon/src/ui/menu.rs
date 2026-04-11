@@ -1,4 +1,4 @@
-use crate::app::CascExplorerApp;
+use crate::app::{detect_game_installs, CascExplorerApp};
 use egui::Context;
 
 pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
@@ -6,10 +6,22 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
         egui::menu::bar(ui, |ui| {
             // ── File ──────────────────────────────────────────────────────────
             ui.menu_button("File", |ui| {
+                // Auto-detected game installs.
+                let installs = detect_game_installs();
+                if !installs.is_empty() {
+                    ui.menu_button("Open Game", |ui| {
+                        for (name, path) in &installs {
+                            if ui.button(name).clicked() {
+                                ui.close_menu();
+                                app.open_game_dir(path.clone());
+                            }
+                        }
+                    });
+                }
+
                 if ui.button("Open Game Directory…").clicked() {
                     ui.close_menu();
                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                        // We need the product name; prompt via status then open.
                         app.open_game_dir(path);
                     }
                 }
@@ -26,9 +38,29 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
 
                 ui.separator();
 
-                if ui.button("Export Selected…").clicked() {
+                let sel_count = app.multi_selected.len();
+                let has_selection = sel_count > 0;
+
+                if ui
+                    .add_enabled(
+                        has_selection,
+                        egui::Button::new(format!("Export {sel_count} Selected…")),
+                    )
+                    .clicked()
+                {
                     ui.close_menu();
-                    app.export_as_png();
+                    app.export_selected();
+                }
+
+                if ui
+                    .add_enabled(
+                        app.browsed_folder.is_some(),
+                        egui::Button::new("Export Current Folder…"),
+                    )
+                    .clicked()
+                {
+                    ui.close_menu();
+                    app.export_folder();
                 }
 
                 ui.separator();

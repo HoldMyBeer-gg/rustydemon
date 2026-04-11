@@ -24,7 +24,7 @@ fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {
         ui.separator();
 
         // Collect tree click before split so borrows don't overlap.
-        let mut tree_click: Option<u64> = None;
+        let mut tree_click: Option<tree::TreeClick> = None;
         let mut result_click: Option<rustydemon_lib::SearchResult> = None;
 
         egui::SidePanel::left("tree_panel")
@@ -47,17 +47,24 @@ fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {
             result_click = results::draw_results(ui, app);
         });
 
-        // Process tree click — look up the hash in the root.
-        if let Some(hash) = tree_click {
-            let entries = app
-                .handler
-                .as_ref()
-                .map(|h| h.search_by_hash(hash))
-                .unwrap_or_default();
-            if let Some(first) = entries.into_iter().next() {
-                let ctx2 = ctx.clone();
-                app.select_result(first, &ctx2);
+        // Process tree clicks.
+        match tree_click {
+            Some(tree::TreeClick::File(hash)) => {
+                let entries = app
+                    .handler
+                    .as_ref()
+                    .map(|h| h.search_by_hash(hash))
+                    .unwrap_or_default();
+                if let Some(first) = entries.into_iter().next() {
+                    let ctx2 = ctx.clone();
+                    app.select_result(first, &ctx2);
+                }
             }
+            Some(tree::TreeClick::Folder(path)) => {
+                app.browsed_folder = Some(path);
+                app.search_results.clear();
+            }
+            None => {}
         }
 
         // Process results panel click.
@@ -94,6 +101,9 @@ fn toolbar(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
 fn draw_status_bar(ctx: &Context, app: &CascExplorerApp) {
     egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
         ui.horizontal(|ui| {
+            if app.loading {
+                ui.spinner();
+            }
             ui.label(&app.status);
         });
     });

@@ -1,10 +1,18 @@
 use crate::app::CascExplorerApp;
 use rustydemon_lib::{CascFile, CascFolder};
 
+/// What the user clicked in the tree.
+pub enum TreeClick {
+    /// A file was clicked (hash).
+    File(u64),
+    /// A folder was clicked (path).
+    Folder(String),
+}
+
 /// Draw the left-panel file tree.
-/// Returns the hash of a file the user clicked.
-pub fn draw_tree(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<u64> {
-    ui.heading("Search Archives");
+/// Returns what the user clicked, if anything.
+pub fn draw_tree(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<TreeClick> {
+    ui.heading("File Browser");
     ui.separator();
 
     if app.handler.is_none() {
@@ -15,7 +23,7 @@ pub fn draw_tree(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<u64> {
     // Apply any pending programmatic expand/collapse from the View menu.
     apply_expansion_commands(ui, app);
 
-    let mut clicked_hash: Option<u64> = None;
+    let mut click: Option<TreeClick> = None;
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         let id = egui::Id::new("tree_root");
@@ -23,21 +31,21 @@ pub fn draw_tree(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<u64> {
             egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true);
         state
             .show_header(ui, |ui| {
-                ui.label("🗂 Game Root");
+                ui.label("Game Root");
             })
             .body(|ui| {
-                clicked_hash = draw_folder_recursive(ui, app, "");
+                click = draw_folder_recursive(ui, app, "");
             });
     });
 
-    clicked_hash
+    click
 }
 
 fn draw_folder_recursive(
     ui: &mut egui::Ui,
     app: &mut CascExplorerApp,
     path_prefix: &str,
-) -> Option<u64> {
+) -> Option<TreeClick> {
     let handler = app.handler.as_ref()?;
     let root_folder = match handler.root_folder.as_ref() {
         Some(f) => f,
@@ -68,49 +76,83 @@ fn draw_folder_recursive(
         v
     };
 
-    let mut clicked_hash: Option<u64> = None;
+    let mut click: Option<TreeClick> = None;
 
     // ── Sub-folders ────────────────────────────────────────────────────────────
-    for name in &sub_names {
+    const MAX_FOLDERS_IN_TREE: usize = 200;
+    let folder_truncated = sub_names.len() > MAX_FOLDERS_IN_TREE;
+    for name in sub_names.iter().take(MAX_FOLDERS_IN_TREE) {
         let child_path = if path_prefix.is_empty() {
             name.clone()
         } else {
             format!("{path_prefix}/{name}")
         };
 
-        let id = egui::Id::new(&child_path);
-        // Default closed except when programmatically expanded.
         let default_open = app.expanded.contains(&child_path);
-        let state = egui::collapsing_header::CollapsingState::load_with_default_open(
-            ui.ctx(),
-            id,
-            default_open,
-        );
+        let is_browsed = app.browsed_folder.as_deref() == Some(&child_path);
         let child_path_for_body = child_path.clone();
-        let body = state
-            .show_header(ui, |ui| {
-                ui.label(format!("📁 {name}"));
-            })
-            .body(|ui| draw_folder_recursive(ui, app, &child_path_for_body));
-        if let Some(body_inner) = body.2 {
-            if let Some(hash) = body_inner.inner {
-                clicked_hash = clicked_hash.or(Some(hash));
-            }
+
+        // CollapsingHeader makes the entire row clickable.
+        let resp = egui::CollapsingHeader::new(
+            egui::RichText::new(format!("📁 {name}"))
+                .color(if is_browsed {
+                    egui::Color32::from_rgb(100, 180, 255)
+                } else {
+                    egui::Color32::from_gray(220)
+                }),
+        )
+        .id_salt(&child_path_for_body)
+        .default_open(default_open)
+        .show(ui, |ui| {
+            draw_folder_recursive(ui, app, &child_path_for_body)
+        });
+
+        // When a folder is expanded (header clicked), also browse it.
+        if resp.header_response.clicked() {
+            click = Some(TreeClick::Folder(child_path));
+        }
+
+        if let Some(inner_click) = resp.body_returned.flatten() {
+            click = click.or(Some(inner_click));
         }
     }
 
+    if folder_truncated {
+        ui.label(
+            egui::RichText::new(format!(
+                "  … and {} more folders",
+                sub_names.len() - MAX_FOLDERS_IN_TREE
+            ))
+            .small()
+            .color(egui::Color32::from_gray(140)),
+        );
+    }
+
     // ── Files ──────────────────────────────────────────────────────────────────
+    // Cap file display in the tree to prevent UI slowdown on huge folders.
+    const MAX_FILES_IN_TREE: usize = 200;
     let selected_hash = app.selected.as_ref().map(|s| s.result.hash);
-    for file in &files {
+    let truncated = files.len() > MAX_FILES_IN_TREE;
+    for file in files.iter().take(MAX_FILES_IN_TREE) {
         let is_selected = selected_hash == Some(file.hash);
         let icon = file_icon(&file.name);
         let label = format!("  {icon} {}", file.name);
         if ui.selectable_label(is_selected, &label).clicked() {
-            clicked_hash = Some(file.hash);
+            click = Some(TreeClick::File(file.hash));
         }
     }
+    if truncated {
+        ui.label(
+            egui::RichText::new(format!(
+                "  … and {} more (click folder to browse)",
+                files.len() - MAX_FILES_IN_TREE
+            ))
+            .small()
+            .color(egui::Color32::from_gray(140)),
+        );
+    }
 
-    clicked_hash
+    click
 }
 
 /// Apply programmatic open/close commands stored in `app.expanded`.
@@ -158,14 +200,18 @@ fn set_folder_states(
 
 fn file_icon(name: &str) -> &'static str {
     let lower = name.to_lowercase();
-    if lower.ends_with(".blp") {
+    if lower.ends_with(".blp") || lower.ends_with(".tex") {
         "🖼"
     } else if lower.ends_with(".m2") || lower.ends_with(".mdx") {
         "🧊"
     } else if lower.ends_with(".pow") || lower.ends_with(".gam") {
         "⚙"
-    } else if lower.ends_with(".mp3") || lower.ends_with(".ogg") || lower.ends_with(".wav") {
+    } else if lower.ends_with(".mp3") || lower.ends_with(".ogg") || lower.ends_with(".wav")
+        || lower.ends_with(".wsb")
+    {
         "🎵"
+    } else if lower.ends_with(".vid") {
+        "🎬"
     } else {
         "📄"
     }
