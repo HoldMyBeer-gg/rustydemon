@@ -173,6 +173,35 @@ impl CascExplorerApp {
                             sel.texture = decode_blp_texture(&data, ctx);
                         }
 
+                        // Try .tex texture decoding (D4 raw BC textures).
+                        if sel.texture.is_none()
+                            && result
+                                .filename
+                                .as_deref()
+                                .map(|n| n.to_lowercase().ends_with(".tex"))
+                                .unwrap_or(false)
+                        {
+                            let tex_name = result.filename.as_deref().unwrap_or("");
+                            if let Some((rgba, w, h, fmt)) =
+                                crate::tex_preview::decode_tex(&data, tex_name)
+                            {
+                                let color_image =
+                                    egui::ColorImage::from_rgba_unmultiplied(
+                                        [w as usize, h as usize],
+                                        &rgba,
+                                    );
+                                sel.texture = Some(ctx.load_texture(
+                                    "tex_preview",
+                                    color_image,
+                                    egui::TextureOptions::default(),
+                                ));
+                                // Store format info in pow_summary for display.
+                                sel.pow_summary = Some(format!(
+                                    "Texture: {w}x{h} {fmt}\nDecoded from raw block-compressed data"
+                                ));
+                            }
+                        }
+
                         // Parse .pow files for structured preview.
                         if result
                             .filename
