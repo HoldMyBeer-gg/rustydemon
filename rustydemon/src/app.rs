@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use egui::Context;
-use rustydemon_lib::{CascHandler, LocaleFlags, SearchResult};
+use rustydemon_lib::{CascConfig, CascHandler, LocaleFlags, SearchResult};
 
 use crate::deep_search::{registry, ContentMatch, ContentSearcher};
 
@@ -37,7 +37,10 @@ impl SelectedFile {
 pub struct CascExplorerApp {
     // ── CASC backend ──────────────────────────────────────────────────────────
     pub handler: Option<CascHandler>,
+    /// Internal product UID (e.g. "fenris", "wow").  Editable in Tools menu.
     pub product: String,
+    /// Products detected from the last directory's .build.info.
+    pub detected_products: Vec<String>,
 
     // ── Tree state ────────────────────────────────────────────────────────────
     /// Folder paths that should be expanded (written by View menu).
@@ -67,7 +70,8 @@ impl CascExplorerApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         Self {
             handler: None,
-            product: "wow".to_string(),
+            product: String::new(),
+            detected_products: vec![],
             expanded: HashSet::new(),
             expansion_dirty: false,
             search_text: String::new(),
@@ -83,13 +87,31 @@ impl CascExplorerApp {
     // ── Handler actions ────────────────────────────────────────────────────────
 
     pub fn open_game_dir(&mut self, path: std::path::PathBuf) {
-        match CascHandler::open_local(&path, &self.product) {
+        // Detect what products live in this directory.
+        let products = CascConfig::detect_products(&path);
+        self.detected_products = products.clone();
+
+        // Pick a product: prefer the user's existing selection if it matches,
+        // otherwise use the first detected one, otherwise fall back to whatever
+        // is set (lets the user override via Tools > Product).
+        let product = if products.iter().any(|p| p == &self.product) {
+            self.product.clone()
+        } else if let Some(first) = products.into_iter().next() {
+            self.product = first.clone();
+            first
+        } else {
+            // No .build.info Product column — use whatever the user set, or "wow".
+            if self.product.is_empty() { self.product = "wow".into(); }
+            self.product.clone()
+        };
+
+        match CascHandler::open_local(&path, &product) {
             Ok(mut h) => {
                 h.set_locale(LocaleFlags::EN_US);
                 let count = h.root_count();
                 self.status = format!(
-                    "Opened: {}  |  {} root entries",
-                    path.display(), count
+                    "Opened: {} (product: {})  |  {} root entries",
+                    path.display(), h.config.product, count
                 );
                 self.handler = Some(h);
                 self.search_results.clear();
