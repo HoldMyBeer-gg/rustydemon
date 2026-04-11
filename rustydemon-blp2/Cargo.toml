@@ -1,0 +1,16 @@
+[package]
+name         = "rustydemon-blp2"
+description  = "Rust library for reading BLP texture files (BLP0/BLP1/BLP2)"
+version.workspace    = true
+authors.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+
+[dependencies]
+image     = { version = "0.25", default-features = false, features = ["jpeg"] }
+thiserror = "2"
+
+[features]
+default = ["jpeg"]
+jpeg    = []

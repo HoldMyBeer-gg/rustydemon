@@ -1,0 +1,15 @@
+[package]
+name         = "rustydemon-lib"
+description  = "Rust library for reading CASC storage files"
+version.workspace    = true
+authors.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+
+[dependencies]
+thiserror   = "2"
+flate2      = "1"
+md-5        = "0.10"
+hex-literal = "0.4"
+bitflags    = "2"

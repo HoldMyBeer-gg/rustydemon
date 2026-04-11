@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "rustydemon-blp2",
+    "rustydemon-lib",
+    "rustydemon",
+]
+resolver = "2"
+
+# ── Shared package metadata ────────────────────────────────────────────────────
+# All member crates inherit these fields with `field.workspace = true`.
+# Bumping the version here bumps every crate simultaneously.
+[workspace.package]
+version     = "0.1.0"
+authors     = ["jabberwock"]
+edition     = "2021"
+license     = "MIT"
+repository  = "https://github.com/jabberwock/rustydemon"
