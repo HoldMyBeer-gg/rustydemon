@@ -88,19 +88,24 @@ impl CascHandler {
         let has_build_info = base_path.join(".build.info").is_file();
         let has_static_cfg = static_candidates.iter().any(|p| p.is_file());
 
-        if !has_build_info && has_static_cfg {
-            let config = CascConfig::load_local_static(base_path)?;
-            return Self::finish_static(config);
+        if has_static_cfg {
+            // Prefer the static container path whenever a `.build.config`
+            // exists — even if `.build.info` is also present (Windows Steam
+            // D4 ships both, but only the static config has key-layout fields).
+            let static_config = CascConfig::load_local_static(base_path)?;
+            if static_config.is_static_container() {
+                return Self::finish_static(static_config);
+            }
+        }
+
+        if !has_build_info {
+            return Err(CascError::Config(format!(
+                "No .build.info found in {}",
+                base_path.display()
+            )));
         }
 
         let config = CascConfig::load_local(base_path, product)?;
-
-        // Some installations carry both a `.build.info` and a static
-        // container: prefer the static path in that case too, since the
-        // build config carries key-layouts only when it's a static container.
-        if config.is_static_container() {
-            return Self::finish_static(config);
-        }
 
         // ── Local index ────────────────────────────────────────────────────
         let local_index = LocalIndexHandler::load(config.data_path())?;
