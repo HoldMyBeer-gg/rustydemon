@@ -48,71 +48,71 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         return;
     }
 
-    // ── .pow power preview ────────────────────────────────────────────────────
-    if let Some(summary) = &sel.pow_summary {
-        egui::ScrollArea::vertical()
-            .id_salt("pow_preview")
-            .max_height(300.0)
-            .show(ui, |ui| {
-                ui.add(
-                    egui::TextEdit::multiline(&mut summary.as_str())
-                        .font(egui::TextStyle::Monospace)
-                        .desired_width(f32::INFINITY),
-                );
-            });
-        ui.separator();
-    }
-
-    // ── BLP texture preview ────────────────────────────────────────────────────
-    if let Some(tex) = &sel.texture {
-        let tex_size = tex.size_vec2();
-        let max_w = ui.available_width();
-        let scale = (max_w / tex_size.x).min(1.0);
-        let display_size = tex_size * scale;
-        ui.image((tex.id(), display_size));
-        ui.separator();
-    }
-
-    // ── Raw hex preview ────────────────────────────────────────────────────────
+    // ── Loading spinner while the background task is running ──────────────────
     if sel.data.is_none() && sel.load_error.is_none() && app.loading {
         ui.spinner();
         ui.label("Loading file data…");
         return;
     }
 
-    if let Some(data) = &sel.data {
-        if sel.texture.is_none() && sel.pow_summary.is_none() {
-            let preview_len = data.len().min(256);
-            let hex: String = data[..preview_len]
-                .chunks(16)
-                .enumerate()
-                .map(|(i, row)| {
-                    let hex_part: String = row.iter().map(|b| format!("{b:02X} ")).collect();
-                    let ascii_part: String = row
-                        .iter()
-                        .map(|&b| {
-                            if b.is_ascii_graphic() || b == b' ' {
-                                b as char
-                            } else {
-                                '.'
-                            }
-                        })
-                        .collect();
-                    format!("{:04X}  {hex_part:<48}  {ascii_part}", i * 16)
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
+    // ── Plugin-provided preview ───────────────────────────────────────────────
+    if let Some(preview) = &sel.preview {
+        // Texture (inline image).
+        if let Some(tex) = &preview.texture {
+            let tex_size = tex.size_vec2();
+            let max_w = ui.available_width();
+            let scale = (max_w / tex_size.x).min(1.0);
+            let display_size = tex_size * scale;
+            ui.image((tex.id(), display_size));
+            ui.separator();
+        }
 
+        // Text block (formatted summary or full text file).
+        if let Some(text) = &preview.text {
             egui::ScrollArea::vertical()
-                .max_height(160.0)
+                .id_salt("plugin_text_preview")
+                .max_height(300.0)
                 .show(ui, |ui| {
                     ui.add(
-                        egui::TextEdit::multiline(&mut hex.as_str())
+                        egui::TextEdit::multiline(&mut text.as_str())
                             .font(egui::TextStyle::Monospace)
                             .desired_width(f32::INFINITY),
                     );
                 });
+            ui.separator();
         }
+    } else if let Some(data) = &sel.data {
+        // ── Hex-dump fallback (no plugin claimed this file) ───────────────────
+        let preview_len = data.len().min(256);
+        let hex: String = data[..preview_len]
+            .chunks(16)
+            .enumerate()
+            .map(|(i, row)| {
+                let hex_part: String = row.iter().map(|b| format!("{b:02X} ")).collect();
+                let ascii_part: String = row
+                    .iter()
+                    .map(|&b| {
+                        if b.is_ascii_graphic() || b == b' ' {
+                            b as char
+                        } else {
+                            '.'
+                        }
+                    })
+                    .collect();
+                format!("{:04X}  {hex_part:<48}  {ascii_part}", i * 16)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        egui::ScrollArea::vertical()
+            .max_height(160.0)
+            .show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut hex.as_str())
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(f32::INFINITY),
+                );
+            });
     }
 
     // ── Deep-search content matches ────────────────────────────────────────────
@@ -141,21 +141,58 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     // ── Export buttons ─────────────────────────────────────────────────────────
     if sel.data.is_some() {
         ui.horizontal(|ui| {
-            // Only show "Export As PNG" for actual BLP textures.
-            let is_blp = sel
-                .data
-                .as_ref()
-                .map(|d| d.len() >= 4 && (d[..4] == *b"BLP2" || d[..4] == *b"BLP1"))
-                .unwrap_or(false);
-
-            if is_blp && ui.button("Export As PNG").clicked() {
-                app.export_as_png();
+            // Plugin-provided exports (e.g. "Export As PNG", "Export As BK2").
+            if let Some(preview) = &sel.preview {
+                for action in &preview.extra_exports {
+                    if ui.button(action.label).clicked() {
+                        run_plugin_export(app, action);
+                    }
+                }
             }
-
             if ui.button("Export Raw").clicked() {
                 export_raw(app);
             }
         });
+    }
+}
+
+fn run_plugin_export(app: &CascExplorerApp, action: &crate::preview::ExportAction) {
+    let Some(sel) = &app.selected else { return };
+    let Some(data) = &sel.data else { return };
+
+    let stem = sel
+        .result
+        .filename
+        .as_deref()
+        .and_then(|n| std::path::Path::new(n).file_stem())
+        .and_then(|s| s.to_str())
+        .unwrap_or("export");
+
+    let Some(path) = rfd::FileDialog::new()
+        .set_file_name(format!("{stem}.{}", action.default_extension))
+        .add_filter(action.filter_name, &[action.default_extension])
+        .save_file()
+    else {
+        return;
+    };
+
+    match (action.build)(data) {
+        Ok(bytes) => {
+            if let Err(e) = std::fs::write(&path, &bytes) {
+                rfd::MessageDialog::new()
+                    .set_title("Export failed")
+                    .set_description(format!("Could not write {}: {e}", path.display()))
+                    .set_level(rfd::MessageLevel::Warning)
+                    .show();
+            }
+        }
+        Err(e) => {
+            rfd::MessageDialog::new()
+                .set_title("Export failed")
+                .set_description(format!("{}: {e}", action.label))
+                .set_level(rfd::MessageLevel::Warning)
+                .show();
+        }
     }
 }
 
