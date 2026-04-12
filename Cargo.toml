@@ -10,11 +10,11 @@ resolver = "2"
 # All member crates inherit these fields with `field.workspace = true`.
 # Bumping the version here bumps every crate simultaneously.
 [workspace.package]
-version     = "0.1.0"
+version     = "0.2.0"
 authors     = ["jabberwock"]
 edition     = "2021"
-license     = "MIT"
-repository  = "https://github.com/jabberwock/rustydemon"
+license     = "AGPL-3.0-or-later"
+repository  = "https://github.com/HoldMyBeer-gg/rustydemon"
 
 # ── cargo-dist configuration ──────────────────────────────────────────────────
 [workspace.metadata.dist]
