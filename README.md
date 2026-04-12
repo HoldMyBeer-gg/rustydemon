@@ -48,9 +48,17 @@ archives, written entirely in Rust.
 - **Regedit-style global search** — searches *every* entry in the archive manifest,
   not just the currently selected folder
 - **File tree navigation** — browse archives by folder with expand/collapse, Expand All / Collapse All
-- **BLP texture preview** — decodes BLP0 / BLP1 / BLP2 directly in the preview panel (palette, DXT1/3/5, ARGB, JPEG)
-- **Export as PNG** — one click via a native save dialog
-- **Deep search** — optionally search *inside* container files (`.pow` D4 skill data supported; plug-in interface for more)
+- **Pluggable preview panel** — formats register themselves through a
+  [`PreviewPlugin`](rustydemon/src/preview/mod.rs) trait. Built-in plugins
+  cover BLP textures (WoW), `.tex` BC textures (D4), `.pow` skill data (D4),
+  `.vid` Bink Video 2 movies (D4), and a generic UTF-8 text fallback. Add a
+  format by dropping one file into `rustydemon/src/preview/`.
+- **Pluggable export buttons** — each preview plugin can register its own
+  export actions (e.g. *Export As PNG* for textures, *Export As BK2* for
+  movies). Raw export is always available as a fallback.
+- **Deep search** — optionally search *inside* container files via a parallel
+  [`ContentSearcher`](rustydemon/src/deep_search/mod.rs) plug-in interface
+  (`.pow` D4 skill data supported out of the box).
 - **Auto product detection** — reads `.build.info` so you never need to know internal product codes (`fenris`, `wow`, …)
 - **Cross-platform** — Windows · macOS · Linux · Steam Deck (touch-ready via egui)
 - **Steam Diablo IV support** — first-ever reader for the Steam-distribution

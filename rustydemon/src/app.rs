@@ -17,12 +17,11 @@ pub struct SelectedFile {
     pub data: Option<Vec<u8>>,
     /// Error string if loading failed.
     pub load_error: Option<String>,
-    /// For BLP files: decoded RGBA texture ready for the GPU.
-    pub texture: Option<egui::TextureHandle>,
+    /// Output produced by the first matching [`PreviewPlugin`].  When
+    /// `None`, the panel falls back to a hex dump.
+    pub preview: Option<crate::preview::PreviewOutput>,
     /// Deep-search hits inside this container file.
     pub content_matches: Vec<ContentMatch>,
-    /// For .pow files: parsed power summary.
-    pub pow_summary: Option<String>,
 }
 
 impl SelectedFile {
@@ -31,9 +30,8 @@ impl SelectedFile {
             result,
             data: None,
             load_error: None,
-            texture: None,
+            preview: None,
             content_matches: vec![],
-            pow_summary: None,
         }
     }
 }
@@ -165,54 +163,9 @@ impl CascExplorerApp {
                 let mut sel = SelectedFile::new(result.clone());
                 match data {
                     Ok(data) => {
-                        if result
-                            .filename
-                            .as_deref()
-                            .map(|n| n.to_lowercase().ends_with(".blp"))
-                            .unwrap_or(false)
-                        {
-                            sel.texture = decode_blp_texture(&data, ctx);
-                        }
-
-                        // Try .tex texture decoding (D4 raw BC textures).
-                        if sel.texture.is_none()
-                            && result
-                                .filename
-                                .as_deref()
-                                .map(|n| n.to_lowercase().ends_with(".tex"))
-                                .unwrap_or(false)
-                        {
-                            let tex_name = result.filename.as_deref().unwrap_or("");
-                            if let Some((rgba, w, h, fmt)) =
-                                crate::tex_preview::decode_tex(&data, tex_name)
-                            {
-                                let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                                    [w as usize, h as usize],
-                                    &rgba,
-                                );
-                                sel.texture = Some(ctx.load_texture(
-                                    "tex_preview",
-                                    color_image,
-                                    egui::TextureOptions::default(),
-                                ));
-                                // Store format info in pow_summary for display.
-                                sel.pow_summary = Some(format!(
-                                    "Texture: {w}x{h} {fmt}\nDecoded from raw block-compressed data"
-                                ));
-                            }
-                        }
-
-                        // Parse .pow files for structured preview.
-                        if result
-                            .filename
-                            .as_deref()
-                            .map(|n| n.to_lowercase().ends_with(".pow"))
-                            .unwrap_or(false)
-                        {
-                            if let Some(pow) = crate::pow_preview::PowPreview::parse(&data) {
-                                sel.pow_summary = Some(pow.summary());
-                            }
-                        }
+                        // Dispatch to the first matching preview plugin.
+                        // Plugins are registered in `crate::preview::registry()`.
+                        sel.preview = crate::preview::run(result.filename.as_deref(), &data, ctx);
 
                         if self.deep_search_enabled {
                             for searcher in &self.searchers {
@@ -519,46 +472,6 @@ impl CascExplorerApp {
             .set_level(rfd::MessageLevel::Info)
             .show();
     }
-
-    /// Export the selected file's texture as a PNG via a native save dialog.
-    pub fn export_as_png(&self) {
-        let Some(sel) = &self.selected else {
-            return;
-        };
-        let Some(data) = &sel.data else {
-            return;
-        };
-
-        // Only export as PNG if we can actually decode the texture.
-        if !is_blp_data(data) {
-            rfd::MessageDialog::new()
-                .set_title("Cannot Export")
-                .set_description("This texture format is not supported for PNG export yet. Use 'Export Raw' instead.")
-                .set_level(rfd::MessageLevel::Warning)
-                .show();
-            return;
-        }
-
-        let stem = sel
-            .result
-            .filename
-            .as_deref()
-            .and_then(|n| std::path::Path::new(n).file_stem())
-            .and_then(|s| s.to_str())
-            .unwrap_or("export");
-
-        if let Some(path) = rfd::FileDialog::new()
-            .set_file_name(format!("{stem}.png"))
-            .add_filter("PNG image", &["png"])
-            .save_file()
-        {
-            if let Ok(blp) = rustydemon_blp2::BlpFile::from_bytes(data.clone()) {
-                if let Ok((pixels, w, h)) = blp.get_pixels(0) {
-                    let _ = save_rgba_as_png(&pixels, w, h, &path);
-                }
-            }
-        }
-    }
 }
 
 // ── eframe::App ────────────────────────────────────────────────────────────────
@@ -571,21 +484,6 @@ impl eframe::App for CascExplorerApp {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-
-/// Check if data starts with BLP magic bytes ("BLP2" or "BLP1").
-fn is_blp_data(data: &[u8]) -> bool {
-    data.len() >= 4 && (data[..4] == *b"BLP2" || data[..4] == *b"BLP1")
-}
-
-fn decode_blp_texture(data: &[u8], ctx: &Context) -> Option<egui::TextureHandle> {
-    if !is_blp_data(data) {
-        return None;
-    }
-    let blp = rustydemon_blp2::BlpFile::from_bytes(data.to_vec()).ok()?;
-    let (pixels, w, h) = blp.get_pixels(0).ok()?;
-    let color_image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &pixels);
-    Some(ctx.load_texture("blp_preview", color_image, egui::TextureOptions::default()))
-}
 
 fn collect_file_hashes(folder: &rustydemon_lib::CascFolder, out: &mut Vec<u64>) {
     for file in folder.files.values() {
@@ -700,17 +598,4 @@ pub fn detect_game_installs() -> Vec<(String, std::path::PathBuf)> {
     found.sort_by(|a, b| a.0.cmp(&b.0));
     found.dedup_by(|a, b| a.1 == b.1);
     found
-}
-
-fn save_rgba_as_png(
-    pixels: &[u8],
-    w: u32,
-    h: u32,
-    path: &std::path::Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use image::{ImageBuffer, RgbaImage};
-    let img: RgbaImage =
-        ImageBuffer::from_raw(w, h, pixels.to_vec()).ok_or("invalid pixel buffer dimensions")?;
-    img.save(path)?;
-    Ok(())
 }
