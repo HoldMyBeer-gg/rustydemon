@@ -41,14 +41,33 @@ struct PathTableEntry {
 // ── File opener ───────────────────────────────────────────────────────────────
 
 /// Minimal interface for opening files by encoding key during TVFS construction.
-/// We can't use CascHandler here because it doesn't exist yet at construction time.
-pub(crate) struct FileOpener<'a> {
+///
+/// The TVFS loader is storage-agnostic: it can be fed either a traditional
+/// local-index backend ([`LocalFileOpener`]) or a static container backend
+/// ([`StaticFileOpener`]), depending on how the game lays its data out on disk.
+pub(crate) trait FileOpener {
+    /// Decode and return the raw bytes of a file by encoding key.
+    fn open_by_ekey(&self, ekey: &Md5Hash) -> Result<Vec<u8>, CascError>;
+
+    /// Map an encoding key back to its content key.  Returns `None` for
+    /// storage backends without an encoding table (e.g. static containers,
+    /// where the EKey *is* the CKey for TVFS purposes).
+    fn ckey_for_ekey(&self, ekey: &Md5Hash) -> Option<Md5Hash>;
+
+    /// Pick the best EKey for a given content key.  For static containers
+    /// the mapping is identity.
+    fn best_ekey(&self, ckey: &Md5Hash) -> Option<Md5Hash>;
+}
+
+/// Local-install backend — loads from the `*.idx` local index and `data.NNN`
+/// archive files using the encoding table for ckey↔ekey translation.
+pub(crate) struct LocalFileOpener<'a> {
     pub encoding: &'a EncodingHandler,
     pub local_index: &'a LocalIndexHandler,
     pub data_path: std::path::PathBuf,
 }
 
-impl FileOpener<'_> {
+impl FileOpener for LocalFileOpener<'_> {
     fn open_by_ekey(&self, ekey: &Md5Hash) -> Result<Vec<u8>, CascError> {
         let idx = self
             .local_index
@@ -59,6 +78,35 @@ impl FileOpener<'_> {
             crate::handler::read_data_block(&self.data_path, idx.index, idx.offset, idx.size)?;
 
         blte::decode(&raw, ekey, false)
+    }
+
+    fn ckey_for_ekey(&self, ekey: &Md5Hash) -> Option<Md5Hash> {
+        self.encoding.ckey_for_ekey(ekey).copied()
+    }
+
+    fn best_ekey(&self, ckey: &Md5Hash) -> Option<Md5Hash> {
+        self.encoding.best_ekey(ckey)
+    }
+}
+
+/// Static-container backend (Steam D4 / Overwatch) — resolves each EKey
+/// through its embedded storage-location bits.  There is no encoding table,
+/// so CKey and EKey are treated as equivalent.
+pub(crate) struct StaticFileOpener<'a> {
+    pub container: &'a crate::static_container::StaticContainer,
+}
+
+impl FileOpener for StaticFileOpener<'_> {
+    fn open_by_ekey(&self, ekey: &Md5Hash) -> Result<Vec<u8>, CascError> {
+        self.container.open_by_ekey(ekey)
+    }
+
+    fn ckey_for_ekey(&self, _ekey: &Md5Hash) -> Option<Md5Hash> {
+        None // No encoding table: caller will fall back to the ekey.
+    }
+
+    fn best_ekey(&self, ckey: &Md5Hash) -> Option<Md5Hash> {
+        Some(*ckey) // Identity mapping.
     }
 }
 
@@ -81,7 +129,7 @@ impl TvfsRootHandler {
     pub(crate) fn load(
         vfs_root_ekey: &Md5Hash,
         vfs_root_list: &[(Md5Hash, Md5Hash)],
-        opener: &FileOpener<'_>,
+        opener: &dyn FileOpener,
     ) -> Result<Self, CascError> {
         // Build the set of known VFS sub-directory EKeys (9-byte prefix).
         let vfs_ekey_set: HashSet<EKey9> = vfs_root_list
@@ -121,7 +169,7 @@ impl TvfsRootHandler {
 
     /// If this looks like a D4 archive (has `Base/CoreTOC.dat`), parse the TOC
     /// and rewrite raw SNO ID paths to human-readable names with group subfolders.
-    fn resolve_d4_sno_names(&mut self, opener: &FileOpener<'_>) {
+    fn resolve_d4_sno_names(&mut self, opener: &dyn FileOpener) {
         use super::d4::CoreToc;
 
         // Look up CoreTOC.dat by its TVFS path.
@@ -147,7 +195,7 @@ impl TvfsRootHandler {
         };
 
         let ckey = self.get_all_entries(toc_hash)[0].ckey;
-        let Some(ekey) = opener.encoding.best_ekey(&ckey) else {
+        let Some(ekey) = opener.best_ekey(&ckey) else {
             return;
         };
 
@@ -262,7 +310,7 @@ impl TvfsRootHandler {
         header: &TvfsHeader,
         vfs_ekey_set: &HashSet<EKey9>,
         vfs_ekey_map: &HashMap<EKey9, Md5Hash>,
-        opener: &FileOpener<'_>,
+        opener: &dyn FileOpener,
         path_buf: &mut Vec<u8>,
     ) -> Result<(), CascError> {
         let mut table = &header.path_table[..];
@@ -286,7 +334,7 @@ impl TvfsRootHandler {
         header: &TvfsHeader,
         vfs_ekey_set: &HashSet<EKey9>,
         vfs_ekey_map: &HashMap<EKey9, Md5Hash>,
-        opener: &FileOpener<'_>,
+        opener: &dyn FileOpener,
         path_buf: &mut Vec<u8>,
         mut table: &[u8],
     ) -> Result<(), CascError> {
@@ -419,16 +467,14 @@ impl TvfsRootHandler {
 
     /// Register a file entry: resolve the EKey to a CKey via encoding, then
     /// store the mapping from Jenkins96 path hash → RootEntry.
-    fn add_file_entry(&mut self, path_buf: &[u8], ekey: &Md5Hash, opener: &FileOpener<'_>) {
+    fn add_file_entry(&mut self, path_buf: &[u8], ekey: &Md5Hash, opener: &dyn FileOpener) {
         let path = String::from_utf8_lossy(path_buf).into_owned();
         let hash = jenkins96(&path);
 
-        // Try to resolve EKey → CKey via encoding table.
-        let ckey = opener
-            .encoding
-            .ckey_for_ekey(ekey)
-            .copied()
-            .unwrap_or(*ekey); // fall back to using ekey as ckey
+        // Try to resolve EKey → CKey via the backend's encoding table; for
+        // static containers (no encoding), fall back to treating the EKey as
+        // its own CKey.
+        let ckey = opener.ckey_for_ekey(ekey).unwrap_or(*ekey);
 
         let entry = RootEntry {
             ckey,

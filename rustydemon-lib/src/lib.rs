@@ -72,6 +72,7 @@ pub mod local_index;
 pub mod root;
 pub mod salsa20;
 pub mod search;
+pub mod static_container;
 
 mod types;
 

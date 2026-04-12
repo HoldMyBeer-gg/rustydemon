@@ -213,6 +213,52 @@ impl CascConfig {
         products
     }
 
+    /// Load a Steam-style static-container installation.
+    ///
+    /// Static containers ship only a `.build.config` file (typically under
+    /// `<base>/Data/.build.config`) — there is no `.build.info`, no CDN
+    /// config, and no separate build/CDN hash keys.  The resulting
+    /// [`CascConfig`] has empty `cdn` and the build config parsed directly
+    /// from `.build.config`.
+    pub fn load_local_static(base_path: impl AsRef<Path>) -> Result<Self, CascError> {
+        let base_path = base_path.as_ref().to_path_buf();
+
+        // Steam D4 puts .build.config inside "Data/"; Overwatch uses a
+        // similar layout.  Try both the game root and Data/.
+        let candidates = [
+            base_path.join(".build.config"),
+            base_path.join("Data").join(".build.config"),
+        ];
+        let build_cfg_path = candidates
+            .iter()
+            .find(|p| p.is_file())
+            .ok_or_else(|| {
+                CascError::Config(format!(
+                    "No .build.config found under {}",
+                    base_path.display()
+                ))
+            })?
+            .clone();
+
+        let build = KeyValueConfig::from_reader(std::fs::File::open(&build_cfg_path)?)?;
+
+        // Product UID: infer from `build-uid` if present, otherwise default
+        // to "fenris" (D4) since that's the most common static-container game.
+        let product = build
+            .get_first("build-uid")
+            .unwrap_or("fenris")
+            .to_owned();
+        let game_type = GameType::from_uid(&product).unwrap_or(GameType::DiabloIV);
+
+        Ok(CascConfig {
+            base_path,
+            game_type,
+            product,
+            build,
+            cdn: KeyValueConfig::default(),
+        })
+    }
+
     /// Load a local CASC installation.
     ///
     /// `base_path` should be the directory that contains the `.build.info`
@@ -378,6 +424,44 @@ impl CascConfig {
         self.vfs_root_ekey().is_some() && self.root_ckey().is_none_or(|h| h.is_zero())
     }
 
+    /// Returns `true` when the build config describes a static container
+    /// (Steam D4 / Overwatch): no `encoding` field, and `key-layout-index-bits`
+    /// defines bit layouts used to encode storage location directly in each EKey.
+    pub fn is_static_container(&self) -> bool {
+        self.build.get_first("key-layout-index-bits").is_some()
+            && self.build.get("encoding").is_none()
+    }
+
+    /// Number of bits from the top of the EKey's high u64 used to select a
+    /// key-layout.  Returns `None` if the build config does not define key-layouts.
+    pub fn key_layout_index_bits(&self) -> Option<u8> {
+        self.build.get_first("key-layout-index-bits")?.parse().ok()
+    }
+
+    /// Return all `key-layout-N` entries as (index, [chunkBits, archiveBits, offsetBits, flags]).
+    ///
+    /// The 4th value (`flags`) is the offset alignment: `0` means byte-level
+    /// offsets into `-meta.dat`, and `4096` means 4 KiB-aligned offsets into
+    /// `-payload.dat`.
+    pub fn key_layouts(&self) -> Vec<(u8, Vec<u32>)> {
+        let mut out = Vec::new();
+        for (key, vals) in self.build.iter() {
+            let Some(rest) = key.strip_prefix("key-layout-") else {
+                continue;
+            };
+            if rest == "index-bits" {
+                continue;
+            }
+            let Ok(idx) = rest.parse::<u8>() else { continue };
+            let parsed: Vec<u32> = vals.iter().filter_map(|v| v.parse().ok()).collect();
+            if parsed.len() >= 3 {
+                out.push((idx, parsed));
+            }
+        }
+        out.sort_by_key(|(i, _)| *i);
+        out
+    }
+
     /// Content key for the encoding file.
     pub fn encoding_ckey(&self) -> Option<Md5Hash> {
         self.build_hex_key("encoding")
@@ -411,6 +495,22 @@ impl CascConfig {
     pub fn data_path(&self) -> std::path::PathBuf {
         let data_folder = self.game_type.data_folder().unwrap_or("Data");
         self.base_path.join(data_folder).join("data")
+    }
+
+    /// Root directory for static-container chunk subfolders.
+    ///
+    /// Steam D4 stores its chunk directories directly under `<base>/Data/`,
+    /// without the extra `data/` level used by traditional local installs.
+    /// If the `.build.config` itself lives in `<base>/`, that directory is
+    /// returned instead.
+    pub fn static_container_path(&self) -> std::path::PathBuf {
+        // Prefer <base>/Data if it exists, otherwise use <base> directly.
+        let data_dir = self.base_path.join("Data");
+        if data_dir.is_dir() {
+            data_dir
+        } else {
+            self.base_path.clone()
+        }
     }
 
     /// Local config folder path.
