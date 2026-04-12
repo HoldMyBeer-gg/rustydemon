@@ -209,4 +209,10 @@ especially welcome.
 
 ## License
 
-Licensed under [AGPL-3.0](./LICENSE) with the Commons Clause.
+Source licensed under [AGPL-3.0](./LICENSE) with the Commons Clause —
+free to read, build, and use for personal and educational purposes.
+
+Commercial distribution (e.g. Steam store builds) is reserved to the
+maintainers under a separate proprietary license. See
+[COMMERCIAL.md](./COMMERCIAL.md) for the dual-licensing details and the
+contributor license grant that applies to pull requests.
