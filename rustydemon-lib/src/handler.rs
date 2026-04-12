@@ -14,6 +14,7 @@ use crate::{
     jenkins96::jenkins96,
     local_index::LocalIndexHandler,
     root::{self, tvfs::TvfsRootHandler, RootHandler},
+    static_container::StaticContainer,
     types::{LocaleFlags, Md5Hash},
 };
 
@@ -41,8 +42,12 @@ pub struct CascHandler {
     /// Parsed configuration (paths, keys, etc.).
     pub config: CascConfig,
 
-    encoding: EncodingHandler,
-    local_index: LocalIndexHandler,
+    /// Encoding table — absent for static-container installations.
+    encoding: Option<EncodingHandler>,
+    /// Local index files (`*.idx`) — absent for static-container installations.
+    local_index: Option<LocalIndexHandler>,
+    /// Static container backend — present only for Steam D4/OW-style builds.
+    static_container: Option<StaticContainer>,
     pub(crate) root: Box<dyn RootHandler>,
 
     /// Active locale filter applied to root lookups.
@@ -71,7 +76,31 @@ impl CascHandler {
         base_path: impl AsRef<std::path::Path>,
         product: &str,
     ) -> Result<Self, CascError> {
+        let base_path = base_path.as_ref();
+
+        // Steam-style static-container installs ship only a `.build.config`
+        // (no `.build.info`, no CDN config).  Detect that case by looking
+        // for the file directly and route to the static path.
+        let static_candidates = [
+            base_path.join(".build.config"),
+            base_path.join("Data").join(".build.config"),
+        ];
+        let has_build_info = base_path.join(".build.info").is_file();
+        let has_static_cfg = static_candidates.iter().any(|p| p.is_file());
+
+        if !has_build_info && has_static_cfg {
+            let config = CascConfig::load_local_static(base_path)?;
+            return Self::finish_static(config);
+        }
+
         let config = CascConfig::load_local(base_path, product)?;
+
+        // Some installations carry both a `.build.info` and a static
+        // container: prefer the static path in that case too, since the
+        // build config carries key-layouts only when it's a static container.
+        if config.is_static_container() {
+            return Self::finish_static(config);
+        }
 
         // ── Local index ────────────────────────────────────────────────────
         let local_index = LocalIndexHandler::load(config.data_path())?;
@@ -100,14 +129,14 @@ impl CascHandler {
 
             let vfs_list = config.vfs_root_list();
 
-            let opener = crate::root::tvfs::FileOpener {
+            let opener = crate::root::tvfs::LocalFileOpener {
                 encoding: &encoding,
                 local_index: &local_index,
                 data_path: config.data_path(),
             };
 
             let tvfs = TvfsRootHandler::load(&vfs_ekey, &vfs_list, &opener)?;
-            Box::new(tvfs)
+            Box::new(tvfs) as Box<dyn RootHandler>
         } else {
             // Traditional root manifest (WoW, D3, etc.).
             let root_ckey = config
@@ -131,10 +160,51 @@ impl CascHandler {
 
         Ok(CascHandler {
             config,
-            encoding,
-            local_index,
+            encoding: Some(encoding),
+            local_index: Some(local_index),
+            static_container: None,
             root: root_handler,
             locale: LocaleFlags::ALL_WOW,
+            root_folder: None,
+            filenames: HashMap::new(),
+            data_files: Mutex::new(HashMap::new()),
+            validate_hashes: false,
+        })
+    }
+
+    /// Open a local static-container install (Steam Diablo IV / Overwatch).
+    ///
+    /// Static containers have no `.idx` index files and no encoding file:
+    /// every EKey encodes its own storage location through the `key-layout-*`
+    /// bit fields in the build config.  The VFS root is loaded directly from
+    /// the container using the EKey-driven backend.
+    fn finish_static(config: CascConfig) -> Result<Self, CascError> {
+        // Static containers store chunk directories (`000/`, `001/`, …)
+        // directly under `<base>/Data/`, one level higher than the
+        // traditional `<base>/Data/data/` layout.
+        let container = StaticContainer::from_config(config.static_container_path(), &config)?;
+
+        // ── VFS root ───────────────────────────────────────────────────────
+        // Static containers use a TVFS-only layout: there is no `root` field,
+        // only `vfs-root` + `vfs-N` entries.
+        let vfs_ekey = config
+            .vfs_root_ekey()
+            .ok_or_else(|| CascError::Config("static container: vfs-root missing".into()))?;
+        let vfs_list = config.vfs_root_list();
+
+        let opener = crate::root::tvfs::StaticFileOpener {
+            container: &container,
+        };
+
+        let tvfs = TvfsRootHandler::load(&vfs_ekey, &vfs_list, &opener)?;
+
+        Ok(CascHandler {
+            config,
+            encoding: None,
+            local_index: None,
+            static_container: Some(container),
+            root: Box::new(tvfs),
+            locale: LocaleFlags::ALL,
             root_folder: None,
             filenames: HashMap::new(),
             data_files: Mutex::new(HashMap::new()),
@@ -159,14 +229,19 @@ impl CascHandler {
         self.root.count()
     }
 
-    /// Number of entries in the encoding table.
+    /// Number of entries in the encoding table (0 for static containers).
     pub fn encoding_count(&self) -> usize {
-        self.encoding.count()
+        self.encoding.as_ref().map_or(0, EncodingHandler::count)
     }
 
-    /// Number of entries in the local index.
+    /// Number of entries in the local index (0 for static containers).
     pub fn local_index_count(&self) -> usize {
-        self.local_index.count()
+        self.local_index.as_ref().map_or(0, LocalIndexHandler::count)
+    }
+
+    /// `true` if this installation uses a static container backend.
+    pub fn is_static_container(&self) -> bool {
+        self.static_container.is_some()
     }
 
     // ── Listfile ───────────────────────────────────────────────────────────────
@@ -262,17 +337,30 @@ impl CascHandler {
 
     /// Decode and return the raw bytes of a file by content key.
     pub fn open_by_ckey(&self, ckey: &Md5Hash) -> Result<Vec<u8>, CascError> {
-        let ekey = self
-            .encoding
-            .best_ekey(ckey)
-            .ok_or_else(|| CascError::EncodingNotFound(ckey.to_hex()))?;
+        // Static containers have no encoding table: the CKey is the EKey.
+        let ekey = match &self.encoding {
+            Some(enc) => enc
+                .best_ekey(ckey)
+                .ok_or_else(|| CascError::EncodingNotFound(ckey.to_hex()))?,
+            None => *ckey,
+        };
         self.open_by_ekey(&ekey)
     }
 
     /// Decode and return the raw bytes of a file by encoding key.
     pub fn open_by_ekey(&self, ekey: &Md5Hash) -> Result<Vec<u8>, CascError> {
-        let idx = self
+        if let Some(container) = &self.static_container {
+            // `open_by_ekey` autodetects BLTE vs raw zlib (D4's VFS roots
+            // and locale manifests use `espec = z`, not BLTE).
+            return container.open_by_ekey(ekey);
+        }
+
+        let local_index = self
             .local_index
+            .as_ref()
+            .ok_or_else(|| CascError::Config("no storage backend configured".into()))?;
+
+        let idx = local_index
             .get_entry(ekey)
             .ok_or_else(|| CascError::IndexNotFound(ekey.to_hex()))?;
 
