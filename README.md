@@ -12,7 +12,12 @@ archives, written entirely in Rust.
 
 > **For personal and educational use only.**
 
-[![CI](https://github.com/jabberwock/rustydemon/actions/workflows/ci.yml/badge.svg)](https://github.com/jabberwock/rustydemon/actions/workflows/ci.yml)
+[![CI](https://github.com/HoldMyBeer-gg/rustydemon/actions/workflows/ci.yml/badge.svg)](https://github.com/HoldMyBeer-gg/rustydemon/actions/workflows/ci.yml)
+[![Rust](https://img.shields.io/badge/rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org)
+[![Edition](https://img.shields.io/badge/edition-2021-blue?logo=rust)](https://doc.rust-lang.org/edition-guide/rust-2021/index.html)
+[![License](https://img.shields.io/badge/license-AGPL--3.0%20%2B%20Commons%20Clause-green)](./LICENSE)
+[![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Steam%20Deck-lightgrey)](#platform-screenshots)
+[![Steam D4](https://img.shields.io/badge/Steam%20Diablo%20IV-supported-red?logo=steam)](#steam-d4-support)
 
 ---
 
