@@ -244,10 +244,7 @@ impl CascConfig {
 
         // Product UID: infer from `build-uid` if present, otherwise default
         // to "fenris" (D4) since that's the most common static-container game.
-        let product = build
-            .get_first("build-uid")
-            .unwrap_or("fenris")
-            .to_owned();
+        let product = build.get_first("build-uid").unwrap_or("fenris").to_owned();
         let game_type = GameType::from_uid(&product).unwrap_or(GameType::DiabloIV);
 
         Ok(CascConfig {
@@ -452,7 +449,9 @@ impl CascConfig {
             if rest == "index-bits" {
                 continue;
             }
-            let Ok(idx) = rest.parse::<u8>() else { continue };
+            let Ok(idx) = rest.parse::<u8>() else {
+                continue;
+            };
             let parsed: Vec<u32> = vals.iter().filter_map(|v| v.parse().ok()).collect();
             if parsed.len() >= 3 {
                 out.push((idx, parsed));

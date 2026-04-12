@@ -36,12 +36,7 @@ use std::{
 
 use flate2::bufread::ZlibDecoder;
 
-use crate::{
-    blte,
-    config::CascConfig,
-    error::CascError,
-    types::Md5Hash,
-};
+use crate::{blte, config::CascConfig, error::CascError, types::Md5Hash};
 
 // ── Key layout ────────────────────────────────────────────────────────────────
 
@@ -106,7 +101,8 @@ impl StaticContainer {
             let offset_bits = vals[2] as u8;
             let flags = vals.get(3).copied().unwrap_or(0);
 
-            let total = index_bits as u32 + chunk_bits as u32 + archive_bits as u32 + offset_bits as u32;
+            let total =
+                index_bits as u32 + chunk_bits as u32 + archive_bits as u32 + offset_bits as u32;
             if total > 64 {
                 return Err(CascError::Config(format!(
                     "static container: key-layout-{idx} uses {total} bits (> 64)"
@@ -385,8 +381,7 @@ fn read_blte_stream(file: &mut fs::File) -> Result<Vec<u8>, CascError> {
         )));
     }
 
-    let num_blocks =
-        ((buf[9] as usize) << 16) | ((buf[10] as usize) << 8) | (buf[11] as usize);
+    let num_blocks = ((buf[9] as usize) << 16) | ((buf[10] as usize) << 8) | (buf[11] as usize);
     let expected = 12 + num_blocks * 24;
     if expected != header_size {
         return Err(CascError::Blte(format!(

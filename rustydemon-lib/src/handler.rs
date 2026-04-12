@@ -236,7 +236,9 @@ impl CascHandler {
 
     /// Number of entries in the local index (0 for static containers).
     pub fn local_index_count(&self) -> usize {
-        self.local_index.as_ref().map_or(0, LocalIndexHandler::count)
+        self.local_index
+            .as_ref()
+            .map_or(0, LocalIndexHandler::count)
     }
 
     /// `true` if this installation uses a static container backend.
