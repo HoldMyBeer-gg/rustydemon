@@ -236,6 +236,10 @@ reverse-engineering community:
 - **[TACTLib](https://github.com/overtools/TACTLib)** by the Overtools team —
   a clean C# CASC implementation whose TVFS and static-container work
   informed our own.
+- **[SereniaBLPLib](https://github.com/WoW-Tools/SereniaBLPLib)** by Xalcon —
+  the BLP texture parsing and DXT decompression in `rustydemon-blp2` are
+  derived from this MIT-licensed C# library (see
+  [`rustydemon-blp2/CREDITS`](rustydemon-blp2/CREDITS)).
 - **[wowdev.wiki](https://wowdev.wiki/CASC)** and the wider datamining
   community — for documenting the CASC and TACT formats and maintaining the
   community listfiles that make these tools usable.
