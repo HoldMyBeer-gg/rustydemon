@@ -1,9 +1,18 @@
 //! Lightweight .pow file parser for preview display.
 //!
-//! Ported from d4builder/tools/pow_to_json.py — extracts header info,
-//! SF_ definitions, formula strings, and inline typed values from
-//! Diablo 4 power files.
+//! Extracts header info, SF_ scaling factors, and formula strings from
+//! Diablo 4 power files. SF_ values are positionally indexed in the
+//! ptScriptFormulas array: SF_0 = entry[0], SF_5 = entry[5], etc.
+//!
+//! Binary layout (discovered via binary analysis + d4data definitions):
+//! - 0x00: magic (0xDEADBEEF)
+//! - 0x10: power_id (u32)
+//! - 0x78: struct_size (u32) — PowerDefinition fixed struct size (typically 3232)
+//! - struct starts at 0x10, variable data follows at 0x10 + struct_size
+//! - First formula descriptor at struct+0x0258 points to contiguous formula data
+//! - Each formula entry: [text (4-byte aligned)][12-byte bytecode (type_tag + value)]
 
+use std::collections::HashMap;
 use std::fmt::Write;
 
 const POW_MAGIC: u32 = 0xDEADBEEF;
@@ -13,15 +22,9 @@ pub struct PowPreview {
     pub power_id: u32,
     pub file_size: usize,
     pub magic_ok: bool,
-    pub sf_definitions: Vec<SfDef>,
+    /// SF values indexed by number, extracted from the formula data block.
+    pub sf_values: HashMap<u32, String>,
     pub formulas: Vec<Formula>,
-}
-
-pub struct SfDef {
-    pub name: String,
-    pub sf_number: u32,
-    pub index: u32,
-    pub verified: bool,
 }
 
 pub struct TypedValue {
@@ -43,6 +46,11 @@ pub struct Formula {
     pub table_id: Option<u32>,
 }
 
+fn read_u32(data: &[u8], off: usize) -> Option<u32> {
+    data.get(off..off + 4)
+        .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+}
+
 impl PowPreview {
     /// Try to parse a .pow file from raw bytes.
     pub fn parse(data: &[u8]) -> Option<Self> {
@@ -59,10 +67,10 @@ impl PowPreview {
             0
         };
 
-        let sf_definitions = extract_sf_defs(data);
+        let sf_values = if magic_ok { extract_sf_values(data) } else { HashMap::new() };
         let formulas = extract_formulas(data);
 
-        if sf_definitions.is_empty() && formulas.is_empty() && !magic_ok {
+        if sf_values.is_empty() && formulas.is_empty() && !magic_ok {
             return None;
         }
 
@@ -70,7 +78,7 @@ impl PowPreview {
             power_id,
             file_size: data.len(),
             magic_ok,
-            sf_definitions,
+            sf_values,
             formulas,
         })
     }
@@ -89,27 +97,39 @@ impl PowPreview {
         }
         writeln!(out, "Size: {} bytes", self.file_size).ok();
 
-        // SF definitions
-        if !self.sf_definitions.is_empty() {
+        // Collect all SF refs used in formulas
+        let mut used_sfs: Vec<u32> = Vec::new();
+        for f in &self.formulas {
+            for r in &f.sf_refs {
+                if let Some(n) = r.strip_prefix("SF_").and_then(|s| s.parse::<u32>().ok()) {
+                    if !used_sfs.contains(&n) {
+                        used_sfs.push(n);
+                    }
+                }
+            }
+        }
+        used_sfs.sort();
+
+        // Show SF values that are referenced in formulas
+        if !used_sfs.is_empty() {
             writeln!(
                 out,
                 "\n--- Scaling Factors ({}) ---",
-                self.sf_definitions.len()
+                used_sfs.len()
             )
             .ok();
-            writeln!(
-                out,
-                "  (Runtime values — resolve via d4data or in-game testing)"
-            )
-            .ok();
-            for sf in &self.sf_definitions {
-                writeln!(out, "  {}  = ???", sf.name).ok();
+            for &n in &used_sfs {
+                let val = self
+                    .sf_values
+                    .get(&n)
+                    .map(|s| format_sf_display(s))
+                    .unwrap_or_else(|| "???".to_string());
+                writeln!(out, "  SF_{n}  = {val}").ok();
             }
         }
 
         // Formulas grouped by classification
         if !self.formulas.is_empty() {
-            // Group by classification
             let mut damage: Vec<&Formula> = Vec::new();
             let mut cooldown: Vec<&Formula> = Vec::new();
             let mut other: Vec<&Formula> = Vec::new();
@@ -144,7 +164,7 @@ impl PowPreview {
             }
         }
 
-        if self.sf_definitions.is_empty() && self.formulas.is_empty() {
+        if used_sfs.is_empty() && self.formulas.is_empty() {
             writeln!(out, "\n(No formulas or SF definitions found)").ok();
         }
 
@@ -152,7 +172,19 @@ impl PowPreview {
     }
 
     fn write_formula(&self, out: &mut String, f: &Formula) {
-        writeln!(out, "  {}", f.text).ok();
+        // Inline-resolve SF values in the formula display
+        let mut display = f.text.clone();
+        for r in &f.sf_refs {
+            if let Some(n) = r.strip_prefix("SF_").and_then(|s| s.parse::<u32>().ok()) {
+                if let Some(val) = self.sf_values.get(&n) {
+                    if !val.is_empty() && val != "0" {
+                        let resolved = format!("{r}({val})");
+                        display = display.replace(r.as_str(), &resolved);
+                    }
+                }
+            }
+        }
+        writeln!(out, "  {display}").ok();
 
         // Interpret damage formulas.
         if let Some(coeff) = f.coefficient {
@@ -170,62 +202,96 @@ impl PowPreview {
                 None => {}
             }
         }
-
-        // Show SF references used.
-        if !f.sf_refs.is_empty() {
-            let refs = f.sf_refs.join(", ");
-            writeln!(out, "    Uses: {refs}").ok();
-        }
     }
 }
 
-// ── SF definition extractor ───────────────────────────────────────────────────
+// ── SF value extraction from formula data block ──────────────────────────────
 
-fn extract_sf_defs(data: &[u8]) -> Vec<SfDef> {
-    let mut defs = Vec::new();
-    let mut i = 0;
+/// Walk the contiguous formula data block and extract SF values.
+fn extract_sf_values(data: &[u8]) -> HashMap<u32, String> {
+    let mut values = HashMap::new();
 
-    while i < data.len().saturating_sub(8) {
-        if data[i] == b'S' && data.get(i + 1) == Some(&b'F') && data.get(i + 2) == Some(&b'_') {
-            if i > 0 && data[i - 1] != 0 {
-                i += 1;
-                continue;
-            }
+    let struct_start = 0x10usize;
+    let struct_size = read_u32(data, 0x78).unwrap_or(0) as usize;
+    if struct_size == 0 || struct_size > data.len() {
+        return values;
+    }
+    let var_start = struct_start + struct_size;
 
-            let s = read_cstring(data, i);
+    // First formula descriptor at struct+0x0258
+    let desc_pos = struct_start + 0x0258;
+    if desc_pos + 8 > data.len() {
+        return values;
+    }
+    let first_text_off = read_u32(data, desc_pos).unwrap_or(0) as usize;
 
-            if let Some(num_str) = s.strip_prefix("SF_") {
-                if let Ok(sf_num) = num_str.parse::<u32>() {
-                    let meta_start = i + 8;
-                    if meta_start + 8 <= data.len() {
-                        let type_tag = u32::from_le_bytes(
-                            data[meta_start..meta_start + 4].try_into().unwrap(),
-                        );
-                        let index = u32::from_le_bytes(
-                            data[meta_start + 4..meta_start + 8].try_into().unwrap(),
-                        );
-
-                        let verified = type_tag == 5 && index == sf_num + 6;
-
-                        if !defs.iter().any(|d: &SfDef| d.name == s) {
-                            defs.push(SfDef {
-                                name: s.clone(),
-                                sf_number: sf_num,
-                                index,
-                                verified,
-                            });
-                        }
-                    }
-
-                    i += s.len() + 1;
-                    continue;
-                }
-            }
-        }
-        i += 1;
+    if first_text_off < var_start || first_text_off >= data.len() {
+        return values;
     }
 
-    defs
+    // Walk contiguous formula entries: [text(4-byte aligned)][bytecode(12 bytes)]
+    let mut pos = first_text_off;
+    let mut idx = 0u32;
+    let mut bad_streak = 0u32;
+
+    while idx < 80 && pos + 16 <= data.len() && bad_streak < 3 {
+        let text_start = pos;
+        let mut text_end = pos;
+        while text_end < data.len() && data[text_end] != 0 && (32..127).contains(&data[text_end]) {
+            text_end += 1;
+        }
+
+        if text_end >= data.len() || data[text_end] != 0 {
+            bad_streak += 1;
+            pos += 16;
+            idx += 1;
+            continue;
+        }
+
+        let text = String::from_utf8_lossy(&data[text_start..text_end]).into_owned();
+        let after_text = text_end + 1;
+        let aligned = (after_text + 3) & !3;
+
+        if aligned + 12 > data.len() {
+            break;
+        }
+
+        let type_tag = read_u32(data, aligned).unwrap_or(0);
+        if type_tag != 0 && type_tag != 5 && type_tag != 6 {
+            bad_streak += 1;
+            pos += 16;
+            idx += 1;
+            continue;
+        }
+
+        bad_streak = 0;
+        values.insert(idx, text);
+        pos = aligned + 12;
+        idx += 1;
+    }
+
+    values
+}
+
+// ── SF display formatting ────────────────────────────────────────────────────
+
+fn format_sf_display(formula: &str) -> String {
+    if formula.is_empty() {
+        return "(empty)".to_string();
+    }
+    if let Ok(v) = formula.parse::<f64>() {
+        if v == 0.0 {
+            return "0".to_string();
+        } else if v.abs() < 10.0 && v.fract() != 0.0 {
+            let pct = v * 100.0;
+            return format!("{v}  ({pct:.1}%)");
+        } else if v == v.trunc() {
+            return format!("{v:.0}");
+        } else {
+            return format!("{v}");
+        }
+    }
+    formula.to_string()
 }
 
 // ── Formula extractor with typed values ───────────────────────────────────────
@@ -280,8 +346,6 @@ fn classify(s: &str) -> &'static str {
     "expression"
 }
 
-/// Parse typed (type_tag, value) pairs after a formula string.
-/// type 6 = float literal, type 5 = SF reference (index = SF_N + 6).
 fn parse_typed_values(data: &[u8], offset: usize) -> Vec<TypedValue> {
     let mut values = Vec::new();
     let mut pos = offset;
@@ -307,7 +371,7 @@ fn parse_typed_values(data: &[u8], offset: usize) -> Vec<TypedValue> {
                     display: format!("SF_{sf_num} (idx={idx})"),
                 });
             }
-            _ => break, // not a recognized type pair
+            _ => break,
         }
         pos += 8;
     }
@@ -315,26 +379,20 @@ fn parse_typed_values(data: &[u8], offset: usize) -> Vec<TypedValue> {
     values
 }
 
-/// Extract coefficient and table ID from a damage formula string.
 fn extract_coefficient(s: &str) -> (Option<f64>, Option<u32>) {
-    // Try "1.75 * Table(34,sLevel)"
     if let Some(rest) = s.split("* Table(").nth(1) {
         let before = s.split("* Table(").next().unwrap_or("").trim();
         let table_id: Option<u32> = rest.split(',').next().and_then(|t| t.parse().ok());
-
-        // Try parsing the coefficient before "* Table("
         let coeff: Option<f64> = before
             .trim_end()
             .rsplit(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
             .next()
             .and_then(|n| n.parse().ok());
-
         return (coeff, table_id);
     }
     (None, None)
 }
 
-/// Extract SF_N references from formula text.
 fn extract_sf_refs(s: &str) -> Vec<String> {
     let mut refs = Vec::new();
     let mut i = 0;
@@ -369,7 +427,6 @@ fn extract_formulas(data: &[u8]) -> Vec<Formula> {
             continue;
         }
 
-        // Find actual null terminator for full string
         let null_pos = data[*offset..]
             .iter()
             .position(|&b| b == 0)
@@ -399,14 +456,6 @@ fn extract_formulas(data: &[u8]) -> Vec<Formula> {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-fn read_cstring(data: &[u8], offset: usize) -> String {
-    let mut end = offset;
-    while end < data.len() && data[end] != 0 {
-        end += 1;
-    }
-    String::from_utf8_lossy(&data[offset..end]).into_owned()
-}
 
 fn extract_printable_strings(data: &[u8], min_len: usize) -> Vec<(usize, String)> {
     let mut results = Vec::new();
