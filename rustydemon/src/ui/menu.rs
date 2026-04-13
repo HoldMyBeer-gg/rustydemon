@@ -26,7 +26,10 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                     }
                 }
 
-                if ui.button("Load Listfile…").clicked() {
+                if ui
+                    .add_enabled(app.handler.is_some(), egui::Button::new("Load Listfile…"))
+                    .clicked()
+                {
                     ui.close_menu();
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Listfile", &["csv", "txt"])
