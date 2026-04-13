@@ -67,7 +67,11 @@ impl PowPreview {
             0
         };
 
-        let sf_values = if magic_ok { extract_sf_values(data) } else { HashMap::new() };
+        let sf_values = if magic_ok {
+            extract_sf_values(data)
+        } else {
+            HashMap::new()
+        };
         let formulas = extract_formulas(data);
 
         if sf_values.is_empty() && formulas.is_empty() && !magic_ok {
@@ -112,12 +116,7 @@ impl PowPreview {
 
         // Show SF values that are referenced in formulas
         if !used_sfs.is_empty() {
-            writeln!(
-                out,
-                "\n--- Scaling Factors ({}) ---",
-                used_sfs.len()
-            )
-            .ok();
+            writeln!(out, "\n--- Scaling Factors ({}) ---", used_sfs.len()).ok();
             for &n in &used_sfs {
                 let val = self
                     .sf_values

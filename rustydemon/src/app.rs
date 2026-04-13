@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::sync::Arc;
 
 use egui::Context;
-use rustydemon_lib::{CascConfig, CascHandler, LocaleFlags, SearchResult};
+use rustydemon_lib::{CascConfig, CascHandler, LocaleFlags, PreparedLoad, SearchResult};
 
 use crate::deep_search::{registry, ContentMatch, ContentSearcher};
 
@@ -59,6 +59,18 @@ enum BgResult {
     },
     /// Listfile loading failed.
     ListfileError(String),
+    /// A batch export finished.
+    ExportComplete {
+        ok: usize,
+        fail: usize,
+        label: String,
+    },
+}
+
+/// One file prepared for background export.
+struct ExportItem {
+    filename: String,
+    prepared: PreparedLoad,
 }
 
 // ── App state ──────────────────────────────────────────────────────────────────
@@ -176,6 +188,11 @@ impl CascExplorerApp {
             }
             Ok(BgResult::ListfileError(e)) => {
                 self.status = e;
+                self.bg_rx = None;
+                self.loading = false;
+            }
+            Ok(BgResult::ExportComplete { ok, fail, label }) => {
+                self.status = format!("Exported {ok} files from {label} ({fail} failed)");
                 self.bg_rx = None;
                 self.loading = false;
             }
@@ -334,7 +351,7 @@ impl CascExplorerApp {
         );
     }
 
-    /// Select a search result and load its raw bytes.
+    /// Select a search result and load its raw bytes in the background.
     pub fn select_result(&mut self, result: SearchResult, _ctx: &Context) {
         if self.handler.is_none() {
             return;
@@ -343,31 +360,47 @@ impl CascExplorerApp {
         // Cancel any previous file load.
         self.cancel_bg();
 
+        let handler = self.handler.as_ref().unwrap();
         let ckey = result.ckey;
-        let data_result = self.handler.as_ref().unwrap().open_by_ckey(&ckey);
-
         let (tx, rx) = mpsc::channel();
         self.bg_rx = Some(rx);
         self.loading = true;
 
-        match data_result {
-            Ok(data) => {
-                let _ = tx.send(BgResult::FileLoaded {
-                    result,
-                    data: Ok(data),
-                });
-            }
+        if handler.is_static_container() {
+            // Static containers: load synchronously (fast path, no .idx).
+            let data = handler.open_by_ckey(&ckey).map_err(|e| format!("{e}"));
+            let _ = tx.send(BgResult::FileLoaded { result, data });
+            return;
+        }
+
+        // Fast hash lookups stay on the UI thread; the heavy I/O + BLTE
+        // decompression runs on a background thread.
+        let prepared = match handler.prepare_load(&ckey) {
+            Ok(p) => p,
             Err(e) => {
                 let _ = tx.send(BgResult::FileLoaded {
                     result,
                     data: Err(format!("{e}")),
                 });
+                return;
             }
-        }
+        };
+
+        let cancel = self.cancel.clone();
+
+        std::thread::spawn(move || {
+            if cancel.load(Ordering::Relaxed) {
+                return;
+            }
+            let data = prepared.execute().map_err(|e| format!("{e}"));
+            if !cancel.load(Ordering::Relaxed) {
+                let _ = tx.send(BgResult::FileLoaded { result, data });
+            }
+        });
     }
 
-    /// Export all multi-selected files to a directory.
-    pub fn export_selected(&self) {
+    /// Export all multi-selected files to a directory (background thread).
+    pub fn export_selected(&mut self) {
         let handler = match self.handler.as_ref() {
             Some(h) => h,
             None => return,
@@ -384,52 +417,33 @@ impl CascExplorerApp {
             return;
         };
 
-        let mut ok = 0usize;
-        let mut fail = 0usize;
+        // Prepare all work items on the UI thread (fast hash lookups).
+        let items =
+            self.prepare_export_items(handler, self.multi_selected.iter().copied().collect());
+        let total = items.len();
 
-        for &hash in &self.multi_selected {
-            let filename = handler
-                .filename(hash)
-                .unwrap_or("unknown")
-                .replace('\\', "/");
+        self.cancel_bg();
+        self.status = format!("Exporting {total} files…");
+        self.loading = true;
 
-            // Recreate subfolder structure.
-            let out_path = dest.join(&filename);
-            if let Some(parent) = out_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
+        let (tx, rx) = mpsc::channel();
+        let cancel = self.cancel.clone();
+        self.bg_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let (ok, fail) = run_export(&items, &dest, &cancel);
+            if !cancel.load(Ordering::Relaxed) {
+                let _ = tx.send(BgResult::ExportComplete {
+                    ok,
+                    fail,
+                    label: format!("{total} selected files"),
+                });
             }
-
-            // Resolve hash → ckey → data.
-            let entries = handler.search_by_hash(hash);
-            let Some(entry) = entries.first() else {
-                fail += 1;
-                continue;
-            };
-
-            match handler.open_by_ckey(&entry.ckey) {
-                Ok(data) => {
-                    if std::fs::write(&out_path, &data).is_ok() {
-                        ok += 1;
-                    } else {
-                        fail += 1;
-                    }
-                }
-                Err(_) => {
-                    fail += 1;
-                }
-            }
-        }
-
-        // Show result in a message box (non-blocking).
-        rfd::MessageDialog::new()
-            .set_title("Export Complete")
-            .set_description(format!("Exported {ok} files ({fail} failed)"))
-            .set_level(rfd::MessageLevel::Info)
-            .show();
+        });
     }
 
-    /// Export all files in the currently browsed folder to a directory.
-    pub fn export_folder(&self) {
+    /// Export all files in the currently browsed folder (background thread).
+    pub fn export_folder(&mut self) {
         let handler = match self.handler.as_ref() {
             Some(h) => h,
             None => return,
@@ -463,48 +477,49 @@ impl CascExplorerApp {
 
         let mut hashes = Vec::new();
         collect_file_hashes(folder, &mut hashes);
+        let total = hashes.len();
 
-        let mut ok = 0usize;
-        let mut fail = 0usize;
+        let items = self.prepare_export_items(handler, hashes);
 
-        for hash in &hashes {
+        self.cancel_bg();
+        self.status = format!("Exporting {total} files from {folder_path}…");
+        self.loading = true;
+
+        let (tx, rx) = mpsc::channel();
+        let cancel = self.cancel.clone();
+        self.bg_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let (ok, fail) = run_export(&items, &dest, &cancel);
+            if !cancel.load(Ordering::Relaxed) {
+                let _ = tx.send(BgResult::ExportComplete {
+                    ok,
+                    fail,
+                    label: folder_path,
+                });
+            }
+        });
+    }
+
+    /// Prepare export work items: resolve hashes to filenames + PreparedLoads.
+    fn prepare_export_items(&self, handler: &CascHandler, hashes: Vec<u64>) -> Vec<ExportItem> {
+        let mut items = Vec::with_capacity(hashes.len());
+        for hash in hashes {
             let filename = handler
-                .filename(*hash)
+                .filename(hash)
                 .unwrap_or("unknown")
                 .replace('\\', "/");
 
-            let out_path = dest.join(&filename);
-            if let Some(parent) = out_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-
-            let entries = handler.search_by_hash(*hash);
+            let entries = handler.search_by_hash(hash);
             let Some(entry) = entries.first() else {
-                fail += 1;
                 continue;
             };
 
-            match handler.open_by_ckey(&entry.ckey) {
-                Ok(data) => {
-                    if std::fs::write(&out_path, &data).is_ok() {
-                        ok += 1;
-                    } else {
-                        fail += 1;
-                    }
-                }
-                Err(_) => {
-                    fail += 1;
-                }
+            if let Ok(prepared) = handler.prepare_load(&entry.ckey) {
+                items.push(ExportItem { filename, prepared });
             }
         }
-
-        rfd::MessageDialog::new()
-            .set_title("Export Complete")
-            .set_description(format!(
-                "Exported {ok} files from {folder_path} ({fail} failed)"
-            ))
-            .set_level(rfd::MessageLevel::Info)
-            .show();
+        items
     }
 }
 
@@ -518,6 +533,39 @@ impl eframe::App for CascExplorerApp {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/// Execute a batch of prepared exports on a background thread.
+fn run_export(items: &[ExportItem], dest: &std::path::Path, cancel: &AtomicBool) -> (usize, usize) {
+    let mut ok = 0usize;
+    let mut fail = 0usize;
+
+    for item in items {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
+
+        let out_path = dest.join(&item.filename);
+        if let Some(parent) = out_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        match read_and_write_export(&item.prepared, &out_path) {
+            Ok(()) => ok += 1,
+            Err(_) => fail += 1,
+        }
+    }
+
+    (ok, fail)
+}
+
+/// Read a file from CASC archives and write it to disk.
+fn read_and_write_export(
+    prepared: &PreparedLoad,
+    out_path: &std::path::Path,
+) -> Result<(), String> {
+    let data = prepared.execute_ref().map_err(|e| format!("{e}"))?;
+    std::fs::write(out_path, &data).map_err(|e| format!("{e}"))
+}
 
 fn collect_file_hashes(folder: &rustydemon_lib::CascFolder, out: &mut Vec<u64>) {
     for file in folder.files.values() {

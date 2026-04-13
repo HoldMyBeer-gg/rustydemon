@@ -1,4 +1,5 @@
 pub mod d4;
+pub mod mndx;
 pub mod tvfs;
 pub mod wow;
 
@@ -59,14 +60,25 @@ pub trait RootHandler: Send {
 
 /// Load the appropriate root handler for a BLTE-decoded root file.
 ///
-/// Currently supports the WoW MFST format.  Other games fall back to
-/// [`DummyRootHandler`].
+/// Supports:
+/// - MNDX format (SC1, SC2, Heroes of the Storm)
+/// - WoW MFST format (WoW, D3, and legacy flat format)
+///
+/// Other games fall back to [`DummyRootHandler`].
 pub fn load(data: Vec<u8>) -> Result<Box<dyn RootHandler>, CascError> {
+    use mndx::MndxRootHandler;
     use wow::WowRootHandler;
 
-    // WoW MFST magic: 'MFST' (0x4D465354) or old-style (first 4 bytes = count).
     if data.len() >= 4 {
         let maybe_magic = u32::from_le_bytes(data[..4].try_into().unwrap());
+
+        // MNDX root (SC1, SC2, HOTS): 'MNDX' = 0x58444E4D
+        if maybe_magic == 0x5844_4E4D {
+            let handler = MndxRootHandler::parse(&data)?;
+            return Ok(Box::new(handler));
+        }
+
+        // WoW MFST magic: 'MFST' (0x4D465354) or old-style flat format.
         if maybe_magic == 0x4D46_5354 || data.len().is_multiple_of(28) {
             let handler = WowRootHandler::parse(&data)?;
             return Ok(Box::new(handler));

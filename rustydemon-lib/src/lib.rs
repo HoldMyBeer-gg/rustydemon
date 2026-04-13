@@ -82,7 +82,7 @@ pub use config::CascConfig;
 pub use entry::{CascFile, CascFolder};
 pub use error::CascError;
 pub use game::GameType;
-pub use handler::CascHandler;
+pub use handler::{CascHandler, PreparedLoad};
 pub use jenkins96::jenkins96;
 pub use search::{SearchQuery, SearchResult};
 pub use types::{ContentFlags, EKey9, EncodingEntry, IndexEntry, LocaleFlags, Md5Hash, RootEntry};
