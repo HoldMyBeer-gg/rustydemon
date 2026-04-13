@@ -52,6 +52,13 @@ enum BgResult {
         result: SearchResult,
         data: Result<Vec<u8>, String>,
     },
+    /// A listfile was loaded in the background.
+    ListfileLoaded {
+        content: String,
+        path: std::path::PathBuf,
+    },
+    /// Listfile loading failed.
+    ListfileError(String),
 }
 
 // ── App state ──────────────────────────────────────────────────────────────────
@@ -159,6 +166,19 @@ impl CascExplorerApp {
                 self.bg_rx = None;
                 self.loading = false;
             }
+            Ok(BgResult::ListfileLoaded { content, path }) => {
+                if let Some(handler) = self.handler.as_mut() {
+                    handler.load_listfile(&content);
+                    self.status = format!("Listfile loaded: {}", path.display());
+                }
+                self.bg_rx = None;
+                self.loading = false;
+            }
+            Ok(BgResult::ListfileError(e)) => {
+                self.status = e;
+                self.bg_rx = None;
+                self.loading = false;
+            }
             Ok(BgResult::FileLoaded { result, data }) => {
                 let mut sel = SelectedFile::new(result.clone());
                 match data {
@@ -248,19 +268,33 @@ impl CascExplorerApp {
     }
 
     pub fn load_listfile(&mut self, path: std::path::PathBuf) {
-        let Some(handler) = self.handler.as_mut() else {
+        if self.handler.is_none() {
             self.status = "Open a game directory first.".into();
             return;
-        };
-        match std::fs::read_to_string(&path) {
-            Ok(content) => {
-                handler.load_listfile(&content);
-                self.status = format!("Listfile loaded: {}", path.display());
-            }
-            Err(e) => {
-                self.status = format!("Failed to read listfile: {e}");
-            }
         }
+        self.cancel_bg();
+        self.status = format!("Loading listfile {}…", path.display());
+        self.loading = true;
+
+        let (tx, rx) = mpsc::channel();
+        let cancel = self.cancel.clone();
+        self.bg_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            if cancel.load(Ordering::Relaxed) {
+                return;
+            }
+            match std::fs::read_to_string(&path) {
+                Ok(content) => {
+                    let _ = tx.send(BgResult::ListfileLoaded { content, path });
+                }
+                Err(e) => {
+                    let _ = tx.send(BgResult::ListfileError(format!(
+                        "Failed to read listfile: {e}"
+                    )));
+                }
+            }
+        });
     }
 
     /// Run a search and populate `search_results`.
@@ -511,6 +545,7 @@ pub fn detect_game_installs() -> Vec<(String, std::path::PathBuf)> {
         ("osi", "Diablo II: Resurrected"),
         ("w3", "Warcraft III: Reforged"),
         ("s1", "StarCraft"),
+        ("sc1", "StarCraft: Remastered"),
         ("s2", "StarCraft II"),
         ("hs", "Hearthstone"),
         ("viper", "Call of Duty"),

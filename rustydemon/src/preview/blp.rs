@@ -7,7 +7,7 @@ use super::{ExportAction, PreviewOutput, PreviewPlugin};
 pub struct BlpPreview;
 
 fn is_blp(data: &[u8]) -> bool {
-    data.len() >= 4 && (&data[..4] == b"BLP2" || &data[..4] == b"BLP1")
+    data.len() >= 4 && (&data[..4] == b"BLP2" || &data[..4] == b"BLP1" || &data[..4] == b"BLP0")
 }
 
 impl PreviewPlugin for BlpPreview {

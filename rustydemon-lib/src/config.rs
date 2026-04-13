@@ -210,6 +210,27 @@ impl CascConfig {
                 .collect();
         }
 
+        // Last resort: older games (e.g. SC:R) may have no Product or CDNPath
+        // columns.  Infer from the directory name.
+        if products.is_empty() {
+            let dir = base_path
+                .as_ref()
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_lowercase();
+            let inferred = match dir.as_str() {
+                "starcraft" => Some("s1"),
+                "starcraft ii" => Some("s2"),
+                "heroes of the storm" => Some("hero"),
+                "hearthstone" => Some("hs"),
+                _ => None,
+            };
+            if let Some(uid) = inferred {
+                products.push(uid.to_owned());
+            }
+        }
+
         products
     }
 

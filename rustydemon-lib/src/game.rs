@@ -49,7 +49,7 @@ impl GameType {
         if uid.starts_with("w3") {
             return Ok(Self::Warcraft3Reforged);
         }
-        if uid.starts_with("s1") {
+        if uid.starts_with("s1") || uid.starts_with("sc1") {
             return Ok(Self::StarCraft);
         }
         if uid.starts_with("s2") {
@@ -131,6 +131,7 @@ impl GameType {
     pub fn data_folder(self) -> Option<&'static str> {
         match self {
             Self::HeroesOfTheStorm => Some("HeroesData"),
+            Self::StarCraft => Some("Data"),
             Self::StarCraft2 => Some("SC2Data"),
             Self::Hearthstone => Some("Hearthstone_Data"),
             Self::WorldOfWarcraft
