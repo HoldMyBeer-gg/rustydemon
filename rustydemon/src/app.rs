@@ -8,6 +8,50 @@ use rustydemon_lib::{CascConfig, CascHandler, LocaleFlags, PreparedLoad, SearchR
 
 use crate::deep_search::{registry, ContentMatch, ContentSearcher};
 
+/// Re-render a PCX selection using an external palette, replacing the
+/// plugin-built texture in place. Updates `texture`, `texture_pixels`, and
+/// rewrites the Export-As-PNG action to bake the same palette.
+pub fn apply_pcx_palette_override(
+    sel: &mut SelectedFile,
+    data: &[u8],
+    palette: &[u8],
+    ctx: &Context,
+) {
+    let Ok((pixels, w, h)) =
+        crate::preview::pcx::decode_pcx_with_palette(data, Some(palette))
+    else {
+        return;
+    };
+    let color_image =
+        egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &pixels);
+    if let Some(preview) = sel.preview.as_mut() {
+        preview.texture = Some(ctx.load_texture(
+            "pcx_preview",
+            color_image,
+            egui::TextureOptions::default(),
+        ));
+        preview.texture_pixels = Some((pixels, w, h));
+        // Swap the Export As PNG action for one that bakes in the palette.
+        let pal_vec: Vec<u8> = palette.to_vec();
+        let pal_arc = std::sync::Arc::new(pal_vec);
+        preview.extra_exports.clear();
+        let pal_clone = pal_arc.clone();
+        preview.extra_exports.push(crate::preview::ExportAction {
+            label: "Export As PNG",
+            default_extension: "png",
+            filter_name: "PNG image",
+            build: std::sync::Arc::new(move |data| {
+                let (pixels, w, h) = crate::preview::pcx::decode_pcx_with_palette(
+                    data,
+                    Some(pal_clone.as_slice()),
+                )
+                .map_err(|e| format!("pcx decode: {e}"))?;
+                crate::preview::encode_png(&pixels, w, h)
+            }),
+        });
+    }
+}
+
 // ── Selected file ──────────────────────────────────────────────────────────────
 
 /// State for whichever file is shown in the right preview panel.
@@ -108,6 +152,13 @@ pub struct CascExplorerApp {
     // ── Deep-search plug-ins ──────────────────────────────────────────────────
     pub searchers: Vec<Box<dyn ContentSearcher>>,
 
+    // ── PCX palette override ──────────────────────────────────────────────────
+    /// 768-byte RGB palette loaded by the user to re-render palettized assets
+    /// (SC1 PCX files that reference an external `.pal`/`.wpe` file).
+    pub pcx_palette: Option<Vec<u8>>,
+    /// Display name of the currently loaded palette (filename only).
+    pub pcx_palette_name: Option<String>,
+
     // ── Status bar ────────────────────────────────────────────────────────────
     pub status: String,
 
@@ -134,6 +185,8 @@ impl CascExplorerApp {
             selected: None,
             multi_selected: HashSet::new(),
             searchers: registry(),
+            pcx_palette: None,
+            pcx_palette_name: None,
             status: "No archive open. Use File → Open Game Directory.".into(),
             bg_rx: None,
             cancel: Arc::new(AtomicBool::new(false)),
@@ -207,6 +260,20 @@ impl CascExplorerApp {
                         // Dispatch to the first matching preview plugin.
                         // Plugins are registered in `crate::preview::registry()`.
                         sel.preview = crate::preview::run(result.filename.as_deref(), &data, ctx);
+
+                        // If a PCX palette override is active, re-render the
+                        // texture with it so SC1 assets that rely on external
+                        // .pal/.wpe files display correctly.
+                        let is_pcx = result
+                            .filename
+                            .as_deref()
+                            .map(|n| n.to_ascii_lowercase().ends_with(".pcx"))
+                            .unwrap_or(false);
+                        if is_pcx {
+                            if let Some(pal) = self.pcx_palette.as_deref() {
+                                apply_pcx_palette_override(&mut sel, &data, pal, ctx);
+                            }
+                        }
 
                         if self.deep_search_enabled {
                             for searcher in &self.searchers {

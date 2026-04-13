@@ -138,21 +138,137 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
 
     ui.separator();
 
+    // ── PCX palette picker (for SC1 assets with external palettes) ───────────
+    let is_pcx = sel
+        .result
+        .filename
+        .as_deref()
+        .map(|n| n.to_ascii_lowercase().ends_with(".pcx"))
+        .unwrap_or(false);
+
+    // Deferred actions: we can't mutate `app` while `sel` (a shared borrow
+    // of `app.selected`) is live, so collect intents here and run them after.
+    let mut pcx_load_palette = false;
+    let mut pcx_clear_palette = false;
+    let mut export_action_clicked: Option<usize> = None;
+    let mut export_raw_clicked = false;
+
+    if is_pcx {
+        ui.horizontal(|ui| {
+            if ui
+                .button("Load Palette…")
+                .on_hover_text("Apply an external .pal/.wpe palette to this PCX")
+                .clicked()
+            {
+                pcx_load_palette = true;
+            }
+            if app.pcx_palette.is_some() && ui.button("Clear").clicked() {
+                pcx_clear_palette = true;
+            }
+            if let Some(name) = &app.pcx_palette_name {
+                ui.label(
+                    egui::RichText::new(format!("Palette: {name}"))
+                        .small()
+                        .color(egui::Color32::from_gray(180)),
+                );
+            }
+        });
+        ui.separator();
+    }
+
     // ── Export buttons ─────────────────────────────────────────────────────────
     if sel.data.is_some() {
         ui.horizontal(|ui| {
             // Plugin-provided exports (e.g. "Export As PNG", "Export As BK2").
             if let Some(preview) = &sel.preview {
-                for action in &preview.extra_exports {
+                for (i, action) in preview.extra_exports.iter().enumerate() {
                     if ui.button(action.label).clicked() {
-                        run_plugin_export(app, action);
+                        export_action_clicked = Some(i);
                     }
                 }
             }
             if ui.button("Export Raw").clicked() {
-                export_raw(app);
+                export_raw_clicked = true;
             }
         });
+    }
+
+    // Drop the `sel` immutable borrow before touching `app` mutably.
+    let _ = sel;
+
+    if pcx_load_palette {
+        load_pcx_palette(app, ui.ctx());
+    }
+    if pcx_clear_palette {
+        app.pcx_palette = None;
+        app.pcx_palette_name = None;
+        reload_current_pcx(app, ui.ctx());
+    }
+    if let Some(idx) = export_action_clicked {
+        // Re-borrow the action: it lives on `app.selected.preview.extra_exports`.
+        let action = app
+            .selected
+            .as_ref()
+            .and_then(|s| s.preview.as_ref())
+            .and_then(|p| p.extra_exports.get(idx))
+            .cloned();
+        if let Some(a) = action {
+            run_plugin_export(app, &a);
+        }
+    }
+    if export_raw_clicked {
+        export_raw(app);
+    }
+}
+
+fn load_pcx_palette(app: &mut CascExplorerApp, ctx: &egui::Context) {
+    let Some(path) = rfd::FileDialog::new()
+        .add_filter("Palette", &["pal", "wpe", "act"])
+        .add_filter("Any", &["*"])
+        .pick_file()
+    else {
+        return;
+    };
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            app.status = format!("Palette read failed: {e}");
+            return;
+        }
+    };
+    let Some(palette) = crate::preview::pcx::parse_palette_file(&bytes) else {
+        app.status = "Palette format not recognised".into();
+        return;
+    };
+    app.pcx_palette_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(String::from);
+    app.pcx_palette = Some(palette);
+    reload_current_pcx(app, ctx);
+}
+
+fn reload_current_pcx(app: &mut CascExplorerApp, ctx: &egui::Context) {
+    let Some(sel) = app.selected.as_mut() else {
+        return;
+    };
+    let Some(data) = sel.data.clone() else {
+        return;
+    };
+    let is_pcx = sel
+        .result
+        .filename
+        .as_deref()
+        .map(|n| n.to_ascii_lowercase().ends_with(".pcx"))
+        .unwrap_or(false);
+    if !is_pcx {
+        return;
+    }
+    if let Some(pal) = app.pcx_palette.as_deref() {
+        crate::app::apply_pcx_palette_override(sel, &data, pal, ctx);
+    } else {
+        // Rebuild with default decoder
+        sel.preview = crate::preview::run(sel.result.filename.as_deref(), &data, ctx);
     }
 }
 
