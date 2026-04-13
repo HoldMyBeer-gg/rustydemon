@@ -1,4 +1,4 @@
-# Rusty Demon -Cross-Platform CASC Explorer
+# Rusty Demon - Cross-Platform CASC Explorer
 
 A fast, cross-platform explorer for CASC (Content-Addressable Storage Container)
 archives, written entirely in Rust.
