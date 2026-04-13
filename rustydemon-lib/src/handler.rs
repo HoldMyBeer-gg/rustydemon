@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     fs,
     io::{Cursor, Read, Seek, SeekFrom},
+    path::PathBuf,
     sync::Mutex,
 };
 
@@ -392,6 +393,74 @@ impl CascHandler {
         }
 
         Ok(entries[0].ckey)
+    }
+
+    /// Resolve a content key to everything a background thread needs to read
+    /// and decompress the file, without holding a reference to the handler.
+    ///
+    /// The returned [`PreparedLoad`] is `Send` and can be executed on any
+    /// thread via [`PreparedLoad::execute`].  This keeps the heavy file I/O
+    /// and BLTE decompression off the UI thread.
+    ///
+    /// Only works for traditional CASC (`.idx`-based).  For static containers
+    /// use [`CascHandler::open_by_ckey`] directly.
+    pub fn prepare_load(&self, ckey: &Md5Hash) -> Result<PreparedLoad, CascError> {
+        let ekey = match &self.encoding {
+            Some(enc) => enc
+                .best_ekey(ckey)
+                .ok_or_else(|| CascError::EncodingNotFound(ckey.to_hex()))?,
+            None => *ckey,
+        };
+
+        let local_index = self
+            .local_index
+            .as_ref()
+            .ok_or_else(|| CascError::Config("no storage backend configured".into()))?;
+
+        let idx = local_index
+            .get_entry(&ekey)
+            .ok_or_else(|| CascError::IndexNotFound(ekey.to_hex()))?;
+
+        Ok(PreparedLoad {
+            data_path: self.config.data_path(),
+            archive_index: idx.index,
+            offset: idx.offset,
+            size: idx.size,
+            ekey,
+            validate_hashes: self.validate_hashes,
+        })
+    }
+}
+
+/// All the data a background thread needs to read and decompress a file
+/// from the CASC archives.
+///
+/// Created by [`CascHandler::prepare_load`] on the UI thread (fast hash
+/// lookups), then sent to a worker thread for the heavy I/O + BLTE decode.
+pub struct PreparedLoad {
+    data_path: PathBuf,
+    archive_index: u32,
+    offset: u32,
+    size: u32,
+    ekey: Md5Hash,
+    validate_hashes: bool,
+}
+
+impl PreparedLoad {
+    /// Execute the file read + BLTE decompression (consuming).
+    ///
+    /// This is the expensive part that should run on a background thread.
+    pub fn execute(self) -> Result<Vec<u8>, CascError> {
+        self.execute_ref()
+    }
+
+    /// Execute the file read + BLTE decompression (borrowing).
+    ///
+    /// Same as [`execute`](Self::execute) but borrows, allowing the same
+    /// `PreparedLoad` to be retried or used multiple times.
+    pub fn execute_ref(&self) -> Result<Vec<u8>, CascError> {
+        let raw = read_data_block(&self.data_path, self.archive_index, self.offset, self.size)?;
+        blte::decode(&raw, &self.ekey, self.validate_hashes)
     }
 }
 
