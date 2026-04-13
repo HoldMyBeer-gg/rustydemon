@@ -10,7 +10,9 @@
 //! pattern so users can port one new format by dropping a module under
 //! `preview/` and adding one line to [`registry`].
 
+pub mod audio;
 pub mod blp;
+pub mod pcx;
 pub mod pow;
 pub mod tex;
 pub mod text;
@@ -110,10 +112,12 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         // Texture-bearing formats come first — they short-circuit before
         // the text heuristic could false-positive on a binary header.
         Box::new(blp::BlpPreview),
+        Box::new(pcx::PcxPreview),
         Box::new(tex::TexPreview),
         // Structured-data format summaries.
         Box::new(pow::PowPreview),
         Box::new(vid::VidPreview),
+        Box::new(audio::AudioPreview),
         // Generic text detector runs last so specific formats win.
         Box::new(text::TextPreview),
     ]
