@@ -220,6 +220,28 @@ especially welcome.
 
 ---
 
+## Acknowledgments
+
+Rusty Demon would not exist without the pioneering work of the CASC
+reverse-engineering community:
+
+- **[CascLib](https://github.com/ladislav-zezula/CascLib)** by Ladislav
+  Zezula — the definitive C library for reading CASC archives and the primary
+  reference for every format implemented here (BLTE, encoding, root manifests,
+  MNDX/MARR, and more). Years of meticulous reverse-engineering made this
+  project possible.
+- **[CASC Explorer](https://github.com/WoW-Tools/CASCExplorer)** by the
+  WoW-Tools team — the original .NET GUI for browsing CASC archives.
+  Rusty Demon's UX owes a direct debt to CASC Explorer's design and workflow.
+- **[TACTLib](https://github.com/overtools/TACTLib)** by the Overtools team —
+  a clean C# CASC implementation whose TVFS and static-container work
+  informed our own.
+- **[wowdev.wiki](https://wowdev.wiki/CASC)** and the wider datamining
+  community — for documenting the CASC and TACT formats and maintaining the
+  community listfiles that make these tools usable.
+
+---
+
 ## License
 
 Source licensed under [AGPL-3.0](./LICENSE) with the Commons Clause —
