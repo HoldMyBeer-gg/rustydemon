@@ -10,7 +10,7 @@ resolver = "2"
 # All member crates inherit these fields with `field.workspace = true`.
 # Bumping the version here bumps every crate simultaneously.
 [workspace.package]
-version     = "0.2.0"
+version     = "0.3.0"
 authors     = ["jabberwock"]
 edition     = "2021"
 license     = "AGPL-3.0-or-later"
