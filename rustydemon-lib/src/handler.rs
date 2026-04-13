@@ -22,6 +22,31 @@ use crate::{
 // How many bytes precede the BLTE payload in each data.NNN block.
 const DATA_HEADER_BYTES: u64 = 30;
 
+/// Parse a listfile and build the filename map + folder tree off-thread.
+///
+/// Call [`CascHandler::fdid_hash_snapshot`] to obtain `fdid_hashes` before
+/// spawning the background thread, then pass the result to
+/// [`CascHandler::apply_listfile`] on the UI thread.
+pub fn prepare_listfile(
+    content: &str,
+    fdid_hashes: &HashMap<u32, u64>,
+) -> (HashMap<u64, String>, CascFolder) {
+    let mut filenames = HashMap::new();
+    let mut entries: Vec<(u64, String, Option<u32>)> = Vec::new();
+
+    for (path, fdid) in parse_listfile(content) {
+        let hash = fdid
+            .and_then(|id| fdid_hashes.get(&id).copied())
+            .unwrap_or_else(|| jenkins96(&path));
+
+        filenames.insert(hash, path.clone());
+        entries.push((hash, path, fdid));
+    }
+
+    let tree = build_tree(entries);
+    (filenames, tree)
+}
+
 /// Top-level CASC storage handler for local installations.
 ///
 /// Loads the index files, encoding table, and root manifest from a game
@@ -161,7 +186,24 @@ impl CascHandler {
             };
 
             let root_decoded = blte::decode(&root_data, &root_ekey, false)?;
-            root::load(root_decoded)?
+            let mut handler = root::load(root_decoded)?;
+
+            // Fallback: if the root manifest format wasn't recognised
+            // (e.g. SC1 Remastered), use the INSTALL manifest as the
+            // authoritative file list. Every CASC install has one.
+            if handler.type_name() == "Dummy" {
+                match load_install_as_root(&config, &encoding, &local_index) {
+                    Ok(install) => {
+                        eprintln!("root fallback: INSTALL loaded ({} entries)", install.count());
+                        handler = Box::new(install);
+                    }
+                    Err(e) => {
+                        eprintln!("root fallback: INSTALL failed: {e}");
+                    }
+                }
+            }
+
+            handler
         };
 
         Ok(CascHandler {
@@ -235,6 +277,29 @@ impl CascHandler {
         self.root.count()
     }
 
+    /// Look up the filename for a hash, if known.
+    pub fn filename_for_hash(&self, hash: u64) -> Option<String> {
+        self.filenames.get(&hash).cloned()
+    }
+
+    /// Whether the root handler already provides a complete built-in path
+    /// table (MNDX, TVFS). When true, loading an external listfile is
+    /// unnecessary and will clobber the working tree with unrelated paths.
+    pub fn has_builtin_paths(&self) -> bool {
+        self.root.has_builtin_paths()
+    }
+
+    /// Short name of the root handler format (e.g. "MNDX", "MFST (WoW)", "TVFS").
+    pub fn root_type_name(&self) -> &'static str {
+        self.root.type_name()
+    }
+
+    /// Number of entries in the filename map (populated from builtin paths
+    /// and/or listfile).
+    pub fn filename_count(&self) -> usize {
+        self.filenames.len()
+    }
+
     /// Number of entries in the encoding table (0 for static containers).
     pub fn encoding_count(&self) -> usize {
         self.encoding.as_ref().map_or(0, EncodingHandler::count)
@@ -271,6 +336,37 @@ impl CascHandler {
             entries.push((hash, path, fdid));
         }
 
+        self.root_folder = Some(build_tree(entries));
+    }
+
+    /// Snapshot the FileDataId → hash mapping so a background thread can
+    /// resolve listfile entries without holding a reference to the handler.
+    pub fn fdid_hash_snapshot(&self) -> HashMap<u32, u64> {
+        self.root.fdid_hash_map()
+    }
+
+    /// Apply pre-computed listfile results produced by [`prepare_listfile`].
+    ///
+    /// When the handler already has a populated filename map (e.g. from
+    /// [`load_builtin_paths`](Self::load_builtin_paths) on an MNDX/TVFS game),
+    /// the new entries are merged in rather than replacing the existing tree.
+    /// This prevents a mismatched listfile from clobbering a working state.
+    pub fn apply_listfile(&mut self, filenames: HashMap<u64, String>, tree: CascFolder) {
+        if self.filenames.is_empty() {
+            self.filenames = filenames;
+            self.root_folder = Some(tree);
+            return;
+        }
+
+        // Merge: add new filenames that don't conflict, rebuild the tree.
+        for (hash, path) in filenames {
+            self.filenames.entry(hash).or_insert(path);
+        }
+        let entries: Vec<(u64, String, Option<u32>)> = self
+            .filenames
+            .iter()
+            .map(|(&h, p)| (h, p.clone(), None))
+            .collect();
         self.root_folder = Some(build_tree(entries));
     }
 
@@ -465,6 +561,30 @@ impl PreparedLoad {
 }
 
 // ── Data archive reader ────────────────────────────────────────────────────────
+
+/// Try to load the INSTALL manifest and parse it as a root handler.
+fn load_install_as_root(
+    config: &CascConfig,
+    encoding: &EncodingHandler,
+    local_index: &LocalIndexHandler,
+) -> Result<crate::root::install::InstallRootHandler, CascError> {
+    let install_ckey = config
+        .install_ckey()
+        .ok_or_else(|| CascError::Config("build config missing install ckey".into()))?;
+
+    let install_ekey = encoding
+        .best_ekey(&install_ckey)
+        .ok_or_else(|| CascError::EncodingNotFound(install_ckey.to_hex()))?;
+
+    let entry = local_index
+        .get_entry(&install_ekey)
+        .ok_or_else(|| CascError::IndexNotFound(install_ekey.to_hex()))?;
+
+    let raw = read_data_block(&config.data_path(), entry.index, entry.offset, entry.size)?;
+    let decoded = blte::decode(&raw, &install_ekey, false)?;
+
+    crate::root::install::InstallRootHandler::parse(&decoded)
+}
 
 /// Read one data block from a `data.NNN` archive file.
 ///

@@ -518,6 +518,14 @@ impl RootHandler for TvfsRootHandler {
             .map(|(&h, p)| (h, p.clone()))
             .collect()
     }
+
+    fn has_builtin_paths(&self) -> bool {
+        !self.file_paths.is_empty()
+    }
+
+    fn type_name(&self) -> &'static str {
+        "TVFS"
+    }
 }
 
 // ── Header parsing ────────────────────────────────────────────────────────────

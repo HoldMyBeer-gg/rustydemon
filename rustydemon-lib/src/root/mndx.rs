@@ -1398,51 +1398,97 @@ impl MndxRootHandler {
         let mut entries_by_hash: HashMap<u64, Vec<RootEntry>> = HashMap::new();
         let mut file_paths: HashMap<u64, String> = HashMap::new();
 
+        // Diagnostic counters
+        let mut n_total = 0usize;
+        let mut n_no_pkg = 0usize;
+        let mut n_no_strip = 0usize;
+        let mut n_mar1_miss = 0usize;
+        let mut n_valid_idx_miss = 0usize;
+        let mut n_chain_miss = 0usize;
+        let mut n_resolved = 0usize;
+
         for (_file_idx, file_path) in &all_files {
+            n_total += 1;
             let hash = jenkins96(file_path);
+            file_paths.insert(hash, file_path.clone());
 
             // Find the longest-matching package
-            let pkg_key = find_mndx_package(file_path, &packages);
-            let locale = pkg_key
-                .and_then(|k| package_locales.get(&k).copied())
+            let pkg_key = match find_mndx_package(file_path, &packages) {
+                Some(k) => k,
+                None => {
+                    n_no_pkg += 1;
+                    continue;
+                }
+            };
+            let locale = package_locales
+                .get(&pkg_key)
+                .copied()
                 .unwrap_or(LocaleFlags::ALL);
 
-            if let Some(pkg_key) = pkg_key {
-                if let Some(pkg_path) = packages.get(&pkg_key) {
-                    // Strip package prefix + separator
-                    let stripped_start = pkg_path.len() + 1;
-                    if stripped_start < file_path.len() {
-                        let stripped = &file_path[stripped_start..];
-                        let lower = stripped.to_lowercase();
-
-                        // Look up in MAR[1] to get file name index
-                        if let Some(fni) = mar_files[1].find_file(lower.as_bytes()) {
-                            if let Some(&valid_idx) = valid_entry_indices.get(fni as usize) {
-                                // Walk the entry chain to find one matching this package
-                                let mut ei = valid_idx;
-                                while ei < all_entries.len() {
-                                    let entry = &all_entries[ei];
-                                    if (entry.flags & 0x00FF_FFFF) == pkg_key {
-                                        entries_by_hash.entry(hash).or_default().push(RootEntry {
-                                            ckey: entry.ckey,
-                                            locale,
-                                            content: ContentFlags::NONE,
-                                        });
-                                        break;
-                                    }
-                                    if (entry.flags as u32 & 0x8000_0000) != 0 {
-                                        break; // terminator
-                                    }
-                                    ei += 1;
-                                }
-                            }
-                        }
-                    }
-                }
+            let pkg_path = match packages.get(&pkg_key) {
+                Some(p) => p,
+                None => continue,
+            };
+            let stripped_start = pkg_path.len() + 1;
+            if stripped_start >= file_path.len() {
+                n_no_strip += 1;
+                continue;
             }
+            let stripped = &file_path[stripped_start..];
 
-            file_paths.insert(hash, file_path.clone());
+            // MAR entries are stored case-sensitive. Try the name as-is first,
+            // then lowercase as a fallback (CascLib SC2 assets use lowercase).
+            let fni = mar_files[1]
+                .find_file(stripped.as_bytes())
+                .or_else(|| mar_files[1].find_file(stripped.to_lowercase().as_bytes()));
+            let fni = match fni {
+                Some(f) => f,
+                None => {
+                    n_mar1_miss += 1;
+                    continue;
+                }
+            };
+
+            let valid_idx = match valid_entry_indices.get(fni as usize) {
+                Some(&v) => v,
+                None => {
+                    n_valid_idx_miss += 1;
+                    continue;
+                }
+            };
+
+            // Walk the entry chain to find one matching this package
+            let mut ei = valid_idx;
+            let mut found = false;
+            while ei < all_entries.len() {
+                let entry = &all_entries[ei];
+                if (entry.flags & 0x00FF_FFFF) == pkg_key {
+                    entries_by_hash.entry(hash).or_default().push(RootEntry {
+                        ckey: entry.ckey,
+                        locale,
+                        content: ContentFlags::NONE,
+                    });
+                    found = true;
+                    break;
+                }
+                if (entry.flags as u32 & 0x8000_0000) != 0 {
+                    break; // terminator
+                }
+                ei += 1;
+            }
+            if found {
+                n_resolved += 1;
+            } else {
+                n_chain_miss += 1;
+            }
         }
+
+        eprintln!(
+            "MNDX resolution: {n_resolved}/{n_total} resolved  \
+             (no_pkg={n_no_pkg}, no_strip={n_no_strip}, \
+             mar1_miss={n_mar1_miss}, valid_idx_miss={n_valid_idx_miss}, \
+             chain_miss={n_chain_miss})"
+        );
 
         Ok(MndxRootHandler {
             entries_by_hash,
@@ -1486,6 +1532,14 @@ impl RootHandler for MndxRootHandler {
             .iter()
             .map(|(&hash, path)| (hash, path.clone()))
             .collect()
+    }
+
+    fn has_builtin_paths(&self) -> bool {
+        !self.file_paths.is_empty()
+    }
+
+    fn type_name(&self) -> &'static str {
+        "MNDX"
     }
 }
 

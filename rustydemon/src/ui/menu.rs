@@ -26,10 +26,24 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                     }
                 }
 
-                if ui
-                    .add_enabled(app.handler.is_some(), egui::Button::new("Load Listfile…"))
-                    .clicked()
-                {
+                let has_builtin = app
+                    .handler
+                    .as_ref()
+                    .map(|h| h.has_builtin_paths())
+                    .unwrap_or(false);
+                let listfile_enabled = app.handler.is_some() && !has_builtin;
+                let listfile_btn = ui.add_enabled(
+                    listfile_enabled,
+                    egui::Button::new("Load Listfile…"),
+                );
+                let listfile_btn = if has_builtin {
+                    listfile_btn.on_disabled_hover_text(
+                        "Not needed — this game provides its own file paths.",
+                    )
+                } else {
+                    listfile_btn
+                };
+                if listfile_btn.clicked() {
                     ui.close_menu();
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Listfile", &["csv", "txt"])
