@@ -232,7 +232,7 @@ reverse-engineering community:
   project possible.
 - **[CASC Explorer](https://github.com/WoW-Tools/CASCExplorer)** by the
   WoW-Tools team — the original .NET GUI for browsing CASC archives.
-  Rusty Demon's UX owes a direct debt to CASC Explorer's design and workflow.
+  Rusty Demon's UI was inspired by CASC Explorer's design and workflow.
 - **[TACTLib](https://github.com/overtools/TACTLib)** by the Overtools team —
   a clean C# CASC implementation whose TVFS and static-container work
   informed our own.
