@@ -90,8 +90,49 @@ fn pcx_diagnostics(data: &[u8]) -> String {
     )
 }
 
-/// Minimal PCX decoder. Returns `(rgba_pixels, width, height)`.
+/// Decode a PCX with no palette override — uses the file's own trailer
+/// palette if present, otherwise a grayscale ramp.
 fn decode_pcx(data: &[u8]) -> Result<(Vec<u8>, u32, u32), &'static str> {
+    decode_pcx_with_palette(data, None)
+}
+
+/// Decode a PCX, optionally overriding the file's palette.
+///
+/// `palette_override` is 768 RGB bytes (256 entries × 3). When provided,
+/// it takes precedence over any embedded trailer palette — useful for SC1
+/// assets that reference an external `.pal`/`.wpe` file.
+pub fn decode_pcx_with_palette(
+    data: &[u8],
+    palette_override: Option<&[u8]>,
+) -> Result<(Vec<u8>, u32, u32), &'static str> {
+    let (indices, width, height, bytes_per_line) = decode_pcx_indices(data)?;
+
+    let palette = match palette_override {
+        Some(p) if p.len() >= 768 => {
+            let mut out = [0u8; 768];
+            out.copy_from_slice(&p[..768]);
+            out
+        }
+        _ => read_trailer_palette(data),
+    };
+
+    let mut rgba = Vec::with_capacity((width as usize) * (height as usize) * 4);
+    for row in 0..height as usize {
+        let row_off = row * bytes_per_line as usize;
+        for col in 0..width as usize {
+            let idx = indices[row_off + col] as usize;
+            let r = palette[idx * 3];
+            let g = palette[idx * 3 + 1];
+            let b = palette[idx * 3 + 2];
+            rgba.extend_from_slice(&[r, g, b, 0xFF]);
+        }
+    }
+
+    Ok((rgba, width, height))
+}
+
+/// Decode the RLE-encoded index stream. Returns `(raw_indices, width, height, bytes_per_line)`.
+fn decode_pcx_indices(data: &[u8]) -> Result<(Vec<u8>, u32, u32, u32), &'static str> {
     if data.len() < 128 || data[0] != 0x0A {
         return Err("not a PCX file");
     }
@@ -148,14 +189,16 @@ fn decode_pcx(data: &[u8]) -> Result<(Vec<u8>, u32, u32), &'static str> {
         }
     }
 
-    // 256-color palette trailer: last 769 bytes of the file, first byte = 0x0C.
-    let palette: [u8; 768] = if data.len() >= 769 && data[data.len() - 769] == 0x0C {
+    Ok((raw, width, height, bytes_per_line))
+}
+
+fn read_trailer_palette(data: &[u8]) -> [u8; 768] {
+    if data.len() >= 769 && data[data.len() - 769] == 0x0C {
         let start = data.len() - 768;
         let mut p = [0u8; 768];
         p.copy_from_slice(&data[start..]);
         p
     } else {
-        // Fallback: grayscale ramp.
         let mut p = [0u8; 768];
         for i in 0..256 {
             p[i * 3] = i as u8;
@@ -163,19 +206,58 @@ fn decode_pcx(data: &[u8]) -> Result<(Vec<u8>, u32, u32), &'static str> {
             p[i * 3 + 2] = i as u8;
         }
         p
-    };
+    }
+}
 
-    let mut rgba = Vec::with_capacity((width as usize) * (height as usize) * 4);
-    for row in 0..height as usize {
-        let row_off = row * bytes_per_line as usize;
-        for col in 0..width as usize {
-            let idx = raw[row_off + col] as usize;
-            let r = palette[idx * 3];
-            let g = palette[idx * 3 + 1];
-            let b = palette[idx * 3 + 2];
-            rgba.extend_from_slice(&[r, g, b, 0xFF]);
+/// Parse a palette file (`.pal`, `.wpe`, raw binary). Accepts either:
+/// - 768 bytes of RGB triples (8-bit each)
+/// - 1024 bytes as 256 × RGBA / BGRA / RGB0 quads
+/// - JASC-PAL text format ("JASC-PAL\n0100\n256\n r g b\n…")
+///
+/// Returns a 768-byte RGB palette ready to pass to [`decode_pcx_with_palette`].
+pub fn parse_palette_file(data: &[u8]) -> Option<Vec<u8>> {
+    // JASC-PAL text format
+    if data.starts_with(b"JASC-PAL") {
+        let text = std::str::from_utf8(data).ok()?;
+        let mut lines = text.lines();
+        lines.next()?; // "JASC-PAL"
+        lines.next()?; // "0100"
+        let n: usize = lines.next()?.trim().parse().ok()?;
+        let mut out = vec![0u8; 768];
+        for i in 0..n.min(256) {
+            let line = lines.next()?;
+            let mut parts = line.split_ascii_whitespace();
+            let r: u8 = parts.next()?.parse().ok()?;
+            let g: u8 = parts.next()?.parse().ok()?;
+            let b: u8 = parts.next()?.parse().ok()?;
+            out[i * 3] = r;
+            out[i * 3 + 1] = g;
+            out[i * 3 + 2] = b;
         }
+        return Some(out);
     }
 
-    Ok((rgba, width, height))
+    // Raw 768-byte RGB palette (.pal, .wpe without padding)
+    if data.len() == 768 {
+        return Some(data.to_vec());
+    }
+
+    // 1024-byte palette: 256 × RGB0 quads (SC1 .wpe format)
+    if data.len() == 1024 {
+        let mut out = vec![0u8; 768];
+        for i in 0..256 {
+            out[i * 3] = data[i * 4];
+            out[i * 3 + 1] = data[i * 4 + 1];
+            out[i * 3 + 2] = data[i * 4 + 2];
+        }
+        return Some(out);
+    }
+
+    // Try: first 768 bytes if the file is larger (some tilesets embed extra
+    // metadata after the palette)
+    if data.len() > 768 {
+        return Some(data[..768].to_vec());
+    }
+
+    None
 }
