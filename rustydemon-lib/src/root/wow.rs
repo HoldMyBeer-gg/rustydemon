@@ -265,6 +265,14 @@ impl RootHandler for WowRootHandler {
         self.fdid_to_hash.get(&id).copied()
     }
 
+    fn fdid_hash_map(&self) -> HashMap<u32, u64> {
+        self.fdid_to_hash.clone()
+    }
+
+    fn type_name(&self) -> &'static str {
+        "MFST (WoW)"
+    }
+
     fn file_data_id_for_hash(&self, hash: u64) -> Option<u32> {
         self.hash_to_fdid.get(&hash).copied()
     }

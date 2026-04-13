@@ -52,9 +52,10 @@ enum BgResult {
         result: SearchResult,
         data: Result<Vec<u8>, String>,
     },
-    /// A listfile was loaded in the background.
+    /// A listfile was parsed and the tree was built in the background.
     ListfileLoaded {
-        content: String,
+        filenames: std::collections::HashMap<u64, String>,
+        tree: rustydemon_lib::CascFolder,
         path: std::path::PathBuf,
     },
     /// Listfile loading failed.
@@ -160,11 +161,14 @@ impl CascExplorerApp {
                 handler.set_locale(LocaleFlags::EN_US);
                 handler.load_builtin_paths();
                 let count = handler.root_count();
+                let fnames = handler.filename_count();
+                let root_ty = handler.root_type_name();
+                let idx = handler.local_index_count();
+                let enc = handler.encoding_count();
                 self.status = format!(
-                    "Opened: {} (product: {})  |  {} root entries",
+                    "Opened: {} ({})  |  root={root_ty}  entries={count}  names={fnames}  idx={idx}  enc={enc}",
                     path.display(),
                     handler.config.product,
-                    count
                 );
                 self.handler = Some(handler);
                 self.search_results.clear();
@@ -178,9 +182,9 @@ impl CascExplorerApp {
                 self.bg_rx = None;
                 self.loading = false;
             }
-            Ok(BgResult::ListfileLoaded { content, path }) => {
+            Ok(BgResult::ListfileLoaded { filenames, tree, path }) => {
                 if let Some(handler) = self.handler.as_mut() {
-                    handler.load_listfile(&content);
+                    handler.apply_listfile(filenames, tree);
                     self.status = format!("Listfile loaded: {}", path.display());
                 }
                 self.bg_rx = None;
@@ -293,6 +297,10 @@ impl CascExplorerApp {
         self.status = format!("Loading listfile {}…", path.display());
         self.loading = true;
 
+        // Snapshot the fdid→hash map so the bg thread can resolve hashes
+        // without borrowing the handler.
+        let fdid_hashes = self.handler.as_ref().unwrap().fdid_hash_snapshot();
+
         let (tx, rx) = mpsc::channel();
         let cancel = self.cancel.clone();
         self.bg_rx = Some(rx);
@@ -303,7 +311,12 @@ impl CascExplorerApp {
             }
             match std::fs::read_to_string(&path) {
                 Ok(content) => {
-                    let _ = tx.send(BgResult::ListfileLoaded { content, path });
+                    if cancel.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let (filenames, tree) =
+                        rustydemon_lib::prepare_listfile(&content, &fdid_hashes);
+                    let _ = tx.send(BgResult::ListfileLoaded { filenames, tree, path });
                 }
                 Err(e) => {
                     let _ = tx.send(BgResult::ListfileError(format!(

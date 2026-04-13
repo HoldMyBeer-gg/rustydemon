@@ -1,7 +1,11 @@
 pub mod d4;
+pub mod install;
 pub mod mndx;
+pub mod s1;
 pub mod tvfs;
 pub mod wow;
+
+use std::collections::HashMap;
 
 use crate::{
     error::CascError,
@@ -49,12 +53,30 @@ pub trait RootHandler: Send {
     /// Translate a Jenkins96 hash back to a FileDataId, if known.
     fn file_data_id_for_hash(&self, hash: u64) -> Option<u32>;
 
+    /// Snapshot of all FileDataId → hash mappings for off-thread listfile parsing.
+    ///
+    /// The default returns an empty map (games without FileDataIds).
+    fn fdid_hash_map(&self) -> HashMap<u32, u64> {
+        HashMap::new()
+    }
+
     /// Return built-in file paths from the manifest (e.g. TVFS path table).
     ///
     /// Most root handlers return an empty vec; only TVFS-based handlers
     /// populate this, letting the UI build a tree without a listfile.
     fn builtin_paths(&self) -> Vec<(u64, String)> {
         Vec::new()
+    }
+
+    /// Whether this root handler provides a complete built-in path table,
+    /// meaning no external listfile is required (or wanted).
+    fn has_builtin_paths(&self) -> bool {
+        false
+    }
+
+    /// Short human-readable name of the root format for diagnostics.
+    fn type_name(&self) -> &'static str {
+        "Unknown"
     }
 }
 
@@ -67,12 +89,21 @@ pub trait RootHandler: Send {
 /// Other games fall back to [`DummyRootHandler`].
 pub fn load(data: Vec<u8>) -> Result<Box<dyn RootHandler>, CascError> {
     use mndx::MndxRootHandler;
+    use s1::S1RootHandler;
     use wow::WowRootHandler;
+
+    // SC1 Remastered: plain-text root (`path[:LOCALE]|hexmd5`). Check this
+    // before the binary heuristics since text roots have no magic bytes.
+    if S1RootHandler::looks_like_s1_root(&data) {
+        if let Ok(handler) = S1RootHandler::parse(&data) {
+            return Ok(Box::new(handler));
+        }
+    }
 
     if data.len() >= 4 {
         let maybe_magic = u32::from_le_bytes(data[..4].try_into().unwrap());
 
-        // MNDX root (SC1, SC2, HOTS): 'MNDX' = 0x58444E4D
+        // MNDX root (SC2, HOTS): 'MNDX' = 0x58444E4D
         if maybe_magic == 0x5844_4E4D {
             let handler = MndxRootHandler::parse(&data)?;
             return Ok(Box::new(handler));
@@ -112,5 +143,8 @@ impl RootHandler for DummyRootHandler {
     }
     fn file_data_id_for_hash(&self, _hash: u64) -> Option<u32> {
         None
+    }
+    fn type_name(&self) -> &'static str {
+        "Dummy"
     }
 }
