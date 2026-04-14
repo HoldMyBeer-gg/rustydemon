@@ -88,6 +88,100 @@ impl LocalIndexHandler {
         Ok(handler)
     }
 
+    /// Merge archive-style `.index` files into the existing index map.
+    ///
+    /// For D2R 3.1.2+, each `.index` file under `<data>/indices/` is named
+    /// after a CDN archive hash and lists the ekeys packed into that
+    /// archive along with their byte offsets and encoded sizes.  The
+    /// archive ordinal — which maps directly to the locally-stored
+    /// `data.NNN` file number — comes from the position of the archive
+    /// hash in the CDN config's `archives = ...` list.
+    ///
+    /// `archive_hashes` must be the lowercase hex-string list from
+    /// [`CascConfig::archives`], in original order.  `indices_dir` is the
+    /// directory holding the `.index` files (typically
+    /// [`CascConfig::archive_indices_path`]).  `data_storage_id` is the
+    /// storage slot whose `data.NNN` archive files these entries live in
+    /// — normally `0` for the primary `<data>/data/` storage.
+    ///
+    /// Missing `.index` files are skipped silently (not every archive
+    /// listed in the CDN config ships a local index).  Existing entries
+    /// win on conflict, matching CASCLib's first-seen behaviour — so the
+    /// ordering of this call relative to [`Self::load_multi`] matters:
+    /// call it AFTER the legacy `.idx` files so those take precedence.
+    ///
+    /// Returns the number of new entries added.
+    pub fn merge_archive_indices(
+        &mut self,
+        indices_dir: &Path,
+        archive_hashes: &[String],
+        data_storage_id: u8,
+    ) -> Result<usize, CascError> {
+        if !indices_dir.is_dir() {
+            return Ok(0);
+        }
+        if (data_storage_id as usize) >= self.storages.len() {
+            return Err(CascError::InvalidData(format!(
+                "merge_archive_indices: data_storage_id {data_storage_id} \
+                 out of range (have {} storages)",
+                self.storages.len()
+            )));
+        }
+
+        let mut added = 0usize;
+
+        for (archive_ordinal, hash) in archive_hashes.iter().enumerate() {
+            // Archive ordinals past u8 would exceed the current IndexEntry
+            // storage field, and realistically no Blizzard game ships more
+            // than a few hundred archives — D2R 3.1.2 has 148.  Cap at
+            // u32::MAX which is what the `index` field already accommodates.
+            if archive_ordinal > u32::MAX as usize {
+                break;
+            }
+
+            let path = indices_dir.join(format!("{hash}.index"));
+            // Missing and malformed files are both skipped silently — not
+            // every archive listed in the CDN config ships a local index,
+            // and we don't want one bad file in data/indices/ to break
+            // opening the entire storage for games that don't rely on
+            // this path at all.  Only fatal I/O errors (not file-not-found)
+            // should propagate.
+            let (_footer, entries) = match crate::archive_index::parse_file(&path) {
+                Ok(v) => v,
+                Err(CascError::Io(ref e)) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => continue,
+            };
+
+            for entry in entries {
+                // Entries from archive indices reference data.{archive_ordinal}
+                // in `data_storage_id`'s directory.  Offsets wider than u32
+                // (5-byte D2R group indices) get truncated here because
+                // IndexEntry.offset is u32 — for the range CommitteeCommit 2
+                // cares about (locally-present archives 0..39) the offsets
+                // always fit in 30 bits anyway.  Entries whose encoded
+                // offset exceeds u32::MAX are silently skipped so they
+                // don't corrupt the map.
+                if entry.archive_offset > u32::MAX as u64 {
+                    continue;
+                }
+
+                let ekey9 = EKey9::from_full(&entry.ekey);
+                let new_entry = IndexEntry {
+                    index: archive_ordinal as u32,
+                    offset: entry.archive_offset as u32,
+                    size: entry.encoded_size,
+                    storage: data_storage_id,
+                };
+                if let std::collections::hash_map::Entry::Vacant(v) = self.index.entry(ekey9) {
+                    v.insert(new_entry);
+                    added += 1;
+                }
+            }
+        }
+
+        Ok(added)
+    }
+
     /// Number of indexed entries across all storages.
     pub fn count(&self) -> usize {
         self.index.len()

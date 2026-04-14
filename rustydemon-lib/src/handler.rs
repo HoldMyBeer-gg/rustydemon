@@ -141,8 +141,22 @@ impl CascHandler {
         // passing both unconditionally is safe for every other game.
         let data_path = config.data_path();
         let ecache_path = config.ecache_path();
-        let local_index =
+        let mut local_index =
             LocalIndexHandler::load_multi(&[data_path.as_path(), ecache_path.as_path()])?;
+
+        // D2R 3.1.2+ ships archive-style `<hash>.index` files alongside
+        // the legacy `.idx` files.  If present, merge their entries into
+        // the index map so reads can resolve ekeys against `data.NNN`
+        // files via the CDN config's `archives = ...` ordering.  Called
+        // AFTER load_multi so legacy `.idx` entries take precedence on
+        // conflict (first-seen wins).
+        let indices_path = config.archive_indices_path();
+        if indices_path.is_dir() {
+            let archive_hashes = config.archives();
+            if !archive_hashes.is_empty() {
+                local_index.merge_archive_indices(&indices_path, archive_hashes, 0)?;
+            }
+        }
 
         // ── Encoding file ──────────────────────────────────────────────────
         let enc_ekey = config
