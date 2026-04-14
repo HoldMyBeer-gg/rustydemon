@@ -61,6 +61,8 @@
 
 pub mod archive_index;
 pub mod blte;
+#[cfg(feature = "cdn")]
+pub mod cdn;
 pub mod config;
 pub mod encoding;
 pub mod entry;

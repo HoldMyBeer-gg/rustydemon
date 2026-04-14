@@ -14,3 +14,17 @@ md-5        = "0.10"
 hex-literal = "0.4"
 bitflags    = "2"
 globset     = "0.4"
+# Plain HTTP only — the Blizzard CDN serves http://level3.blizzard.com
+# etc., and we don't want to drag ring/rustls (C build, known broken on
+# Steam Deck's Homebrew GCC) into the dependency tree.  Users who want
+# TLS for other hosts can enable ureq's native-tls feature downstream.
+ureq        = { version = "2", default-features = false, optional = true }
+
+[features]
+default = []
+# Optional CDN-fallback fetcher.  When enabled, CascHandler::open_local
+# can download loose metadata blobs (ENCODING, DOWNLOAD, TVFS root) from
+# Blizzard's CDN for installs like Steam D2R 3.1.2 where those blobs
+# aren't shipped locally.  Off by default so pure-local consumers don't
+# pull a TLS stack into their dependency graph.
+cdn = ["dep:ureq"]

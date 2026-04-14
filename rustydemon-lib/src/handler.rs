@@ -74,6 +74,12 @@ pub struct CascHandler {
     local_index: Option<LocalIndexHandler>,
     /// Static container backend — present only for Steam D4/OW-style builds.
     static_container: Option<StaticContainer>,
+    /// Optional CDN fallback fetcher.  Only present when the `cdn` feature
+    /// is compiled in and the install's `.build.info` carries CDN host
+    /// info.  Used to load D2R 3.1.2+ loose metadata blobs that aren't in
+    /// any local `.idx` or `.index` file.
+    #[cfg(feature = "cdn")]
+    cdn: Option<crate::cdn::CdnFetcher>,
     pub(crate) root: Box<dyn RootHandler>,
 
     /// Active locale filter applied to root lookups.
@@ -158,12 +164,62 @@ impl CascHandler {
             }
         }
 
+        // ── Optional CDN fallback fetcher ─────────────────────────────────
+        // Built before loading ENCODING so the encoding load path itself
+        // can fall back to CDN — required for D2R 3.1.2+ where ENCODING
+        // lives in `file-index` as a loose CDN blob, not in any local
+        // `data.NNN` archive.
+        #[cfg(feature = "cdn")]
+        let cdn_fetcher: Option<crate::cdn::CdnFetcher> =
+            if !config.cdn_hosts().is_empty() && !config.cdn_path().is_empty() {
+                let cache_dir = config.data_path().join("cdn-cache");
+                match crate::cdn::CdnFetcher::new(
+                    config.cdn_hosts().to_vec(),
+                    config.cdn_path().to_owned(),
+                    cache_dir,
+                ) {
+                    Ok(f) => Some(f),
+                    Err(e) => {
+                        eprintln!("cdn: disabled — {e}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+        // Fallback read: try the local index first, then CDN (when the
+        // `cdn` feature is compiled in and a fetcher was built).  Used for
+        // ENCODING and for the legacy root manifest — both can be loose
+        // blobs on D2R 3.1.2+.
+        #[allow(unused_variables)] // cdn arg is unused when feature is off
+        let read_metadata_blob = |ekey: &Md5Hash| -> Result<Vec<u8>, CascError> {
+            match local_index.read_block(ekey) {
+                Ok(bytes) => Ok(bytes),
+                Err(local_err) => {
+                    #[cfg(feature = "cdn")]
+                    if let Some(fetcher) = cdn_fetcher.as_ref() {
+                        match fetcher.fetch(ekey) {
+                            Ok(bytes) => return Ok(bytes),
+                            Err(cdn_err) => {
+                                return Err(CascError::Config(format!(
+                                    "read {} failed locally ({local_err}) and via CDN ({cdn_err})",
+                                    ekey.to_hex()
+                                )));
+                            }
+                        }
+                    }
+                    Err(local_err)
+                }
+            }
+        };
+
         // ── Encoding file ──────────────────────────────────────────────────
         let enc_ekey = config
             .encoding_ekey()
             .ok_or_else(|| CascError::Config("build config missing encoding ekey".into()))?;
 
-        let enc_data = local_index.read_block(&enc_ekey)?;
+        let enc_data = read_metadata_blob(&enc_ekey)?;
         let enc_decoded = blte::decode(&enc_data, &enc_ekey, false)?;
         let encoding = EncodingHandler::from_reader(Cursor::new(enc_decoded))?;
 
@@ -193,7 +249,7 @@ impl CascHandler {
                 .best_ekey(&root_ckey)
                 .ok_or_else(|| CascError::EncodingNotFound(root_ckey.to_hex()))?;
 
-            let root_data = local_index.read_block(&root_ekey)?;
+            let root_data = read_metadata_blob(&root_ekey)?;
 
             let root_decoded = blte::decode(&root_data, &root_ekey, false)?;
             let mut handler = root::load(root_decoded)?;
@@ -224,6 +280,8 @@ impl CascHandler {
             encoding: Some(encoding),
             local_index: Some(local_index),
             static_container: None,
+            #[cfg(feature = "cdn")]
+            cdn: cdn_fetcher,
             root: root_handler,
             locale: LocaleFlags::ALL_WOW,
             root_folder: None,
@@ -264,6 +322,8 @@ impl CascHandler {
             encoding: None,
             local_index: None,
             static_container: Some(container),
+            #[cfg(feature = "cdn")]
+            cdn: None,
             root: Box::new(tvfs),
             locale: LocaleFlags::ALL,
             root_folder: None,
@@ -465,6 +525,13 @@ impl CascHandler {
     }
 
     /// Decode and return the raw bytes of a file by encoding key.
+    ///
+    /// Try local first; on any failure (lookup miss, read error, or BLTE
+    /// decode error from stale/partial local data) fall back to CDN when
+    /// the `cdn` feature is compiled in and a fetcher was configured.
+    /// This matches olegbl/CascLib's D2R 3.1.2+ fix where local `.idx`
+    /// entries can be stale or truncated and need a CDN-fetched blob to
+    /// supersede them.
     pub fn open_by_ekey(&self, ekey: &Md5Hash) -> Result<Vec<u8>, CascError> {
         if let Some(container) = &self.static_container {
             // `open_by_ekey` autodetects BLTE vs raw zlib (D4's VFS roots
@@ -477,10 +544,31 @@ impl CascHandler {
             .as_ref()
             .ok_or_else(|| CascError::Config("no storage backend configured".into()))?;
 
-        // `read_block` routes to the correct storage for us (primary vs
-        // ecache), so we don't have to care which one the ekey lives in.
-        let raw = local_index.read_block(ekey)?;
-        blte::decode(&raw, ekey, self.validate_hashes)
+        // Attempt 1: full local read + BLTE decode.  `read_block` routes
+        // the lookup to the correct storage (primary / ecache / archive
+        // indices) so we don't care which one holds the ekey.
+        let local_attempt = local_index
+            .read_block(ekey)
+            .and_then(|raw| blte::decode(&raw, ekey, self.validate_hashes));
+
+        match local_attempt {
+            Ok(bytes) => Ok(bytes),
+            Err(local_err) => {
+                #[cfg(feature = "cdn")]
+                {
+                    if let Some(fetcher) = self.cdn.as_ref() {
+                        let cdn_bytes = fetcher.fetch(ekey).map_err(|cdn_err| {
+                            CascError::Config(format!(
+                                "read {} failed locally ({local_err}) and via CDN ({cdn_err})",
+                                ekey.to_hex()
+                            ))
+                        })?;
+                        return blte::decode(&cdn_bytes, ekey, self.validate_hashes);
+                    }
+                }
+                Err(local_err)
+            }
+        }
     }
 
     // ── Internal helpers ───────────────────────────────────────────────────────

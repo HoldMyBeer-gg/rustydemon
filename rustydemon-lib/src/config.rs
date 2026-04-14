@@ -183,6 +183,12 @@ pub struct CascConfig {
     /// installations loaded via [`Self::load_local_static`], which resolve
     /// their container directory differently.
     data_folder: Option<String>,
+    /// CDN host list from `.build.info` (`level3.blizzard.com`, etc.).
+    /// Populated by [`Self::load_local`] so the optional CDN fetcher can
+    /// construct download URLs without re-parsing `.build.info`.
+    cdn_hosts: Vec<String>,
+    /// CDN URL path from `.build.info` (e.g. `tpr/osi` for D2R).
+    cdn_path: String,
 }
 
 impl CascConfig {
@@ -282,6 +288,8 @@ impl CascConfig {
             build,
             cdn: KeyValueConfig::default(),
             data_folder: None,
+            cdn_hosts: Vec::new(),
+            cdn_path: String::new(),
         })
     }
 
@@ -395,6 +403,28 @@ impl CascConfig {
 
         let cdn = KeyValueConfig::from_reader(open_config(&cdn_key)?)?;
 
+        // CDN host list + path from the same row we already picked BuildKey
+        // from.  Both are space-separated lists in `.build.info`; the path
+        // column is usually a single segment like `tpr/osi` but we take
+        // whatever's in the column verbatim.
+        let pick_col = |col: &str| -> String {
+            build_info
+                .get("Product", &resolved_product, col)
+                .or_else(|| {
+                    build_info
+                        .rows()
+                        .first()
+                        .and_then(|r| r.get(col).map(String::as_str))
+                })
+                .unwrap_or("")
+                .to_owned()
+        };
+        let cdn_hosts: Vec<String> = pick_col("CDNHosts")
+            .split_ascii_whitespace()
+            .map(std::borrow::ToOwned::to_owned)
+            .collect();
+        let cdn_path = pick_col("CDNPath");
+
         Ok(CascConfig {
             base_path,
             game_type,
@@ -402,7 +432,29 @@ impl CascConfig {
             build,
             cdn,
             data_folder: Some(data_folder),
+            cdn_hosts,
+            cdn_path,
         })
+    }
+
+    /// CDN host names from `.build.info` (e.g. `level3.blizzard.com`).
+    /// Empty for static-container installs loaded via [`Self::load_local_static`].
+    pub fn cdn_hosts(&self) -> &[String] {
+        &self.cdn_hosts
+    }
+
+    /// CDN URL path from `.build.info` (e.g. `tpr/osi`).  Empty for
+    /// static-container installs.
+    pub fn cdn_path(&self) -> &str {
+        &self.cdn_path
+    }
+
+    /// First build config key = `file-index` value, if present.  D2R 3.1.2+
+    /// uses this to point at an archive-style index listing loose metadata
+    /// blobs (ENCODING, DOWNLOAD, TVFS root) stored at CDN paths, not in
+    /// any `data.NNN` archive.
+    pub fn file_index_hash(&self) -> Option<&str> {
+        self.cdn.get_first("file-index")
     }
 
     // ── Build config accessors ─────────────────────────────────────────────
