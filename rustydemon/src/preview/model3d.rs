@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use wow_wmo::{parse_wmo, ParsedWmo};
 
-use super::{Mesh3dCpu, PreviewOutput, PreviewPlugin};
+use super::{Mesh3dCpu, MeshBatch, PreviewOutput, PreviewPlugin};
 
 pub struct Model3dPreview;
 
@@ -112,11 +112,34 @@ impl PreviewPlugin for Model3dPreview {
                             }
                         }
                     }
+
+                    // Render-batches define material-bounded slices of the
+                    // index buffer. Fall back to a single pseudo-batch
+                    // covering everything if the group has none.
+                    let batches: Vec<MeshBatch> = if group.render_batches.is_empty() {
+                        vec![MeshBatch {
+                            start_index: 0,
+                            index_count: indices.len() as u32,
+                            material_id: 0,
+                        }]
+                    } else {
+                        group
+                            .render_batches
+                            .iter()
+                            .map(|b| MeshBatch {
+                                start_index: b.start_index,
+                                index_count: b.count as u32,
+                                material_id: b.material_id as u32,
+                            })
+                            .collect()
+                    };
+
                     out.mesh3d = Some(Arc::new(Mesh3dCpu {
                         positions,
                         indices,
                         bbox_min: mn,
                         bbox_max: mx,
+                        batches,
                     }));
                 }
             }

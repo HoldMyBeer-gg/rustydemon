@@ -20,6 +20,13 @@ use wgpu::util::DeviceExt;
 
 use crate::preview::Mesh3dCpu;
 
+/// Stride of one per-batch uniform within the dynamic-offset buffer.
+/// Must be ≥ size_of::<BatchUniform>() AND a multiple of
+/// `min_uniform_buffer_offset_alignment` (≤ 256 on every backend we
+/// care about). Using a fixed 256 keeps the math and pipeline layout
+/// constant across devices.
+const BATCH_UNIFORM_STRIDE: u64 = 256;
+
 /// GPU-side resources that live for the whole app lifetime.
 struct Viewport3dResources {
     pipeline: wgpu::RenderPipeline,
@@ -29,20 +36,53 @@ struct Viewport3dResources {
 
 /// Mesh pipeline + the latest uploaded mesh (lazy-rebuilt when the
 /// callback sees a different `Arc` pointer).
+///
+/// v1 architecture: the scene renders into an offscreen colour+depth
+/// target sized to the viewport rect, then a fullscreen-triangle blit
+/// pipeline samples that colour texture into egui's render pass. This
+/// is what gives us proper depth occlusion despite egui's main render
+/// pass having no depth attachment.
 struct MeshResources {
-    pipeline: wgpu::RenderPipeline,
-    bind_group_layout: wgpu::BindGroupLayout,
+    mesh_pipeline: wgpu::RenderPipeline,
+    mesh_bgl: wgpu::BindGroupLayout,
+    batch_bgl: wgpu::BindGroupLayout,
+    blit_pipeline: wgpu::RenderPipeline,
+    blit_bgl: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    offscreen_format: wgpu::TextureFormat,
     /// Currently-uploaded mesh, keyed by Arc pointer for cache identity.
     cached: Option<UploadedMesh>,
+    /// Cached offscreen target — recreated when the rect size changes.
+    offscreen: Option<Offscreen>,
 }
 
 struct UploadedMesh {
     key: usize,
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
-    index_count: u32,
     uniform_buf: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    /// Per-batch colour uniforms packed at `BATCH_UNIFORM_STRIDE` apart.
+    /// Held to keep the GPU-side allocation alive for as long as the
+    /// bind group references it; never read directly after construction.
+    #[allow(dead_code)]
+    batch_uniform_buf: wgpu::Buffer,
+    batch_bind_group: wgpu::BindGroup,
+    batches: Vec<UploadedBatch>,
+}
+
+#[derive(Clone, Copy)]
+struct UploadedBatch {
+    start_index: u32,
+    index_count: u32,
+}
+
+struct Offscreen {
+    width: u32,
+    height: u32,
+    color_view: wgpu::TextureView,
+    depth_view: wgpu::TextureView,
+    blit_bind_group: wgpu::BindGroup,
 }
 
 #[repr(C)]
@@ -51,11 +91,83 @@ struct MeshUniforms {
     view_proj: [[f32; 4]; 4],
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct BatchUniform {
+    color: [f32; 4],
+}
+
+/// Map a material id to a stable, pleasant colour. Hue jittered by the
+/// id so adjacent ids visually separate; saturation/lightness fixed for
+/// a coherent palette.
+fn material_color(material_id: u32) -> [f32; 4] {
+    // Cheap integer hash → hue in [0, 1).
+    let mut x = material_id.wrapping_mul(2654435761);
+    x ^= x >> 16;
+    let hue = (x as f32 / u32::MAX as f32).fract();
+    hsv_to_rgb(hue, 0.45, 0.85)
+}
+
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 4] {
+    let i = (h * 6.0).floor();
+    let f = h * 6.0 - i;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - f * s);
+    let t = v * (1.0 - (1.0 - f) * s);
+    let (r, g, b) = match (i as i32).rem_euclid(6) {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    };
+    [r, g, b, 1.0]
+}
+
+const BLIT_SHADER: &str = r#"
+@group(0) @binding(0) var src_tex: texture_2d<f32>;
+@group(0) @binding(1) var src_smp: sampler;
+
+struct VOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> VOut {
+    var ps = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0),
+        vec2<f32>(-1.0,  1.0),
+        vec2<f32>( 3.0,  1.0),
+    );
+    var uvs = array<vec2<f32>, 3>(
+        vec2<f32>(0.0, 2.0),
+        vec2<f32>(0.0, 0.0),
+        vec2<f32>(2.0, 0.0),
+    );
+    var out: VOut;
+    out.pos = vec4<f32>(ps[i], 0.0, 1.0);
+    out.uv = uvs[i];
+    return out;
+}
+
+@fragment
+fn fs(in: VOut) -> @location(0) vec4<f32> {
+    return textureSample(src_tex, src_smp, in.uv);
+}
+"#;
+
 const MESH_SHADER: &str = r#"
 struct Uniforms {
     view_proj: mat4x4<f32>,
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
+
+struct BatchUniform {
+    color: vec4<f32>,
+};
+@group(1) @binding(0) var<uniform> b: BatchUniform;
 
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
@@ -73,14 +185,14 @@ fn vs_main(@location(0) pos: vec3<f32>) -> VsOut {
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Flat shading via screen-space derivatives — no per-vertex normals
-    // needed. Light is a fixed direction; base color is parchment.
+    // needed. Per-batch colour is multiplied in from the batch uniform.
     let dx = dpdx(in.world);
     let dy = dpdy(in.world);
     let n = normalize(cross(dx, dy));
     let light_dir = normalize(vec3<f32>(0.4, 0.8, 0.5));
     let lambert = max(dot(n, light_dir), 0.0);
     let shaded = 0.25 + 0.75 * lambert;
-    return vec4<f32>(vec3<f32>(shaded) * vec3<f32>(0.85, 0.82, 0.74), 1.0);
+    return vec4<f32>(vec3<f32>(shaded) * b.color.rgb, 1.0);
 }
 "#;
 
@@ -212,7 +324,12 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         cache: None,
     });
 
-    // ── Mesh pipeline (real WMO geometry) ─────────────────────────────────────
+    // ── Mesh pipeline (real WMO geometry, renders to offscreen) ───────────────
+    // Use the same colour format for offscreen as for the egui surface so
+    // the blit pipeline doesn't need any format conversion.
+    let offscreen_format = target_format;
+    let depth_format = wgpu::TextureFormat::Depth32Float;
+
     let mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("viewport3d mesh shader"),
         source: wgpu::ShaderSource::Wgsl(MESH_SHADER.into()),
@@ -232,9 +349,24 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         }],
     });
 
+    // Per-batch colour, addressed via dynamic offset into a single buffer.
+    let batch_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("viewport3d batch bgl"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: true,
+                min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<BatchUniform>() as u64),
+            },
+            count: None,
+        }],
+    });
+
     let mesh_pl_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("viewport3d mesh pl"),
-        bind_group_layouts: &[&mesh_bgl],
+        bind_group_layouts: &[&mesh_bgl, &batch_bgl],
         push_constant_ranges: &[],
     });
 
@@ -255,7 +387,7 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
             module: &mesh_shader,
             entry_point: "fs_main",
             targets: &[Some(wgpu::ColorTargetState {
-                format: target_format,
+                format: offscreen_format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
@@ -270,10 +402,87 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
             polygon_mode: wgpu::PolygonMode::Fill,
             conservative: false,
         },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: depth_format,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+
+    // ── Blit pipeline (offscreen colour → egui render pass) ───────────────────
+    let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("viewport3d blit shader"),
+        source: wgpu::ShaderSource::Wgsl(BLIT_SHADER.into()),
+    });
+
+    let blit_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("viewport3d blit bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+
+    let blit_pl_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("viewport3d blit pl"),
+        bind_group_layouts: &[&blit_bgl],
+        push_constant_ranges: &[],
+    });
+
+    let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("viewport3d blit pipeline"),
+        layout: Some(&blit_pl_layout),
+        vertex: wgpu::VertexState {
+            module: &blit_shader,
+            entry_point: "vs",
+            buffers: &[],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &blit_shader,
+            entry_point: "fs",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: target_format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
         multiview: None,
         cache: None,
+    });
+
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("viewport3d blit sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
     });
 
     let mut renderer = render_state.renderer.write();
@@ -285,9 +494,15 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
             bind_group,
         }));
     renderer.callback_resources.insert(MeshResources {
-        pipeline: mesh_pipeline,
-        bind_group_layout: mesh_bgl,
+        mesh_pipeline,
+        mesh_bgl,
+        batch_bgl,
+        blit_pipeline,
+        blit_bgl,
+        sampler,
+        offscreen_format,
         cached: None,
+        offscreen: None,
     });
 }
 
@@ -333,10 +548,16 @@ impl egui_wgpu::CallbackTrait for TriangleCallback {
 }
 
 /// Per-frame callback that draws an indexed WMO mesh.
+///
+/// Carries the scene state (`mesh`, `angle`) plus the *pixel* size of
+/// the egui rect we're painting into so `prepare()` can size the
+/// offscreen render target correctly. egui rects are in points; we
+/// multiply by `pixels_per_point` at allocation time.
 struct MeshCallback {
     mesh: Arc<Mesh3dCpu>,
     angle: f32,
-    aspect: f32,
+    pixel_width: u32,
+    pixel_height: u32,
 }
 
 impl egui_wgpu::CallbackTrait for MeshCallback {
@@ -345,21 +566,20 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         _screen_descriptor: &egui_wgpu::ScreenDescriptor,
-        _egui_encoder: &mut wgpu::CommandEncoder,
+        egui_encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         let Some(res) = resources.get_mut::<MeshResources>() else {
             return Vec::new();
         };
 
+        // ── 1. Upload mesh on first sight or when the selection changes ───────
         let key = Arc::as_ptr(&self.mesh) as usize;
         let needs_upload = match &res.cached {
             Some(c) => c.key != key,
             None => true,
         };
-
         if needs_upload {
-            // Flatten positions to a tightly packed float buffer.
             let mut flat: Vec<f32> = Vec::with_capacity(self.mesh.positions.len() * 3);
             for p in &self.mesh.positions {
                 flat.extend_from_slice(p);
@@ -382,30 +602,136 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
             });
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("wmo bg"),
-                layout: &res.bind_group_layout,
+                layout: &res.mesh_bgl,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: uniform_buf.as_entire_binding(),
                 }],
             });
+
+            // Build the dynamic-offset batch uniform buffer: one
+            // BATCH_UNIFORM_STRIDE-sized slot per batch, each holding
+            // the colour derived from `material_id`.
+            let batch_count = self.mesh.batches.len().max(1);
+            let batch_buf_size = BATCH_UNIFORM_STRIDE * batch_count as u64;
+            let mut batch_bytes = vec![0u8; batch_buf_size as usize];
+            for (i, b) in self.mesh.batches.iter().enumerate() {
+                let bu = BatchUniform {
+                    color: material_color(b.material_id),
+                };
+                let off = i * BATCH_UNIFORM_STRIDE as usize;
+                batch_bytes[off..off + std::mem::size_of::<BatchUniform>()]
+                    .copy_from_slice(bytemuck::bytes_of(&bu));
+            }
+            let batch_uniform_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("wmo batch uniforms"),
+                contents: &batch_bytes,
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+            let batch_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("wmo batch bg"),
+                layout: &res.batch_bgl,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &batch_uniform_buf,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(std::mem::size_of::<BatchUniform>() as u64),
+                    }),
+                }],
+            });
+
+            let batches: Vec<UploadedBatch> = self
+                .mesh
+                .batches
+                .iter()
+                .map(|b| UploadedBatch {
+                    start_index: b.start_index,
+                    index_count: b.index_count,
+                })
+                .collect();
+
             res.cached = Some(UploadedMesh {
                 key,
                 vertex_buf,
                 index_buf,
-                index_count: self.mesh.indices.len() as u32,
                 uniform_buf,
                 bind_group,
+                batch_uniform_buf,
+                batch_bind_group,
+                batches,
             });
         }
 
-        // Compute view-projection from bbox + animated angle.
+        // ── 2. (Re)create offscreen targets if the rect size changed ──────────
+        let width = self.pixel_width.max(1);
+        let height = self.pixel_height.max(1);
+        let needs_resize = match &res.offscreen {
+            Some(o) => o.width != width || o.height != height,
+            None => true,
+        };
+        if needs_resize {
+            let color = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("wmo offscreen color"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: res.offscreen_format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let depth = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("wmo offscreen depth"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
+            let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
+            let blit_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("wmo blit bg"),
+                layout: &res.blit_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&color_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&res.sampler),
+                    },
+                ],
+            });
+            res.offscreen = Some(Offscreen {
+                width,
+                height,
+                color_view,
+                depth_view,
+                blit_bind_group,
+            });
+        }
+
+        // ── 3. Update view-projection uniform ─────────────────────────────────
+        let aspect = width as f32 / height as f32;
         let mn = Vec3::from(self.mesh.bbox_min);
         let mx = Vec3::from(self.mesh.bbox_max);
         let center = (mn + mx) * 0.5;
         let extent = (mx - mn).length().max(1.0);
         let radius = extent * 1.4;
-
-        // WoW is Z-up — orbit in the XY plane, look down at Z = center.z.
         let eye = center
             + Vec3::new(
                 radius * self.angle.cos(),
@@ -415,12 +741,11 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
         let view = Mat4::look_at_rh(eye, center, Vec3::Z);
         let proj = Mat4::perspective_rh(
             45f32.to_radians(),
-            self.aspect.max(0.0001),
+            aspect.max(0.0001),
             extent * 0.05,
             extent * 10.0,
         );
         let view_proj = proj * view;
-
         if let Some(c) = &res.cached {
             let uniforms = MeshUniforms {
                 view_proj: view_proj.to_cols_array_2d(),
@@ -428,40 +753,101 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
             queue.write_buffer(&c.uniform_buf, 0, bytemuck::bytes_of(&uniforms));
         }
 
+        // ── 4. Render scene into the offscreen target ─────────────────────────
+        if let (Some(c), Some(o)) = (&res.cached, &res.offscreen) {
+            let mut pass = egui_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("wmo offscreen pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &o.color_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.08,
+                            g: 0.09,
+                            b: 0.11,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &o.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&res.mesh_pipeline);
+            pass.set_bind_group(0, &c.bind_group, &[]);
+            pass.set_vertex_buffer(0, c.vertex_buf.slice(..));
+            pass.set_index_buffer(c.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+            for (i, b) in c.batches.iter().enumerate() {
+                let dyn_offset = (i as u64 * BATCH_UNIFORM_STRIDE) as u32;
+                pass.set_bind_group(1, &c.batch_bind_group, &[dyn_offset]);
+                let start = b.start_index;
+                let end = start + b.index_count;
+                pass.draw_indexed(start..end, 0, 0..1);
+            }
+        }
+
         Vec::new()
     }
 
     fn paint(
         &self,
-        _info: egui::PaintCallbackInfo,
+        info: egui::PaintCallbackInfo,
         render_pass: &mut wgpu::RenderPass<'static>,
         resources: &egui_wgpu::CallbackResources,
     ) {
         let Some(res) = resources.get::<MeshResources>() else {
             return;
         };
-        let Some(c) = &res.cached else {
+        let Some(o) = &res.offscreen else {
             return;
         };
-        render_pass.set_pipeline(&res.pipeline);
-        render_pass.set_bind_group(0, &c.bind_group, &[]);
-        render_pass.set_vertex_buffer(0, c.vertex_buf.slice(..));
-        render_pass.set_index_buffer(c.index_buf.slice(..), wgpu::IndexFormat::Uint32);
-        render_pass.draw_indexed(0..c.index_count, 0, 0..1);
+
+        // Constrain the fullscreen-triangle blit to the painter rect via
+        // viewport, and clip to the visible portion via scissor — the
+        // scissor matters when our rect is partially scrolled out of
+        // view inside a parent ScrollArea, otherwise the offscreen blit
+        // would bleed over neighbouring widgets.
+        let vp = info.viewport_in_pixels();
+        render_pass.set_viewport(
+            vp.left_px as f32,
+            vp.top_px as f32,
+            vp.width_px as f32,
+            vp.height_px as f32,
+            0.0,
+            1.0,
+        );
+        let cr = info.clip_rect_in_pixels();
+        render_pass.set_scissor_rect(
+            cr.left_px.max(0) as u32,
+            cr.top_px.max(0) as u32,
+            cr.width_px.max(0) as u32,
+            cr.height_px.max(0) as u32,
+        );
+        render_pass.set_pipeline(&res.blit_pipeline);
+        render_pass.set_bind_group(0, &o.blit_bind_group, &[]);
+        render_pass.draw(0..3, 0..1);
     }
 }
 
-/// Render `mesh` into the inline preview pane using the existing wgpu
-/// pipeline. Caller allocates the rect; we slowly auto-orbit in v0.
+/// Render `mesh` into the inline preview pane. Allocates a fixed-height
+/// rect, computes the equivalent pixel size from the egui DPI scale, and
+/// hands both off to [`MeshCallback`].
 pub fn paint_mesh(ui: &mut egui::Ui, mesh: Arc<Mesh3dCpu>) {
-    let available = ui.available_size();
-    let size = Vec2::new(available.x.max(64.0), 320.0_f32.min(available.y.max(64.0)));
+    let width = ui.available_width().max(64.0);
+    let size = Vec2::new(width, 240.0);
     let (rect, _response) = ui.allocate_exact_size(size, egui::Sense::hover());
-    let aspect = if rect.height() > 0.0 {
-        rect.width() / rect.height()
-    } else {
-        1.0
-    };
+
+    let ppp = ui.ctx().pixels_per_point();
+    let pixel_width = (rect.width() * ppp).round().max(1.0) as u32;
+    let pixel_height = (rect.height() * ppp).round().max(1.0) as u32;
     let angle = (ui.ctx().input(|i| i.time) as f32) * 0.4;
 
     ui.painter().add(egui_wgpu::Callback::new_paint_callback(
@@ -469,7 +855,8 @@ pub fn paint_mesh(ui: &mut egui::Ui, mesh: Arc<Mesh3dCpu>) {
         MeshCallback {
             mesh,
             angle,
-            aspect,
+            pixel_width,
+            pixel_height,
         },
     ));
 

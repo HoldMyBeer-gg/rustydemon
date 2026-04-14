@@ -5,8 +5,19 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     ui.heading("Details / Preview");
     ui.separator();
 
-    let Some(sel) = &app.selected else {
+    if app.selected.is_none() {
         ui.label("Select a file to preview it.");
+        return;
+    }
+
+    egui::ScrollArea::vertical()
+        .id_salt("preview_pane_outer")
+        .auto_shrink([false, false])
+        .show(ui, |ui| draw_preview_body(ui, app));
+}
+
+fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
+    let Some(sel) = &app.selected else {
         return;
     };
 
@@ -73,18 +84,15 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
             ui.separator();
         }
 
-        // Text block (formatted summary or full text file).
+        // Text block (formatted summary or full text file). The outer
+        // ScrollArea handles overflow; this widget just lays out as tall
+        // as its contents.
         if let Some(text) = &preview.text {
-            egui::ScrollArea::vertical()
-                .id_salt("plugin_text_preview")
-                .max_height(300.0)
-                .show(ui, |ui| {
-                    ui.add(
-                        egui::TextEdit::multiline(&mut text.as_str())
-                            .font(egui::TextStyle::Monospace)
-                            .desired_width(f32::INFINITY),
-                    );
-                });
+            ui.add(
+                egui::TextEdit::multiline(&mut text.as_str())
+                    .font(egui::TextStyle::Monospace)
+                    .desired_width(f32::INFINITY),
+            );
             ui.separator();
         }
     } else if let Some(data) = &sel.data {
@@ -110,15 +118,11 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
             .collect::<Vec<_>>()
             .join("\n");
 
-        egui::ScrollArea::vertical()
-            .max_height(160.0)
-            .show(ui, |ui| {
-                ui.add(
-                    egui::TextEdit::multiline(&mut hex.as_str())
-                        .font(egui::TextStyle::Monospace)
-                        .desired_width(f32::INFINITY),
-                );
-            });
+        ui.add(
+            egui::TextEdit::multiline(&mut hex.as_str())
+                .font(egui::TextStyle::Monospace)
+                .desired_width(f32::INFINITY),
+        );
     }
 
     // ── Deep-search content matches ────────────────────────────────────────────
@@ -128,18 +132,13 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
             "Deep search: {} entries",
             sel.content_matches.len()
         ));
-        egui::ScrollArea::vertical()
-            .id_salt("content_matches")
-            .max_height(120.0)
-            .show(ui, |ui| {
-                for m in &sel.content_matches {
-                    ui.label(
-                        egui::RichText::new(format!("[{}] {}", m.kind, m.inner_path))
-                            .small()
-                            .monospace(),
-                    );
-                }
-            });
+        for m in &sel.content_matches {
+            ui.label(
+                egui::RichText::new(format!("[{}] {}", m.kind, m.inner_path))
+                    .small()
+                    .monospace(),
+            );
+        }
     }
 
     ui.separator();
