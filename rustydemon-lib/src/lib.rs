@@ -59,6 +59,7 @@
 
 // ── Public modules ─────────────────────────────────────────────────────────────
 
+pub mod archive_index;
 pub mod blte;
 pub mod config;
 pub mod encoding;
