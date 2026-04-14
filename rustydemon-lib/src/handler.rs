@@ -255,9 +255,38 @@ impl CascHandler {
             let root_decoded = blte::decode(&root_data, &root_ekey, false)?;
             let mut handler = root::load(root_decoded)?;
 
-            // Fallback: if the root manifest format wasn't recognised
-            // (e.g. SC1 Remastered), use the INSTALL manifest as the
-            // authoritative file list. Every CASC install has one.
+            // Fallback 1: D2R 3.1.2+ ships a non-zero `root` that's a
+            // legacy stub no current root handler recognises, plus a real
+            // `vfs-root` alongside.  When the traditional root returns
+            // Dummy AND the build config has a vfs-root entry, try TVFS
+            // before giving up on the root manifest.  Retail WoW also
+            // ships both fields populated, but its `root` is a valid
+            // MFST so this branch never fires there — MFST wins and WoW
+            // keeps working.
+            if handler.type_name() == "Dummy" && config.vfs_root_ekey().is_some() {
+                let vfs_ekey = config.vfs_root_ekey().unwrap();
+                let vfs_list = config.vfs_root_list();
+                let opener = crate::root::tvfs::LocalFileOpener {
+                    encoding: &encoding,
+                    local_index: &local_index,
+                };
+                match TvfsRootHandler::load(&vfs_ekey, &vfs_list, &opener) {
+                    Ok(tvfs) => {
+                        eprintln!(
+                            "root fallback: TVFS loaded ({} entries) — legacy root was unrecognised",
+                            tvfs.count()
+                        );
+                        handler = Box::new(tvfs);
+                    }
+                    Err(e) => {
+                        eprintln!("root fallback: TVFS failed: {e}");
+                    }
+                }
+            }
+
+            // Fallback 2: if the root manifest format still isn't
+            // recognised (e.g. SC1 Remastered), use the INSTALL manifest
+            // as the authoritative file list.  Every CASC install has one.
             if handler.type_name() == "Dummy" {
                 match load_install_as_root(&config, &encoding, &local_index) {
                     Ok(install) => {
