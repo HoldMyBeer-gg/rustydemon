@@ -3313,7 +3313,6 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
- "globset",
  "indicatif",
  "rayon",
  "rustydemon-lib",
@@ -3325,6 +3324,7 @@ version = "0.3.0"
 dependencies = [
  "bitflags 2.11.0",
  "flate2",
+ "globset",
  "hex-literal",
  "md-5",
  "thiserror 2.0.18",

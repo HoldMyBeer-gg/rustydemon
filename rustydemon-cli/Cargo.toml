@@ -16,5 +16,4 @@ rustydemon-lib = { path = "../rustydemon-lib", version = "0.3.0" }
 clap           = { version = "4", features = ["derive"] }
 rayon          = "1"
 indicatif      = "0.17"
-globset        = "0.4"
 anyhow         = "1"
