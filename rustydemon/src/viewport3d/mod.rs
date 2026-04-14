@@ -69,6 +69,29 @@ struct UploadedMesh {
     batch_uniform_buf: wgpu::Buffer,
     batch_bind_group: wgpu::BindGroup,
     batches: Vec<UploadedBatch>,
+    /// Per-mesh camera state — resets when a new selection uploads.
+    camera: CameraState,
+}
+
+/// Orbit camera state. Yaw rotates around the Z axis (WoW up), pitch
+/// elevates the eye above the bbox center, distance scales the orbit
+/// radius around the bbox extent. Defaults are tuned to give a sane
+/// initial framing of any model.
+#[derive(Clone, Copy)]
+struct CameraState {
+    yaw: f32,
+    pitch: f32,
+    distance_mul: f32,
+}
+
+impl Default for CameraState {
+    fn default() -> Self {
+        Self {
+            yaw: 0.6,
+            pitch: 0.45,
+            distance_mul: 1.4,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -549,13 +572,17 @@ impl egui_wgpu::CallbackTrait for TriangleCallback {
 
 /// Per-frame callback that draws an indexed WMO mesh.
 ///
-/// Carries the scene state (`mesh`, `angle`) plus the *pixel* size of
-/// the egui rect we're painting into so `prepare()` can size the
-/// offscreen render target correctly. egui rects are in points; we
-/// multiply by `pixels_per_point` at allocation time.
+/// Carries the scene state (`mesh`, camera deltas) plus the *pixel*
+/// size of the egui rect we're painting into so `prepare()` can size
+/// the offscreen render target correctly. The camera *deltas* (not the
+/// absolute state) are passed through here because the absolute state
+/// lives on `UploadedMesh` and survives between frames; the callback
+/// just applies this frame's input.
 struct MeshCallback {
     mesh: Arc<Mesh3dCpu>,
-    angle: f32,
+    yaw_delta: f32,
+    pitch_delta: f32,
+    zoom_delta: f32,
     pixel_width: u32,
     pixel_height: u32,
 }
@@ -660,7 +687,19 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
                 batch_uniform_buf,
                 batch_bind_group,
                 batches,
+                camera: CameraState::default(),
             });
+        }
+
+        // Apply this frame's input deltas to the persistent camera state.
+        if let Some(c) = res.cached.as_mut() {
+            c.camera.yaw += self.yaw_delta;
+            c.camera.pitch = (c.camera.pitch + self.pitch_delta).clamp(
+                -std::f32::consts::FRAC_PI_2 + 0.05,
+                std::f32::consts::FRAC_PI_2 - 0.05,
+            );
+            c.camera.distance_mul =
+                (c.camera.distance_mul * (1.0 - self.zoom_delta)).clamp(0.2, 10.0);
         }
 
         // ── 2. (Re)create offscreen targets if the rect size changed ──────────
@@ -731,19 +770,23 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
         let mx = Vec3::from(self.mesh.bbox_max);
         let center = (mn + mx) * 0.5;
         let extent = (mx - mn).length().max(1.0);
-        let radius = extent * 1.4;
+
+        let cam = res.cached.as_ref().map(|c| c.camera).unwrap_or_default();
+        let radius = extent * cam.distance_mul;
+        let cos_p = cam.pitch.cos();
         let eye = center
             + Vec3::new(
-                radius * self.angle.cos(),
-                radius * self.angle.sin(),
-                radius * 0.45,
+                radius * cos_p * cam.yaw.cos(),
+                radius * cos_p * cam.yaw.sin(),
+                radius * cam.pitch.sin(),
             );
+
         let view = Mat4::look_at_rh(eye, center, Vec3::Z);
         let proj = Mat4::perspective_rh(
             45f32.to_radians(),
             aspect.max(0.0001),
             extent * 0.05,
-            extent * 10.0,
+            extent * 20.0,
         );
         let view_proj = proj * view;
         if let Some(c) = &res.cached {
@@ -838,29 +881,51 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
 }
 
 /// Render `mesh` into the inline preview pane. Allocates a fixed-height
-/// rect, computes the equivalent pixel size from the egui DPI scale, and
-/// hands both off to [`MeshCallback`].
+/// rect, reads drag + scroll input for the orbit camera, computes the
+/// equivalent pixel size from the egui DPI scale, and hands everything
+/// off to [`MeshCallback`]. Drag = orbit, scroll = zoom; releasing
+/// returns control without snapping.
 pub fn paint_mesh(ui: &mut egui::Ui, mesh: Arc<Mesh3dCpu>) {
     let width = ui.available_width().max(64.0);
     let size = Vec2::new(width, 240.0);
-    let (rect, _response) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+
+    // Convert pointer drag into yaw/pitch deltas. Tuned so a full-rect
+    // horizontal drag covers ~one full revolution.
+    let drag = response.drag_delta();
+    let yaw_delta = -drag.x * 0.01;
+    let pitch_delta = -drag.y * 0.01;
+
+    // Scroll wheel → zoom multiplier. Only consume scroll while hovered
+    // so it doesn't fight the surrounding scroll area.
+    let zoom_delta = if response.hovered() {
+        let scroll = ui.input(|i| i.raw_scroll_delta.y);
+        scroll * 0.0015
+    } else {
+        0.0
+    };
 
     let ppp = ui.ctx().pixels_per_point();
     let pixel_width = (rect.width() * ppp).round().max(1.0) as u32;
     let pixel_height = (rect.height() * ppp).round().max(1.0) as u32;
-    let angle = (ui.ctx().input(|i| i.time) as f32) * 0.4;
 
     ui.painter().add(egui_wgpu::Callback::new_paint_callback(
         rect,
         MeshCallback {
             mesh,
-            angle,
+            yaw_delta,
+            pitch_delta,
+            zoom_delta,
             pixel_width,
             pixel_height,
         },
     ));
 
-    ui.ctx().request_repaint();
+    // Keep repainting only while interacting; static frames don't need
+    // continuous repaint now that the auto-rotate is gone.
+    if response.dragged() || response.hovered() {
+        ui.ctx().request_repaint();
+    }
 }
 
 /// Show the spike viewport as a movable, resizable egui window.
