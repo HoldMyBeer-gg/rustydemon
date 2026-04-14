@@ -47,4 +47,16 @@ if [[ "${FAST:-0}" != "1" ]]; then
     cargo test --workspace
 fi
 
+# ── 4. Feature-flagged builds ──────────────────────────────────────────────
+# rustydemon-lib has opt-in features (currently just `cdn`) that default
+# builds never exercise.  Check them here so a broken feature flag can't
+# sneak into main — fmt+clippy are enough for the check, no tests needed.
+step "cargo clippy -p rustydemon-lib --features cdn"
+cargo clippy -p rustydemon-lib --features cdn --all-targets -- \
+    -D warnings \
+    -A clippy::manual_let_else \
+    -A clippy::map_unwrap_or \
+    -A clippy::redundant_closure_for_method_calls \
+    -A clippy::cloned_instead_of_copied
+
 printf '\n\033[1;32m[ci-check] all checks passed\033[0m\n'
