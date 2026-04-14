@@ -557,6 +557,16 @@ impl CascConfig {
         self.base_path.join(self.data_folder_name()).join("ecache")
     }
 
+    /// Directory holding archive-style `<hash>.index` files (D2R 3.1.2+).
+    ///
+    /// Each `.index` file here corresponds to one CDN archive listed in
+    /// [`Self::archives`]; its entries describe (ekey → archive_offset +
+    /// encoded_size) mappings for the files packed into that archive.
+    /// Returns the path whether or not the directory exists.
+    pub fn archive_indices_path(&self) -> std::path::PathBuf {
+        self.base_path.join(self.data_folder_name()).join("indices")
+    }
+
     /// Root directory for static-container chunk subfolders.
     ///
     /// Steam D4 stores its chunk directories directly under `<base>/Data/`,
