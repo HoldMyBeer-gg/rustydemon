@@ -50,12 +50,24 @@ pub struct PreviewOutput {
 }
 
 /// CPU-side indexed mesh handed from a preview plugin to the 3D viewport.
-/// Geometry only — materials/textures live in v1.
+/// Geometry + per-batch material ids; actual material/texture lookup
+/// against a root file is a later phase.
 pub struct Mesh3dCpu {
     pub positions: Vec<[f32; 3]>,
     pub indices: Vec<u32>,
     pub bbox_min: [f32; 3],
     pub bbox_max: [f32; 3],
+    /// Index ranges for separately-coloured draws. Each batch covers
+    /// `indices[start_index .. start_index + index_count]` and tags it
+    /// with a stable `material_id` the renderer hashes into a colour.
+    pub batches: Vec<MeshBatch>,
+}
+
+#[derive(Clone, Copy)]
+pub struct MeshBatch {
+    pub start_index: u32,
+    pub index_count: u32,
+    pub material_id: u32,
 }
 
 impl PreviewOutput {
