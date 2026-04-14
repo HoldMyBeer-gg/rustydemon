@@ -59,24 +59,20 @@ pub(crate) trait FileOpener {
     fn best_ekey(&self, ckey: &Md5Hash) -> Option<Md5Hash>;
 }
 
-/// Local-install backend — loads from the `*.idx` local index and `data.NNN`
-/// archive files using the encoding table for ckey↔ekey translation.
+/// Local-install backend — loads from `*.idx` local index files and the
+/// `data.NNN` archive files they point at, across one or more storage
+/// directories.  Uses the encoding table for ckey↔ekey translation.
 pub(crate) struct LocalFileOpener<'a> {
     pub encoding: &'a EncodingHandler,
     pub local_index: &'a LocalIndexHandler,
-    pub data_path: std::path::PathBuf,
 }
 
 impl FileOpener for LocalFileOpener<'_> {
     fn open_by_ekey(&self, ekey: &Md5Hash) -> Result<Vec<u8>, CascError> {
-        let idx = self
-            .local_index
-            .get_entry(ekey)
-            .ok_or_else(|| CascError::IndexNotFound(ekey.to_hex()))?;
-
-        let raw =
-            crate::handler::read_data_block(&self.data_path, idx.index, idx.offset, idx.size)?;
-
+        // `read_block` routes to the correct storage (primary vs ecache
+        // for D2R 3.1.2+), so we don't have to care which one the ekey
+        // lives in.
+        let raw = self.local_index.read_block(ekey)?;
         blte::decode(&raw, ekey, false)
     }
 

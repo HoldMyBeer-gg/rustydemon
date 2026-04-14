@@ -107,6 +107,11 @@ pub struct IndexEntry {
     pub offset: u32,
     /// Total size of the stored block (including the 30-byte header).
     pub size: u32,
+    /// Which storage this entry belongs to — indexes into
+    /// [`LocalIndexHandler::storages`](crate::local_index::LocalIndexHandler::storages).
+    /// Always `0` for single-storage installs; `1` for D2R 3.1.2's
+    /// secondary `ecache/` storage.
+    pub storage: u8,
 }
 
 // ── Locale / content flags ────────────────────────────────────────────────────
