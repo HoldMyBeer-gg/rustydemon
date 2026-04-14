@@ -504,17 +504,22 @@ impl CascConfig {
         out
     }
 
-    /// Returns `true` when the build config uses a VFS root instead of a
-    /// traditional root manifest.
+    /// Returns `true` when the build config uses a VFS root **exclusively**
+    /// instead of a traditional root manifest.
     ///
-    /// Prefers TVFS whenever a `vfs-root` entry is present.  D4 / Overwatch
-    /// leave `root` all-zero and use TVFS exclusively, while D2R 3.1.2+
-    /// ships **both** a non-zero `root` (a legacy stub no current root
-    /// handler recognises) **and** a real TVFS `vfs-root`.  The TVFS path
-    /// is what the game actually uses and has to win on D2R, so we key
-    /// the decision off `vfs-root`'s presence rather than `root`'s zeroness.
+    /// True only when `vfs-root` is present AND the `root` field is absent
+    /// or all-zero.  That's the D4 / Overwatch case — those games have no
+    /// legacy root manifest at all.
+    ///
+    /// Games like retail WoW ship BOTH a real non-zero `root` (valid MFST)
+    /// **and** a populated `vfs-root` used for other purposes, and for
+    /// those the traditional root wins.  D2R 3.1.2 is similar shape (both
+    /// fields populated) but its `root` is a legacy stub that no current
+    /// root handler recognises; those cases get picked up by a TVFS
+    /// fallback in `CascHandler::open_local` when `root::load()` returns
+    /// the Dummy handler.
     pub fn is_vfs_root(&self) -> bool {
-        self.vfs_root_ekey().is_some()
+        self.vfs_root_ekey().is_some() && self.root_ckey().is_none_or(|h| h.is_zero())
     }
 
     /// Returns `true` when the build config describes a static container
