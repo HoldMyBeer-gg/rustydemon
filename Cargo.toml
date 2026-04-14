@@ -3,6 +3,7 @@ members = [
     "rustydemon-blp2",
     "rustydemon-lib",
     "rustydemon",
+    "rustydemon-cli",
 ]
 resolver = "2"
 

@@ -18,7 +18,7 @@ use crate::{
 /// over those differences, mapping filename hashes (Jenkins96 or FileDataId)
 /// to [`RootEntry`] records that contain the content key needed to look up the
 /// file in the encoding table.
-pub trait RootHandler: Send {
+pub trait RootHandler: Send + Sync {
     /// Number of distinct filename hashes in the manifest.
     fn count(&self) -> usize;
 
