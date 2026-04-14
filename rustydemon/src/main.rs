@@ -6,6 +6,7 @@ pub mod tex_preview;
 pub mod text_preview;
 mod ui;
 pub mod vid_preview;
+mod viewport3d;
 
 use app::CascExplorerApp;
 

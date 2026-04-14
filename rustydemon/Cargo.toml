@@ -16,9 +16,14 @@ rustydemon-lib  = { path = "../rustydemon-lib" }
 rustydemon-blp2 = { path = "../rustydemon-blp2" }
 eframe = { version = "0.29", default-features = false, features = [
     "default_fonts",
-    "glow",
+    "wgpu",
 ] }
 egui        = "0.29"
+egui-wgpu   = "0.29"
+wgpu        = "22"
+bytemuck    = { version = "1", features = ["derive"] }
+glam        = "0.29"
+wow-wmo     = "0.6.4"
 rfd         = "0.15"
 image       = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 texture2ddecoder = "0.1"
