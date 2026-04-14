@@ -50,17 +50,25 @@ pub struct PreviewOutput {
 }
 
 /// CPU-side indexed mesh handed from a preview plugin to the 3D viewport.
-/// Geometry + per-batch material ids; actual material/texture lookup
-/// against a root file is a later phase.
+/// Geometry + UVs + per-batch material indices + decoded textures.
 pub struct Mesh3dCpu {
     pub positions: Vec<[f32; 3]>,
+    /// One UV per vertex, laid out parallel to `positions`. Filled with
+    /// zeros if the source format doesn't carry texture coordinates.
+    pub uvs: Vec<[f32; 2]>,
     pub indices: Vec<u32>,
     pub bbox_min: [f32; 3],
     pub bbox_max: [f32; 3],
-    /// Index ranges for separately-coloured draws. Each batch covers
-    /// `indices[start_index .. start_index + index_count]` and tags it
-    /// with a stable `material_id` the renderer hashes into a colour.
+    /// Index ranges for separately-textured draws. Each batch covers
+    /// `indices[start_index .. start_index + index_count]` and references
+    /// a material slot by index into `materials` (or `u32::MAX` for
+    /// "no material — use fallback texture").
     pub batches: Vec<MeshBatch>,
+    /// Decoded materials in the order referenced by `MeshBatch::material_id`.
+    /// Empty when the source had no material info (e.g. a single group
+    /// file viewed without its root); the renderer falls back to flat
+    /// per-batch hash colours in that case.
+    pub materials: Vec<MeshMaterial>,
 }
 
 #[derive(Clone, Copy)]
@@ -68,6 +76,14 @@ pub struct MeshBatch {
     pub start_index: u32,
     pub index_count: u32,
     pub material_id: u32,
+}
+
+/// CPU-side decoded texture for one material. RGBA8, ready to upload.
+/// `None` rgba means "decode failed, use fallback".
+pub struct MeshMaterial {
+    pub rgba: Option<Vec<u8>>,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl PreviewOutput {

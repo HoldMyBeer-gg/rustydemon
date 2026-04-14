@@ -46,6 +46,19 @@ struct MeshResources {
     mesh_pipeline: wgpu::RenderPipeline,
     mesh_bgl: wgpu::BindGroupLayout,
     batch_bgl: wgpu::BindGroupLayout,
+    /// Bind group layout for the per-material texture (slot 2). Holds
+    /// one sampled texture + one filtering sampler.
+    texture_bgl: wgpu::BindGroupLayout,
+    /// Linear sampler shared by every material texture binding.
+    texture_sampler: wgpu::Sampler,
+    /// 1x1 white fallback texture + bind group used by batches whose
+    /// material has no texture data (decode failed, missing FDID, or
+    /// the mesh has no material info at all). The texture handle is
+    /// kept alongside the bind group so the GPU resource isn't dropped
+    /// out from under it.
+    #[allow(dead_code)]
+    fallback_texture: wgpu::Texture,
+    fallback_bind_group: wgpu::BindGroup,
     blit_pipeline: wgpu::RenderPipeline,
     blit_bgl: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -68,6 +81,15 @@ struct UploadedMesh {
     #[allow(dead_code)]
     batch_uniform_buf: wgpu::Buffer,
     batch_bind_group: wgpu::BindGroup,
+    /// One bind group per material (slot 2 — sampled texture). Indexed
+    /// by `MeshBatch::material_id`. Populated at upload time. Empty
+    /// when the source had no material info; in that case every batch
+    /// uses the fallback bind group.
+    material_bind_groups: Vec<wgpu::BindGroup>,
+    /// Held to keep the underlying material textures alive while the
+    /// bind groups reference them. Never read directly.
+    #[allow(dead_code)]
+    material_textures: Vec<wgpu::Texture>,
     batches: Vec<UploadedBatch>,
     /// Per-mesh camera state — resets when a new selection uploads.
     camera: CameraState,
@@ -192,30 +214,40 @@ struct BatchUniform {
 };
 @group(1) @binding(0) var<uniform> b: BatchUniform;
 
+@group(2) @binding(0) var mat_tex: texture_2d<f32>;
+@group(2) @binding(1) var mat_smp: sampler;
+
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) world: vec3<f32>,
+    @location(1) uv: vec2<f32>,
 };
 
 @vertex
-fn vs_main(@location(0) pos: vec3<f32>) -> VsOut {
+fn vs_main(
+    @location(0) pos: vec3<f32>,
+    @location(1) uv: vec2<f32>,
+) -> VsOut {
     var out: VsOut;
     out.clip = u.view_proj * vec4<f32>(pos, 1.0);
     out.world = pos;
+    out.uv = uv;
     return out;
 }
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Flat shading via screen-space derivatives — no per-vertex normals
-    // needed. Per-batch colour is multiplied in from the batch uniform.
+    // needed. Sampled texture provides base colour; b.color acts as a
+    // tint (white when materials are present, hash-coloured otherwise).
     let dx = dpdx(in.world);
     let dy = dpdy(in.world);
     let n = normalize(cross(dx, dy));
     let light_dir = normalize(vec3<f32>(0.4, 0.8, 0.5));
     let lambert = max(dot(n, light_dir), 0.0);
-    let shaded = 0.25 + 0.75 * lambert;
-    return vec4<f32>(vec3<f32>(shaded) * b.color.rgb, 1.0);
+    let shaded = 0.3 + 0.7 * lambert;
+    let tex = textureSample(mat_tex, mat_smp, in.uv);
+    return vec4<f32>(tex.rgb * b.color.rgb * shaded, 1.0);
 }
 "#;
 
@@ -387,9 +419,32 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         }],
     });
 
+    // Per-material texture + sampler.
+    let texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("viewport3d texture bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+
     let mesh_pl_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("viewport3d mesh pl"),
-        bind_group_layouts: &[&mesh_bgl, &batch_bgl],
+        bind_group_layouts: &[&mesh_bgl, &batch_bgl, &texture_bgl],
         push_constant_ranges: &[],
     });
 
@@ -400,9 +455,10 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
             module: &mesh_shader,
             entry_point: "vs_main",
             buffers: &[wgpu::VertexBufferLayout {
-                array_stride: (std::mem::size_of::<f32>() * 3) as wgpu::BufferAddress,
+                // 5 floats per vertex: position(xyz) + uv.
+                array_stride: (std::mem::size_of::<f32>() * 5) as wgpu::BufferAddress,
                 step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float32x3],
+                attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2],
             }],
             compilation_options: Default::default(),
         },
@@ -516,10 +572,77 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
             uniform_buffer,
             bind_group,
         }));
+    // Per-material texture sampler (linear, repeat — WoW UVs frequently
+    // exceed [0,1] for tiled textures, e.g. floor planks).
+    let texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("viewport3d material sampler"),
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        address_mode_w: wgpu::AddressMode::Repeat,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+
+    // 1×1 white fallback texture for batches whose material has no
+    // valid BLP. Created here so it lives for the whole app lifetime.
+    let fallback_tex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("viewport3d fallback white"),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    render_state.queue.write_texture(
+        wgpu::ImageCopyTexture {
+            texture: &fallback_tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &[255u8, 255, 255, 255],
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: Some(1),
+        },
+        wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+    );
+    let fallback_view = fallback_tex.create_view(&wgpu::TextureViewDescriptor::default());
+    let fallback_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("viewport3d fallback bg"),
+        layout: &texture_bgl,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&fallback_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&texture_sampler),
+            },
+        ],
+    });
     renderer.callback_resources.insert(MeshResources {
         mesh_pipeline,
         mesh_bgl,
         batch_bgl,
+        texture_bgl,
+        texture_sampler,
+        fallback_texture: fallback_tex,
+        fallback_bind_group,
         blit_pipeline,
         blit_bgl,
         sampler,
@@ -607,9 +730,14 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
             None => true,
         };
         if needs_upload {
-            let mut flat: Vec<f32> = Vec::with_capacity(self.mesh.positions.len() * 3);
-            for p in &self.mesh.positions {
-                flat.extend_from_slice(p);
+            // Interleave position + uv into a single packed vertex buffer.
+            // 5 floats per vertex; pad missing UVs with (0, 0).
+            let vert_count = self.mesh.positions.len();
+            let mut flat: Vec<f32> = Vec::with_capacity(vert_count * 5);
+            for i in 0..vert_count {
+                let p = self.mesh.positions[i];
+                let uv = self.mesh.uvs.get(i).copied().unwrap_or([0.0, 0.0]);
+                flat.extend_from_slice(&[p[0], p[1], p[2], uv[0], uv[1]]);
             }
             let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("wmo vertex buf"),
@@ -637,15 +765,22 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
             });
 
             // Build the dynamic-offset batch uniform buffer: one
-            // BATCH_UNIFORM_STRIDE-sized slot per batch, each holding
-            // the colour derived from `material_id`.
+            // BATCH_UNIFORM_STRIDE-sized slot per batch. When materials
+            // are present the slot holds white (texture provides colour);
+            // otherwise it holds a hash colour derived from material_id
+            // so single groups without a root still show structural
+            // material boundaries.
+            let has_materials = !self.mesh.materials.is_empty();
             let batch_count = self.mesh.batches.len().max(1);
             let batch_buf_size = BATCH_UNIFORM_STRIDE * batch_count as u64;
             let mut batch_bytes = vec![0u8; batch_buf_size as usize];
             for (i, b) in self.mesh.batches.iter().enumerate() {
-                let bu = BatchUniform {
-                    color: material_color(b.material_id),
+                let color = if has_materials {
+                    [1.0, 1.0, 1.0, 1.0]
+                } else {
+                    material_color(b.material_id)
                 };
+                let bu = BatchUniform { color };
                 let off = i * BATCH_UNIFORM_STRIDE as usize;
                 batch_bytes[off..off + std::mem::size_of::<BatchUniform>()]
                     .copy_from_slice(bytemuck::bytes_of(&bu));
@@ -678,6 +813,109 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
                 })
                 .collect();
 
+            // ── Upload per-material textures + build bind groups ──────────
+            // Each MeshMaterial becomes one wgpu::Texture and one bind
+            // group bound to slot 2 of the mesh pipeline. Materials whose
+            // BLP failed to decode get the global fallback bind group
+            // (white) so the per-batch tint colour shows through.
+            let mut material_textures: Vec<wgpu::Texture> = Vec::new();
+            let mut material_bind_groups: Vec<wgpu::BindGroup> = Vec::new();
+            for mat in &self.mesh.materials {
+                if let Some(rgba) = mat.rgba.as_deref() {
+                    let tex = device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("wmo material tex"),
+                        size: wgpu::Extent3d {
+                            width: mat.width,
+                            height: mat.height,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                        view_formats: &[],
+                    });
+                    queue.write_texture(
+                        wgpu::ImageCopyTexture {
+                            texture: &tex,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        rgba,
+                        wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(mat.width * 4),
+                            rows_per_image: Some(mat.height),
+                        },
+                        wgpu::Extent3d {
+                            width: mat.width,
+                            height: mat.height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                    let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+                    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("wmo material bg"),
+                        layout: &res.texture_bgl,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::TextureView(&view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::Sampler(&res.texture_sampler),
+                            },
+                        ],
+                    });
+                    material_textures.push(tex);
+                    material_bind_groups.push(bg);
+                } else {
+                    // Decode failed — emit a placeholder slot. The render
+                    // loop sees the missing entry and uses the fallback.
+                    // We still push a dummy texture/bind group to keep
+                    // indexing aligned with `mesh.materials`.
+                    material_textures.push(device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("wmo material placeholder"),
+                        size: wgpu::Extent3d {
+                            width: 1,
+                            height: 1,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                        view_formats: &[],
+                    }));
+                    // Placeholder bind group: clone of fallback semantics.
+                    // We'll detect at draw time and substitute.
+                    let view = material_textures
+                        .last()
+                        .unwrap()
+                        .create_view(&wgpu::TextureViewDescriptor::default());
+                    material_bind_groups.push(device.create_bind_group(
+                        &wgpu::BindGroupDescriptor {
+                            label: Some("wmo material placeholder bg"),
+                            layout: &res.texture_bgl,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: wgpu::BindingResource::TextureView(&view),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: wgpu::BindingResource::Sampler(&res.texture_sampler),
+                                },
+                            ],
+                        },
+                    ));
+                }
+            }
+
             res.cached = Some(UploadedMesh {
                 key,
                 vertex_buf,
@@ -686,6 +924,8 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
                 bind_group,
                 batch_uniform_buf,
                 batch_bind_group,
+                material_bind_groups,
+                material_textures,
                 batches,
                 camera: CameraState::default(),
             });
@@ -831,6 +1071,30 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
             for (i, b) in c.batches.iter().enumerate() {
                 let dyn_offset = (i as u64 * BATCH_UNIFORM_STRIDE) as u32;
                 pass.set_bind_group(1, &c.batch_bind_group, &[dyn_offset]);
+
+                // Pick the material's texture bind group, or fall back
+                // to white when the batch has no valid material slot.
+                let mat_bg = self
+                    .mesh
+                    .batches
+                    .get(i)
+                    .and_then(|mb| {
+                        let mid = mb.material_id as usize;
+                        // Only honour the material if the source mesh
+                        // had material info AND the index is in range
+                        // AND the original CPU-side material had RGBA.
+                        if !self.mesh.materials.is_empty()
+                            && mid < self.mesh.materials.len()
+                            && self.mesh.materials[mid].rgba.is_some()
+                        {
+                            c.material_bind_groups.get(mid)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(&res.fallback_bind_group);
+                pass.set_bind_group(2, mat_bg, &[]);
+
                 let start = b.start_index;
                 let end = start + b.index_count;
                 pass.draw_indexed(start..end, 0, 0..1);
