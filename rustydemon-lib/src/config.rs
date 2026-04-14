@@ -601,25 +601,22 @@ fn resolve_folder_case(base: &Path, expected: &str) -> String {
     }
 
     // Scan the base directory for a case-insensitive match.
-    match std::fs::read_dir(base) {
-        Ok(entries) => {
-            for entry in entries.flatten() {
-                let Ok(ft) = entry.file_type() else {
-                    continue;
-                };
-                if !ft.is_dir() {
-                    continue;
-                }
-                let name = entry.file_name();
-                let Some(name_str) = name.to_str() else {
-                    continue;
-                };
-                if name_str.to_ascii_lowercase() == expected_lower {
-                    return name_str.to_owned();
-                }
+    if let Ok(entries) = std::fs::read_dir(base) {
+        for entry in entries.flatten() {
+            let Ok(ft) = entry.file_type() else {
+                continue;
+            };
+            if !ft.is_dir() {
+                continue;
+            }
+            let name = entry.file_name();
+            let Some(name_str) = name.to_str() else {
+                continue;
+            };
+            if name_str.to_ascii_lowercase() == expected_lower {
+                return name_str.to_owned();
             }
         }
-        Err(_) => {}
     }
 
     expected.to_owned()
