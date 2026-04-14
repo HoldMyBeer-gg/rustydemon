@@ -176,6 +176,13 @@ pub struct CascConfig {
     pub build: KeyValueConfig,
     /// CDN configuration.
     pub cdn: KeyValueConfig,
+    /// Actual on-disk name of the data folder (`Data`, `data`, `SC2Data`,
+    /// etc.).  Case-insensitive match against whatever `base_path` contains,
+    /// so D2R's lowercase `data/` works on case-sensitive filesystems like
+    /// Linux without regressing games that ship `Data/`.  `None` for
+    /// installations loaded via [`Self::load_local_static`], which resolve
+    /// their container directory differently.
+    data_folder: Option<String>,
 }
 
 impl CascConfig {
@@ -274,6 +281,7 @@ impl CascConfig {
             product,
             build,
             cdn: KeyValueConfig::default(),
+            data_folder: None,
         })
     }
 
@@ -333,19 +341,27 @@ impl CascConfig {
 
         let game_type = GameType::from_uid(&resolved_product)?;
 
-        let data_folder = game_type.data_folder().ok_or_else(|| {
+        let expected_folder = game_type.data_folder().ok_or_else(|| {
             CascError::Config(format!(
                 "Game type {game_type:?} has no known local data folder"
             ))
         })?;
 
+        // Resolve the actual on-disk casing.  D2R ships lowercase `data/`
+        // where every other Blizzard game ships `Data/` — on Linux that's
+        // the difference between "opens" and "No such file or directory".
+        // Falls back to the expected casing if we can't read the base dir,
+        // which matches the old hard-coded behaviour.
+        let data_folder = resolve_folder_case(&base_path, expected_folder);
+
         // Helper: open a two-level hash-keyed config file (aa/bb/aabb…).
+        let data_folder_ref = &data_folder;
         let open_config = |key: &str| -> Result<std::fs::File, CascError> {
             if key.len() < 4 {
                 return Err(CascError::Config(format!("config key too short: {key}")));
             }
             let path = base_path
-                .join(data_folder)
+                .join(data_folder_ref)
                 .join("config")
                 .join(&key[..2])
                 .join(&key[2..4])
@@ -385,6 +401,7 @@ impl CascConfig {
             product: resolved_product,
             build,
             cdn,
+            data_folder: Some(data_folder),
         })
     }
 
@@ -511,10 +528,23 @@ impl CascConfig {
             .map_or(&[], std::vec::Vec::as_slice)
     }
 
+    /// Name of the on-disk data folder (`Data`, `data`, `SC2Data`, etc.).
+    ///
+    /// Resolved case-insensitively at load time by [`load_local`](Self::load_local)
+    /// so D2R's lowercase `data/` works on Linux.  For installs loaded via
+    /// [`load_local_static`](Self::load_local_static) we fall back to the
+    /// game type's expected casing since the static container path is
+    /// resolved separately.
+    fn data_folder_name(&self) -> &str {
+        if let Some(name) = self.data_folder.as_deref() {
+            return name;
+        }
+        self.game_type.data_folder().unwrap_or("Data")
+    }
+
     /// Local data folder path (e.g. `<base>/Data/data/`).
     pub fn data_path(&self) -> std::path::PathBuf {
-        let data_folder = self.game_type.data_folder().unwrap_or("Data");
-        self.base_path.join(data_folder).join("data")
+        self.base_path.join(self.data_folder_name()).join("data")
     }
 
     /// Root directory for static-container chunk subfolders.
@@ -535,13 +565,115 @@ impl CascConfig {
 
     /// Local config folder path.
     pub fn config_path(&self) -> std::path::PathBuf {
-        let data_folder = self.game_type.data_folder().unwrap_or("Data");
-        self.base_path.join(data_folder).join("config")
+        self.base_path.join(self.data_folder_name()).join("config")
     }
 
     /// Local indices folder path.
     pub fn indices_path(&self) -> std::path::PathBuf {
-        let data_folder = self.game_type.data_folder().unwrap_or("Data");
-        self.base_path.join(data_folder).join("indices")
+        self.base_path.join(self.data_folder_name()).join("indices")
+    }
+}
+
+/// Case-insensitive directory lookup: return the on-disk name of a
+/// subdirectory in `base` whose lowercase matches `expected.to_lowercase()`.
+///
+/// Falls back to `expected` unchanged if the directory can't be read (e.g.
+/// permission denied) or no case-insensitive match is found.  That fallback
+/// preserves the old hard-coded behaviour and surfaces the failure at the
+/// next file-open error rather than masking it here.
+fn resolve_folder_case(base: &Path, expected: &str) -> String {
+    let expected_lower = expected.to_ascii_lowercase();
+
+    // Fast path: the expected casing exists as-is.  Avoids a directory scan
+    // on every load for the overwhelmingly common case.
+    if base.join(expected).is_dir() {
+        return expected.to_owned();
+    }
+
+    // Scan the base directory for a case-insensitive match.
+    match std::fs::read_dir(base) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                let Ok(ft) = entry.file_type() else {
+                    continue;
+                };
+                if !ft.is_dir() {
+                    continue;
+                }
+                let name = entry.file_name();
+                let Some(name_str) = name.to_str() else {
+                    continue;
+                };
+                if name_str.to_ascii_lowercase() == expected_lower {
+                    return name_str.to_owned();
+                }
+            }
+        }
+        Err(_) => {}
+    }
+
+    expected.to_owned()
+}
+
+#[cfg(test)]
+mod resolve_folder_case_tests {
+    use super::resolve_folder_case;
+    use std::fs;
+
+    #[test]
+    fn fast_path_exact_match() {
+        let tmp = tempdir();
+        fs::create_dir(tmp.path().join("Data")).unwrap();
+        assert_eq!(resolve_folder_case(tmp.path(), "Data"), "Data");
+    }
+
+    #[test]
+    fn lowercase_fallback() {
+        let tmp = tempdir();
+        fs::create_dir(tmp.path().join("data")).unwrap();
+        assert_eq!(resolve_folder_case(tmp.path(), "Data"), "data");
+    }
+
+    #[test]
+    fn uppercase_variant() {
+        let tmp = tempdir();
+        fs::create_dir(tmp.path().join("DATA")).unwrap();
+        assert_eq!(resolve_folder_case(tmp.path(), "Data"), "DATA");
+    }
+
+    #[test]
+    fn missing_directory_returns_expected() {
+        let tmp = tempdir();
+        assert_eq!(resolve_folder_case(tmp.path(), "Data"), "Data");
+    }
+
+    /// Minimal temp-dir helper so we don't add a dev-dependency on `tempfile`.
+    fn tempdir() -> TempDir {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "rustydemon-case-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        TempDir { path }
+    }
+
+    struct TempDir {
+        path: std::path::PathBuf,
+    }
+
+    impl TempDir {
+        fn path(&self) -> &std::path::Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
     }
 }
