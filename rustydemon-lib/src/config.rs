@@ -547,6 +547,16 @@ impl CascConfig {
         self.base_path.join(self.data_folder_name()).join("data")
     }
 
+    /// Secondary "ecache" storage introduced by D2R 3.1.2 for loose
+    /// metadata blobs (ENCODING, DOWNLOAD, root manifests, TVFS tables).
+    ///
+    /// Returns the path whether or not the directory exists — callers
+    /// should pass it to [`LocalIndexHandler::load_multi`](crate::local_index::LocalIndexHandler::load_multi)
+    /// which silently skips missing storages.
+    pub fn ecache_path(&self) -> std::path::PathBuf {
+        self.base_path.join(self.data_folder_name()).join("ecache")
+    }
+
     /// Root directory for static-container chunk subfolders.
     ///
     /// Steam D4 stores its chunk directories directly under `<base>/Data/`,

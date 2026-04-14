@@ -133,21 +133,23 @@ impl CascHandler {
 
         let config = CascConfig::load_local(base_path, product)?;
 
-        // ── Local index ────────────────────────────────────────────────────
-        let local_index = LocalIndexHandler::load(config.data_path())?;
+        // ── Local index (primary + optional ecache) ───────────────────────
+        // D2R 3.1.2 splits its CASC across two storages: the traditional
+        // `<data>/data/` (game assets) and a new `<data>/ecache/` (loose
+        // metadata: ENCODING, DOWNLOAD, root manifests, TVFS tables).
+        // `load_multi` silently skips directories that don't exist so
+        // passing both unconditionally is safe for every other game.
+        let data_path = config.data_path();
+        let ecache_path = config.ecache_path();
+        let local_index =
+            LocalIndexHandler::load_multi(&[data_path.as_path(), ecache_path.as_path()])?;
 
         // ── Encoding file ──────────────────────────────────────────────────
         let enc_ekey = config
             .encoding_ekey()
             .ok_or_else(|| CascError::Config("build config missing encoding ekey".into()))?;
 
-        let enc_data = {
-            let entry = local_index
-                .get_entry(&enc_ekey)
-                .ok_or_else(|| CascError::IndexNotFound(enc_ekey.to_hex()))?;
-            read_data_block(&config.data_path(), entry.index, entry.offset, entry.size)?
-        };
-
+        let enc_data = local_index.read_block(&enc_ekey)?;
         let enc_decoded = blte::decode(&enc_data, &enc_ekey, false)?;
         let encoding = EncodingHandler::from_reader(Cursor::new(enc_decoded))?;
 
@@ -163,7 +165,6 @@ impl CascHandler {
             let opener = crate::root::tvfs::LocalFileOpener {
                 encoding: &encoding,
                 local_index: &local_index,
-                data_path: config.data_path(),
             };
 
             let tvfs = TvfsRootHandler::load(&vfs_ekey, &vfs_list, &opener)?;
@@ -178,12 +179,7 @@ impl CascHandler {
                 .best_ekey(&root_ckey)
                 .ok_or_else(|| CascError::EncodingNotFound(root_ckey.to_hex()))?;
 
-            let root_data = {
-                let entry = local_index
-                    .get_entry(&root_ekey)
-                    .ok_or_else(|| CascError::IndexNotFound(root_ekey.to_hex()))?;
-                read_data_block(&config.data_path(), entry.index, entry.offset, entry.size)?
-            };
+            let root_data = local_index.read_block(&root_ekey)?;
 
             let root_decoded = blte::decode(&root_data, &root_ekey, false)?;
             let mut handler = root::load(root_decoded)?;
@@ -467,12 +463,9 @@ impl CascHandler {
             .as_ref()
             .ok_or_else(|| CascError::Config("no storage backend configured".into()))?;
 
-        let idx = local_index
-            .get_entry(ekey)
-            .ok_or_else(|| CascError::IndexNotFound(ekey.to_hex()))?;
-
-        let raw = read_data_block(&self.config.data_path(), idx.index, idx.offset, idx.size)?;
-
+        // `read_block` routes to the correct storage for us (primary vs
+        // ecache), so we don't have to care which one the ekey lives in.
+        let raw = local_index.read_block(ekey)?;
         blte::decode(&raw, ekey, self.validate_hashes)
     }
 
