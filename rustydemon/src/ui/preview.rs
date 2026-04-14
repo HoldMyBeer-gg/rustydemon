@@ -270,7 +270,15 @@ fn reload_current_pcx(app: &mut CascExplorerApp, ctx: &egui::Context) {
         crate::app::apply_pcx_palette_override(sel, &data, pal, ctx);
     } else {
         // Rebuild with default decoder
-        sel.preview = crate::preview::run(sel.result.filename.as_deref(), &data, ctx);
+        // No sibling fetcher on PCX reload — palette swaps don't trigger
+        // multi-file plugins.
+        let no_name = |_: &str| -> Option<Vec<u8>> { None };
+        let no_fdid = |_: u32| -> Option<Vec<u8>> { None };
+        let siblings = crate::preview::SiblingFetcher {
+            by_name: &no_name,
+            by_fdid: &no_fdid,
+        };
+        sel.preview = crate::preview::run(sel.result.filename.as_deref(), &data, ctx, &siblings);
     }
 }
 

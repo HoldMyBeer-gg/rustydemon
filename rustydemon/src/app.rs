@@ -264,7 +264,23 @@ impl CascExplorerApp {
                     Ok(data) => {
                         // Dispatch to the first matching preview plugin.
                         // Plugins are registered in `crate::preview::registry()`.
-                        sel.preview = crate::preview::run(result.filename.as_deref(), &data, ctx);
+                        // The sibling fetchers let multi-file formats
+                        // (WMO root → groups) pull related files from the
+                        // open archive by name OR by FileDataID. Modern
+                        // WoW (Legion+) uses FDIDs for group references.
+                        let handler_ref = self.handler.as_ref();
+                        let by_name = |path: &str| -> Option<Vec<u8>> {
+                            handler_ref?.open_file_by_name(path).ok()
+                        };
+                        let by_fdid = |id: u32| -> Option<Vec<u8>> {
+                            handler_ref?.open_file_by_fdid(id).ok()
+                        };
+                        let siblings = crate::preview::SiblingFetcher {
+                            by_name: &by_name,
+                            by_fdid: &by_fdid,
+                        };
+                        sel.preview =
+                            crate::preview::run(result.filename.as_deref(), &data, ctx, &siblings);
 
                         // If a PCX palette override is active, re-render the
                         // texture with it so SC1 assets that rely on external

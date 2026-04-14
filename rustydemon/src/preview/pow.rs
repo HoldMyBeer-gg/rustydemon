@@ -13,7 +13,13 @@ impl PreviewPlugin for PowPreview {
         filename.to_ascii_lowercase().ends_with(".pow")
     }
 
-    fn build(&self, _filename: &str, data: &[u8], _ctx: &egui::Context) -> PreviewOutput {
+    fn build(
+        &self,
+        _filename: &str,
+        data: &[u8],
+        _ctx: &egui::Context,
+        _fetch: &super::SiblingFetcher<'_>,
+    ) -> PreviewOutput {
         let mut out = PreviewOutput::new();
         if let Some(pow) = crate::pow_preview::PowPreview::parse(data) {
             out.text = Some(pow.summary());

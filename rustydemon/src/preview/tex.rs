@@ -15,7 +15,13 @@ impl PreviewPlugin for TexPreview {
         filename.to_ascii_lowercase().ends_with(".tex")
     }
 
-    fn build(&self, filename: &str, data: &[u8], ctx: &egui::Context) -> PreviewOutput {
+    fn build(
+        &self,
+        filename: &str,
+        data: &[u8],
+        ctx: &egui::Context,
+        _fetch: &super::SiblingFetcher<'_>,
+    ) -> PreviewOutput {
         let mut out = PreviewOutput::new();
 
         let Some((rgba, w, h, fmt)) = crate::tex_preview::decode_tex(data, filename) else {
