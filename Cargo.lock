@@ -3300,8 +3300,10 @@ dependencies = [
  "rustydemon-lib",
  "texture2ddecoder",
  "wgpu",
+ "wow-adt",
  "wow-alchemy-data",
  "wow-alchemy-m2",
+ "wow-wdt",
  "wow-wmo",
 ]
 
@@ -4753,6 +4755,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "wow-adt"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca9ccedef8d4f1e5fc1fdd86cf8545b5ae8fec49fa90b935a70e6967cfb835c0"
+dependencies = [
+ "binrw",
+ "log",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "wow-alchemy-blp"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4820,6 +4833,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fbdf243b21358884990ca5234078aec08ba1de5815d84aac7c9682c849814b62"
 dependencies = [
  "custom_debug",
+]
+
+[[package]]
+name = "wow-wdt"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7b6e21c47eff3a1709b0a17762b2c0f0b350c059e8a16fba0b29471fcd72028"
+dependencies = [
+ "anyhow",
+ "bitflags 2.11.0",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
