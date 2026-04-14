@@ -17,10 +17,11 @@ use std::sync::Arc;
 use wow_wmo::group_parser::WmoGroup as ParsedGroup;
 use wow_wmo::{parse_wmo, ParsedWmo};
 
-use super::{Mesh3dCpu, MeshBatch, PreviewOutput, PreviewPlugin};
+use super::{Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin};
 
 struct GroupMeshParts {
     positions: Vec<[f32; 3]>,
+    uvs: Vec<[f32; 2]>,
     indices: Vec<u32>,
     batches: Vec<MeshBatch>,
 }
@@ -28,13 +29,16 @@ struct GroupMeshParts {
 /// Convert a parsed WMO group (the rich `group_parser` flavour returned
 /// by `parse_wmo`, not the lighter `wmo_group_types::WmoGroup` re-export)
 /// into the renderer's mesh format. Returns `None` if the group has no
-/// geometry.
+/// geometry. UVs are pulled from MOTV; if the count doesn't match
+/// vertices we pad/truncate to keep the buffers parallel.
 fn group_to_mesh_parts(group: &ParsedGroup) -> Option<GroupMeshParts> {
     let positions: Vec<[f32; 3]> = group
         .vertex_positions
         .iter()
         .map(|v| [v.x, v.y, v.z])
         .collect();
+    let mut uvs: Vec<[f32; 2]> = group.texture_coords.iter().map(|t| [t.u, t.v]).collect();
+    uvs.resize(positions.len(), [0.0, 0.0]);
     let indices: Vec<u32> = group.vertex_indices.iter().map(|&i| i as u32).collect();
     if positions.is_empty() || indices.is_empty() {
         return None;
@@ -43,7 +47,7 @@ fn group_to_mesh_parts(group: &ParsedGroup) -> Option<GroupMeshParts> {
         vec![MeshBatch {
             start_index: 0,
             index_count: indices.len() as u32,
-            material_id: 0,
+            material_id: u32::MAX,
         }]
     } else {
         group
@@ -58,9 +62,18 @@ fn group_to_mesh_parts(group: &ParsedGroup) -> Option<GroupMeshParts> {
     };
     Some(GroupMeshParts {
         positions,
+        uvs,
         indices,
         batches,
     })
+}
+
+/// Decode a BLP byte buffer into RGBA8 + dimensions. Returns `None`
+/// on any decode error.
+fn decode_blp(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    let blp = rustydemon_blp2::BlpFile::from_bytes(bytes.to_vec()).ok()?;
+    let (pixels, w, h) = blp.get_pixels(0).ok()?;
+    Some((pixels, w, h))
 }
 
 /// Compute the bounding box of a position list. Returns infinities if
@@ -154,6 +167,46 @@ impl PreviewPlugin for Model3dPreview {
                     mx[2],
                 ));
 
+                // ── Decode every material's primary texture ───────────────
+                // Modern WMOs leave MOTX empty and stash a FileDataID
+                // directly in `material.texture_1`; older archives use
+                // `texture_1` as an offset into the MOTX string table.
+                // We pick mode by whether `textures` is non-empty.
+                let use_texture_fdids = root.textures.is_empty();
+                let mut materials: Vec<MeshMaterial> = Vec::with_capacity(root.materials.len());
+                let mut texture_failures: u32 = 0;
+                for mat in &root.materials {
+                    let bytes_opt: Option<Vec<u8>> = if use_texture_fdids {
+                        if mat.texture_1 == 0 {
+                            None
+                        } else {
+                            (siblings.by_fdid)(mat.texture_1)
+                        }
+                    } else {
+                        // Resolve MOTX offset → string → fetch by name.
+                        root.texture_offset_index_map
+                            .get(&mat.texture_1)
+                            .and_then(|idx| root.textures.get(*idx as usize))
+                            .and_then(|name| (siblings.by_name)(name))
+                    };
+                    let decoded = bytes_opt.as_deref().and_then(decode_blp);
+                    match decoded {
+                        Some((rgba, w, h)) => materials.push(MeshMaterial {
+                            rgba: Some(rgba),
+                            width: w,
+                            height: h,
+                        }),
+                        None => {
+                            texture_failures += 1;
+                            materials.push(MeshMaterial {
+                                rgba: None,
+                                width: 1,
+                                height: 1,
+                            });
+                        }
+                    }
+                }
+
                 // Walk the sibling group files and accumulate one big
                 // combined mesh. Index buffers are concatenated with each
                 // group's indices offset by the vertices already loaded.
@@ -163,6 +216,7 @@ impl PreviewPlugin for Model3dPreview {
                 // `<root>_NNN.wmo` filenames. Try GFID first and fall
                 // back to path-based lookup if the chunk is empty.
                 let mut combined_positions: Vec<[f32; 3]> = Vec::new();
+                let mut combined_uvs: Vec<[f32; 2]> = Vec::new();
                 let mut combined_indices: Vec<u32> = Vec::new();
                 let mut combined_batches: Vec<MeshBatch> = Vec::new();
                 let mut loaded_groups: u32 = 0;
@@ -205,6 +259,7 @@ impl PreviewPlugin for Model3dPreview {
                     let vertex_offset = combined_positions.len() as u32;
                     let index_offset = combined_indices.len() as u32;
                     combined_positions.append(&mut parts.positions);
+                    combined_uvs.append(&mut parts.uvs);
                     combined_indices.extend(parts.indices.iter().map(|&i| i + vertex_offset));
                     combined_batches.extend(parts.batches.iter().map(|b| MeshBatch {
                         start_index: b.start_index + index_offset,
@@ -218,20 +273,29 @@ impl PreviewPlugin for Model3dPreview {
                     let (bmn, bmx) = compute_bbox(&combined_positions);
                     out.mesh3d = Some(Arc::new(Mesh3dCpu {
                         positions: combined_positions,
+                        uvs: combined_uvs,
                         indices: combined_indices,
                         bbox_min: bmn,
                         bbox_max: bmx,
                         batches: combined_batches,
+                        materials,
                     }));
                     if let Some(t) = out.text.as_mut() {
+                        let textures_loaded = root.materials.len() as u32 - texture_failures;
                         t.push_str(&format!(
-                            "\n\nLoaded {loaded_groups} group file(s)\
-                             {} skipped",
+                            "\n\nLoaded {loaded_groups} group file(s){}\
+                             \nLoaded {textures_loaded}/{} textures{}",
                             if failed_groups > 0 {
-                                format!(", {failed_groups}")
+                                format!(", {failed_groups} skipped")
                             } else {
                                 String::new()
-                            }
+                            },
+                            root.materials.len(),
+                            if texture_failures > 0 {
+                                format!(" ({texture_failures} fallback)")
+                            } else {
+                                String::new()
+                            },
                         ));
                     }
                 } else if let Some(t) = out.text.as_mut() {
@@ -265,10 +329,14 @@ impl PreviewPlugin for Model3dPreview {
                     let (mn, mx) = compute_bbox(&parts.positions);
                     out.mesh3d = Some(Arc::new(Mesh3dCpu {
                         positions: parts.positions,
+                        uvs: parts.uvs,
                         indices: parts.indices,
                         bbox_min: mn,
                         bbox_max: mx,
                         batches: parts.batches,
+                        // No root → no material info → renderer falls
+                        // back to per-batch hash colours.
+                        materials: Vec::new(),
                     }));
                 }
             }
