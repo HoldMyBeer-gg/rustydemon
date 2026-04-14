@@ -240,10 +240,7 @@ fn load_pcx_palette(app: &mut CascExplorerApp, ctx: &egui::Context) {
         app.status = "Palette format not recognised".into();
         return;
     };
-    app.pcx_palette_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(String::from);
+    app.pcx_palette_name = path.file_name().and_then(|n| n.to_str()).map(String::from);
     app.pcx_palette = Some(palette);
     reload_current_pcx(app, ctx);
 }

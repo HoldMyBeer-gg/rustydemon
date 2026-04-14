@@ -65,9 +65,7 @@ impl S1RootHandler {
         }
 
         if entries_by_hash.is_empty() {
-            return Err(CascError::InvalidData(
-                "S1 root produced no entries".into(),
-            ));
+            return Err(CascError::InvalidData("S1 root produced no entries".into()));
         }
 
         Ok(S1RootHandler {

@@ -32,10 +32,8 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                     .map(|h| h.has_builtin_paths())
                     .unwrap_or(false);
                 let listfile_enabled = app.handler.is_some() && !has_builtin;
-                let listfile_btn = ui.add_enabled(
-                    listfile_enabled,
-                    egui::Button::new("Load Listfile…"),
-                );
+                let listfile_btn =
+                    ui.add_enabled(listfile_enabled, egui::Button::new("Load Listfile…"));
                 let listfile_btn = if has_builtin {
                     listfile_btn.on_disabled_hover_text(
                         "Not needed — this game provides its own file paths.",

@@ -17,19 +17,14 @@ pub fn apply_pcx_palette_override(
     palette: &[u8],
     ctx: &Context,
 ) {
-    let Ok((pixels, w, h)) =
-        crate::preview::pcx::decode_pcx_with_palette(data, Some(palette))
+    let Ok((pixels, w, h)) = crate::preview::pcx::decode_pcx_with_palette(data, Some(palette))
     else {
         return;
     };
-    let color_image =
-        egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &pixels);
+    let color_image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &pixels);
     if let Some(preview) = sel.preview.as_mut() {
-        preview.texture = Some(ctx.load_texture(
-            "pcx_preview",
-            color_image,
-            egui::TextureOptions::default(),
-        ));
+        preview.texture =
+            Some(ctx.load_texture("pcx_preview", color_image, egui::TextureOptions::default()));
         preview.texture_pixels = Some((pixels, w, h));
         // Swap the Export As PNG action for one that bakes in the palette.
         let pal_vec: Vec<u8> = palette.to_vec();
@@ -41,11 +36,9 @@ pub fn apply_pcx_palette_override(
             default_extension: "png",
             filter_name: "PNG image",
             build: std::sync::Arc::new(move |data| {
-                let (pixels, w, h) = crate::preview::pcx::decode_pcx_with_palette(
-                    data,
-                    Some(pal_clone.as_slice()),
-                )
-                .map_err(|e| format!("pcx decode: {e}"))?;
+                let (pixels, w, h) =
+                    crate::preview::pcx::decode_pcx_with_palette(data, Some(pal_clone.as_slice()))
+                        .map_err(|e| format!("pcx decode: {e}"))?;
                 crate::preview::encode_png(&pixels, w, h)
             }),
         });
@@ -235,7 +228,11 @@ impl CascExplorerApp {
                 self.bg_rx = None;
                 self.loading = false;
             }
-            Ok(BgResult::ListfileLoaded { filenames, tree, path }) => {
+            Ok(BgResult::ListfileLoaded {
+                filenames,
+                tree,
+                path,
+            }) => {
                 if let Some(handler) = self.handler.as_mut() {
                     handler.apply_listfile(filenames, tree);
                     self.status = format!("Listfile loaded: {}", path.display());
@@ -383,7 +380,11 @@ impl CascExplorerApp {
                     }
                     let (filenames, tree) =
                         rustydemon_lib::prepare_listfile(&content, &fdid_hashes);
-                    let _ = tx.send(BgResult::ListfileLoaded { filenames, tree, path });
+                    let _ = tx.send(BgResult::ListfileLoaded {
+                        filenames,
+                        tree,
+                        path,
+                    });
                 }
                 Err(e) => {
                     let _ = tx.send(BgResult::ListfileError(format!(

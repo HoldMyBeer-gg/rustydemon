@@ -15,10 +15,7 @@ impl PreviewPlugin for AudioPreview {
 
     fn can_preview(&self, filename: &str, data: &[u8]) -> bool {
         let lower = filename.to_ascii_lowercase();
-        if !(lower.ends_with(".wav")
-            || lower.ends_with(".mp3")
-            || lower.ends_with(".ogg"))
-        {
+        if !(lower.ends_with(".wav") || lower.ends_with(".mp3") || lower.ends_with(".ogg")) {
             return false;
         }
         data.len() >= 4
@@ -188,7 +185,9 @@ fn parse_mp3(data: &[u8]) -> Option<String> {
     };
 
     // Layer III bitrate tables (kbps) for MPEG 1 / MPEG 2,2.5.
-    static BR_V1_L3: [u32; 15] = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
+    static BR_V1_L3: [u32; 15] = [
+        0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320,
+    ];
     static BR_V2_L3: [u32; 15] = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
     static SR_V1: [u32; 3] = [44100, 48000, 32000];
     static SR_V2: [u32; 3] = [22050, 24000, 16000];

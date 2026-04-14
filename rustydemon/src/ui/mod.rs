@@ -23,11 +23,19 @@ fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {
             toolbar(ui, app);
             // Zoom buttons pinned to the far right.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("A+").on_hover_text("Increase font size").clicked() {
+                if ui
+                    .button("A+")
+                    .on_hover_text("Increase font size")
+                    .clicked()
+                {
                     let z = (ctx.zoom_factor() + 0.1).min(3.0);
                     ctx.set_zoom_factor(z);
                 }
-                if ui.button("A-").on_hover_text("Decrease font size").clicked() {
+                if ui
+                    .button("A-")
+                    .on_hover_text("Decrease font size")
+                    .clicked()
+                {
                     let z = (ctx.zoom_factor() - 0.1).max(0.5);
                     ctx.set_zoom_factor(z);
                 }
@@ -63,9 +71,7 @@ fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {
         match tree_click {
             Some(tree::TreeClick::File(hash)) => {
                 let handler = app.handler.as_ref();
-                let entries = handler
-                    .map(|h| h.search_by_hash(hash))
-                    .unwrap_or_default();
+                let entries = handler.map(|h| h.search_by_hash(hash)).unwrap_or_default();
                 if let Some(first) = entries.into_iter().next() {
                     let ctx2 = ctx.clone();
                     app.select_result(first, &ctx2);
@@ -80,9 +86,8 @@ fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {
                         content: rustydemon_lib::ContentFlags::NONE,
                         ckey: rustydemon_lib::Md5Hash::default(),
                     });
-                    sel.load_error = Some(
-                        "No root entry found for this file (CKey unavailable).".into(),
-                    );
+                    sel.load_error =
+                        Some("No root entry found for this file (CKey unavailable).".into());
                     app.selected = Some(sel);
                 }
             }
