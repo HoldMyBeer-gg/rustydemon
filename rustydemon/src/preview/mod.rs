@@ -12,6 +12,7 @@
 
 pub mod audio;
 pub mod blp;
+pub mod m2;
 pub mod model3d;
 pub mod pcx;
 pub mod pow;
@@ -177,6 +178,7 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         Box::new(tex::TexPreview),
         // Structured-data format summaries.
         Box::new(model3d::Model3dPreview),
+        Box::new(m2::M2Preview),
         Box::new(pow::PowPreview),
         Box::new(vid::VidPreview),
         Box::new(audio::AudioPreview),
