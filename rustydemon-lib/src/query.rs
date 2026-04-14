@@ -12,7 +12,7 @@
 //! (`*`, `?`, `{`, `[`).  Construct with [`PathQuery::parse`] and resolve
 //! against a [`CascFolder`] with [`PathQuery::resolve`].
 
-use globset::{Glob, GlobMatcher};
+use globset::{GlobBuilder, GlobMatcher};
 
 use crate::{
     entry::{CascFile, CascFolder},
@@ -42,7 +42,15 @@ impl PathQuery {
     pub fn parse(query: &str) -> Result<Self, CascError> {
         if is_glob(query) {
             let pattern = anchor_pattern(query);
-            let matcher = Glob::new(&pattern)
+            // Case-insensitive matching so users can type `interface/icons/
+            // inv_sword_0*.blp` and still hit entries that the community
+            // listfile stores as `Interface/ICONS/INV_Sword_04.blp`.  The
+            // rest of the lib (CascFolder navigation, literal-path
+            // fallback) is already case-insensitive; this keeps glob
+            // matching consistent with that behaviour.
+            let matcher = GlobBuilder::new(&pattern)
+                .case_insensitive(true)
+                .build()
                 .map_err(|e| CascError::InvalidData(format!("invalid glob '{query}': {e}")))?
                 .compile_matcher();
             Ok(PathQuery::Glob { pattern, matcher })
