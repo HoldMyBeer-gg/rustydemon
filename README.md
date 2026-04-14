@@ -117,6 +117,9 @@ sudo apt install libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev \
                  libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
 
 # Arch / Steam Deck
+# Note: Just try to run rustydemon first. SteamOS probably has these already.
+# If not, you'll have to `sudo steamos-readonly disable`, install, then 
+# `sudo steamos-readonly enable` immediately after the install is done.
 sudo pacman -S gtk3 libxcb xkbcommon openssl
 
 # Fedora
