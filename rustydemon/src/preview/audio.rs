@@ -21,7 +21,13 @@ impl PreviewPlugin for AudioPreview {
         data.len() >= 4
     }
 
-    fn build(&self, filename: &str, data: &[u8], _ctx: &egui::Context) -> PreviewOutput {
+    fn build(
+        &self,
+        filename: &str,
+        data: &[u8],
+        _ctx: &egui::Context,
+        _fetch: &super::SiblingFetcher<'_>,
+    ) -> PreviewOutput {
         let mut out = PreviewOutput::new();
         let lower = filename.to_ascii_lowercase();
 

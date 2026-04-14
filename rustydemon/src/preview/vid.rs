@@ -23,7 +23,13 @@ impl PreviewPlugin for VidPreview {
         ext_match || VidHeader::parse(data).is_some()
     }
 
-    fn build(&self, _filename: &str, data: &[u8], _ctx: &egui::Context) -> PreviewOutput {
+    fn build(
+        &self,
+        _filename: &str,
+        data: &[u8],
+        _ctx: &egui::Context,
+        _fetch: &super::SiblingFetcher<'_>,
+    ) -> PreviewOutput {
         let mut out = PreviewOutput::new();
 
         let Some(vid) = VidHeader::parse(data) else {

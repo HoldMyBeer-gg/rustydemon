@@ -106,6 +106,15 @@ pub struct ExportAction {
     pub build: ExportBuilder,
 }
 
+/// Bundle of closures plugins can call to fetch sibling files from the
+/// open archive. Two lookup paths because modern WoW (Legion+) uses
+/// FileDataIDs rather than virtual paths for things like WMO group
+/// references; older formats still resolve by name.
+pub struct SiblingFetcher<'a> {
+    pub by_name: &'a dyn Fn(&str) -> Option<Vec<u8>>,
+    pub by_fdid: &'a dyn Fn(u32) -> Option<Vec<u8>>,
+}
+
 /// Plug-in interface for format-specific preview panels.
 ///
 /// Implementers go under `src/preview/` and register themselves in
@@ -127,7 +136,16 @@ pub trait PreviewPlugin: Send + Sync {
     /// returns `true` for the same `(filename, data)` pair.
     ///
     /// `ctx` is provided for plugins that need to upload GPU textures.
-    fn build(&self, filename: &str, data: &[u8], ctx: &egui::Context) -> PreviewOutput;
+    /// `fetch_sibling` lets the plugin pull related files out of the
+    /// open archive — e.g. a WMO root loading its group files. Most
+    /// plugins ignore it.
+    fn build(
+        &self,
+        filename: &str,
+        data: &[u8],
+        ctx: &egui::Context,
+        siblings: &SiblingFetcher<'_>,
+    ) -> PreviewOutput;
 }
 
 /// All registered preview plug-ins, in priority order.
@@ -153,11 +171,16 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
 
 /// Run all registered plugins against a loaded file and return the first
 /// matching preview, or `None` if no plugin can handle it.
-pub fn run(filename: Option<&str>, data: &[u8], ctx: &egui::Context) -> Option<PreviewOutput> {
+pub fn run(
+    filename: Option<&str>,
+    data: &[u8],
+    ctx: &egui::Context,
+    siblings: &SiblingFetcher<'_>,
+) -> Option<PreviewOutput> {
     let name = filename.unwrap_or("");
     for plugin in registry() {
         if plugin.can_preview(name, data) {
-            return Some(plugin.build(name, data, ctx));
+            return Some(plugin.build(name, data, ctx, siblings));
         }
     }
     None
