@@ -52,7 +52,8 @@ fi
 
 # ── Bump version in workspace Cargo.toml ──────────────────────────────────────
 info "Bumping workspace version to $NEW_VERSION …"
-sed -i "s/^version\s*=\s*\".*\"/version     = \"$NEW_VERSION\"/" Cargo.toml
+sed -i.bak "s/^version[[:space:]]*=[[:space:]]*\".*\"/version     = \"$NEW_VERSION\"/" Cargo.toml
+rm -f Cargo.toml.bak
 
 # ── Verify everything still builds and tests pass ─────────────────────────────
 info "Running full test suite …"
