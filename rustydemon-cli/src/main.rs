@@ -22,10 +22,9 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use globset::Glob;
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use rustydemon_lib::{CascConfig, CascFile, CascHandler};
+use rustydemon_lib::{CascConfig, CascFile, CascHandler, PathQuery};
 
 /// Rusty Demon CLI — batch export files from a CASC archive.
 #[derive(Debug, Parser)]
@@ -117,7 +116,7 @@ fn main() -> Result<()> {
         .ok_or_else(|| anyhow!("archive has no virtual file tree (listfile may be missing)"))?;
 
     // ── Build match list ──────────────────────────────────────────────────
-    let matches: Vec<CascFile> = resolve_path_query(tree, &args.path)
+    let matches: Vec<CascFile> = PathQuery::run(&args.path, tree)
         .with_context(|| format!("resolving --path {}", args.path))?;
 
     eprintln!("  matched {} files for '{}'", matches.len(), args.path);
@@ -244,60 +243,4 @@ fn main() -> Result<()> {
 /// directory name for installs that don't carry one.
 fn detect_product(base: &Path) -> Option<String> {
     CascConfig::detect_products(base).into_iter().next()
-}
-
-/// Resolve a `--path` query string to a list of virtual files.
-///
-/// Three forms are accepted, in order of priority:
-///
-/// 1. **Glob** — any pattern containing `*`, `?`, or `{...}`.  Matched
-///    against full virtual paths using [`globset`].  `**/` is auto-prepended
-///    unless the pattern already anchors the root (starts with `/` or `**/`),
-///    so `"sylvanas*.wmo"` matches anywhere in the tree.
-/// 2. **Folder** — a literal directory, exported recursively.
-/// 3. **Single file** — a literal full virtual path, case-insensitive.
-fn resolve_path_query(tree: &rustydemon_lib::CascFolder, query: &str) -> Result<Vec<CascFile>> {
-    // Glob?
-    if is_glob(query) {
-        let pattern = if query.starts_with('/') || query.starts_with("**/") {
-            query.trim_start_matches('/').to_owned()
-        } else {
-            format!("**/{query}")
-        };
-        let matcher = Glob::new(&pattern)
-            .with_context(|| format!("invalid glob: {pattern}"))?
-            .compile_matcher();
-        let matched: Vec<CascFile> = tree
-            .walk_files()
-            .filter(|f| matcher.is_match(&f.full_path))
-            .cloned()
-            .collect();
-        if matched.is_empty() {
-            return Err(anyhow!("glob matched nothing: {query}"));
-        }
-        return Ok(matched);
-    }
-
-    // Literal folder?
-    if let Some(folder) = tree.navigate(query) {
-        return Ok(folder.walk_files().cloned().collect());
-    }
-
-    // Literal file?
-    let lower = query.to_lowercase();
-    let matched: Vec<CascFile> = tree
-        .walk_files()
-        .filter(|f| f.full_path.to_lowercase() == lower)
-        .cloned()
-        .collect();
-    if !matched.is_empty() {
-        return Ok(matched);
-    }
-
-    Err(anyhow!("no such virtual path or glob match: {query}"))
-}
-
-/// Heuristic: does the query string look like a glob pattern?
-fn is_glob(s: &str) -> bool {
-    s.bytes().any(|b| matches!(b, b'*' | b'?' | b'{' | b'['))
 }

@@ -426,15 +426,18 @@ impl CascExplorerApp {
     }
 
     /// Run a search and populate `search_results`.
+    ///
+    /// Auto-detects whether `search_text` is a glob pattern (contains `*`,
+    /// `?`, `{`, or `[`) and dispatches accordingly: globs resolve against
+    /// the virtual file tree via [`PathQuery`](rustydemon_lib::PathQuery),
+    /// everything else uses the existing case-insensitive substring search
+    /// over the root manifest.
     pub fn run_search(&mut self) {
         let Some(handler) = self.handler.as_ref() else {
             return;
         };
         self.browsed_folder = None;
-        let query = rustydemon_lib::SearchQuery::new()
-            .filename(&self.search_text)
-            .limit(500);
-        self.search_results = handler.search(query);
+        self.search_results = handler.search_by_text(&self.search_text, 500);
         self.status = format!(
             "{} results for {:?}",
             self.search_results.len(),
@@ -448,8 +451,9 @@ impl CascExplorerApp {
         let Some(handler) = self.handler.as_ref() else {
             return;
         };
-        let query = rustydemon_lib::SearchQuery::new().filename(&self.search_text);
-        self.search_results = handler.search(query);
+        // Unlimited: deep search wants every hit so the content-matcher has
+        // the full candidate set to work against.
+        self.search_results = handler.search_by_text(&self.search_text, 0);
         self.status = format!(
             "Deep search: {} top-level results for {:?} (deep-search into containers: {})",
             self.search_results.len(),

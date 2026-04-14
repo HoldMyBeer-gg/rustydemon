@@ -211,6 +211,76 @@ impl CascHandler {
             .collect()
     }
 
+    /// Run a glob/path query against the virtual file tree and return one
+    /// [`SearchResult`] per matched file.
+    ///
+    /// Requires a populated [`root_folder`](CascHandler::root_folder) — i.e.
+    /// the handler has either a TVFS built-in path table or a loaded
+    /// listfile.  Returns an empty vec when the query is valid but matches
+    /// nothing, or when the handler has no tree at all.
+    pub fn search_by_path_query(
+        &self,
+        query: &crate::query::PathQuery,
+        limit: usize,
+    ) -> Vec<SearchResult> {
+        let Some(tree) = self.root_folder.as_ref() else {
+            return Vec::new();
+        };
+        let Ok(files) = query.resolve(tree) else {
+            return Vec::new();
+        };
+
+        let cap = if limit == 0 { usize::MAX } else { limit };
+        let mut results = Vec::with_capacity(files.len().min(cap));
+        for file in files {
+            if results.len() >= cap {
+                break;
+            }
+            // Pick the first root entry for this hash; locale/content
+            // variants are irrelevant for a path-driven search.
+            let entry = match self.root.get_all_entries(file.hash).first() {
+                Some(e) => *e,
+                None => continue,
+            };
+            results.push(SearchResult {
+                hash: file.hash,
+                filename: Some(file.full_path),
+                file_data_id: file
+                    .file_data_id
+                    .or_else(|| self.root.file_data_id_for_hash(file.hash)),
+                locale: entry.locale,
+                content: entry.content,
+                ckey: entry.ckey,
+            });
+        }
+        results
+    }
+
+    /// High-level search dispatcher for a user-typed query string.
+    ///
+    /// - If the input contains glob metacharacters (`*`, `?`, `{`, `[`), it
+    ///   is parsed as a [`PathQuery`](crate::query::PathQuery) and resolved
+    ///   against the virtual tree — this is the "**/*.m2" / "sylvanas*.wmo"
+    ///   case.
+    /// - Otherwise it falls through to the existing case-insensitive
+    ///   substring search over the root manifest, matching GUI behaviour
+    ///   from before globs existed.
+    pub fn search_by_text(&self, text: &str, limit: usize) -> Vec<SearchResult> {
+        let looks_like_glob = text.bytes().any(|b| matches!(b, b'*' | b'?' | b'{' | b'['));
+        if looks_like_glob {
+            match crate::query::PathQuery::parse(text) {
+                Ok(q) => self.search_by_path_query(&q, limit),
+                Err(_) => Vec::new(),
+            }
+        } else {
+            let mut q = SearchQuery::new().filename(text);
+            if limit > 0 {
+                q = q.limit(limit);
+            }
+            self.search(q)
+        }
+    }
+
     /// Iterate every known hash in the root manifest.
     ///
     /// This is the raw "all keys" view — equivalent to regedit showing every
