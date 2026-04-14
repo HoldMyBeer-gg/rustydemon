@@ -194,7 +194,10 @@ impl CascHandler {
             if handler.type_name() == "Dummy" {
                 match load_install_as_root(&config, &encoding, &local_index) {
                     Ok(install) => {
-                        eprintln!("root fallback: INSTALL loaded ({} entries)", install.count());
+                        eprintln!(
+                            "root fallback: INSTALL loaded ({} entries)",
+                            install.count()
+                        );
                         handler = Box::new(install);
                     }
                     Err(e) => {
