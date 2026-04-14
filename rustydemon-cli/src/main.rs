@@ -37,7 +37,7 @@ struct Args {
 
     /// What to export.  Three forms, auto-detected:
     ///
-    /// 1. Literal folder, exported recursively: `base/meta/Sound`
+    /// 1. Literal folder, exported recursively: `World/Maps/Azeroth`
     /// 2. Literal file, exported alone: `Interface/Icons/INV_Sword_04.blp`
     /// 3. Glob (contains `*`, `?`, or `{...}`) matched against full virtual
     ///    paths.  `**/` is auto-prepended unless the pattern already starts
@@ -45,8 +45,11 @@ struct Args {
     ///    `"sylvanas*.wmo"` (anywhere),
     ///    `"textures/*.tex"` (any textures dir),
     ///    `"**/cinematics/*.vid"` (literal anchor).
-    #[arg(long, short = 'p')]
-    path: String,
+    ///
+    /// For WoW archives you must also pass `--listfile` so path resolution
+    /// has something to work with, or use `--fdid` instead.
+    #[arg(long, short = 'p', required_unless_present = "fdid")]
+    path: Option<String>,
 
     /// Host directory to write files into.  Will be created if missing.
     #[arg(long, short = 'o')]
@@ -56,6 +59,21 @@ struct Args {
     /// if omitted.
     #[arg(long)]
     product: Option<String>,
+
+    /// Community listfile (CSV or plain text).  Required for WoW and any
+    /// other game whose root manifest doesn't carry built-in path names —
+    /// without it, `--path` has no tree to resolve against.  D4 and other
+    /// TVFS-based archives ignore this because they self-describe.
+    ///
+    /// Download from https://github.com/wowdev/wow-listfile for WoW.
+    #[arg(long, short = 'l')]
+    listfile: Option<PathBuf>,
+
+    /// Export a single file by FileDataID instead of `--path`.  Mutually
+    /// exclusive with `--path`; lets you extract a known file from a WoW
+    /// archive without loading a listfile.
+    #[arg(long, conflicts_with = "path")]
+    fdid: Option<u32>,
 
     /// Flatten output: drop all files directly into `--output` instead of
     /// mirroring the virtual directory structure.
@@ -103,6 +121,25 @@ fn main() -> Result<()> {
     let mut casc = CascHandler::open_local(&args.archive, &product)
         .with_context(|| format!("failed to open CASC archive at {}", args.archive.display()))?;
     casc.load_builtin_paths();
+
+    // ── Optionally apply a community listfile (WoW) ───────────────────────
+    if let Some(listfile_path) = &args.listfile {
+        if casc.has_builtin_paths() {
+            eprintln!("  note: archive already has built-in paths; listfile will be merged");
+        }
+        let content = std::fs::read_to_string(listfile_path)
+            .with_context(|| format!("reading listfile {}", listfile_path.display()))?;
+        let fdid_map = casc.fdid_hash_snapshot();
+        let (filenames, tree) = rustydemon_lib::prepare_listfile(&content, &fdid_map);
+        let n = filenames.len();
+        casc.apply_listfile(filenames, tree);
+        eprintln!(
+            "  listfile: {} path entries from {}",
+            n,
+            listfile_path.display()
+        );
+    }
+
     eprintln!(
         "  loaded in {:.2}s  ({} root entries, {} filenames)",
         t_open.elapsed().as_secs_f32(),
@@ -110,16 +147,40 @@ fn main() -> Result<()> {
         casc.filename_count(),
     );
 
-    let tree = casc
-        .root_folder
-        .as_ref()
-        .ok_or_else(|| anyhow!("archive has no virtual file tree (listfile may be missing)"))?;
-
     // ── Build match list ──────────────────────────────────────────────────
-    let matches: Vec<CascFile> = PathQuery::run(&args.path, tree)
-        .with_context(|| format!("resolving --path {}", args.path))?;
-
-    eprintln!("  matched {} files for '{}'", matches.len(), args.path);
+    let matches: Vec<CascFile> = if let Some(fdid) = args.fdid {
+        // FileDataID path: bypass the tree entirely.  We still need a hash
+        // to key the export closure off, so we walk the filename map in
+        // reverse; for unnamed files we fall back to a synthetic path.
+        if !casc.file_exists_by_fdid(fdid) {
+            return Err(anyhow!("FileDataID {fdid} not found in root manifest"));
+        }
+        // fdid_hash_snapshot gives us the fdid→hash map cheaply.
+        let fdid_map = casc.fdid_hash_snapshot();
+        let hash = fdid_map
+            .get(&fdid)
+            .copied()
+            .ok_or_else(|| anyhow!("FileDataID {fdid} has no root hash"))?;
+        let name = casc
+            .filename_for_hash(hash)
+            .unwrap_or_else(|| format!("fdid_{fdid}.bin"));
+        vec![CascFile::new(name, hash, Some(fdid))]
+    } else {
+        // Path-based: requires a virtual tree. WoW needs a listfile unless
+        // the user accepts the "unknown tree" error and switches to --fdid.
+        let path = args.path.as_deref().unwrap(); // clap guarantees one of path/fdid
+        let tree = casc.root_folder.as_ref().ok_or_else(|| {
+            anyhow!(
+                "archive has no virtual file tree — for WoW, pass --listfile \
+                 <path> (download one from https://github.com/wowdev/wow-listfile), \
+                 or use --fdid <id> to export a single file by FileDataID"
+            )
+        })?;
+        let hits =
+            PathQuery::run(path, tree).with_context(|| format!("resolving --path {path}"))?;
+        eprintln!("  matched {} files for '{}'", hits.len(), path);
+        hits
+    };
 
     if matches.is_empty() {
         eprintln!("Nothing to export.");
