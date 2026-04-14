@@ -33,3 +33,5 @@ wow-alchemy-data = "0.2.0"
 rfd         = "0.15"
 image       = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 texture2ddecoder = "0.1"
+wow-adt = "0.6.4"
+wow-wdt = "0.6.4"

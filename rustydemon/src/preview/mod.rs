@@ -10,6 +10,7 @@
 //! pattern so users can port one new format by dropping a module under
 //! `preview/` and adding one line to [`registry`].
 
+pub mod adt;
 pub mod audio;
 pub mod blp;
 pub mod m2;
@@ -179,6 +180,7 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         // Structured-data format summaries.
         Box::new(model3d::Model3dPreview),
         Box::new(m2::M2Preview),
+        Box::new(adt::AdtPreview),
         Box::new(pow::PowPreview),
         Box::new(vid::VidPreview),
         Box::new(audio::AudioPreview),
