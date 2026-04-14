@@ -12,6 +12,7 @@
 
 pub mod audio;
 pub mod blp;
+pub mod model3d;
 pub mod pcx;
 pub mod pow;
 pub mod tex;
@@ -42,6 +43,19 @@ pub struct PreviewOutput {
     pub texture_pixels: Option<(Vec<u8>, u32, u32)>,
     /// Extra export buttons beyond the baseline `Export Raw`.
     pub extra_exports: Vec<ExportAction>,
+    /// Indexed CPU-side mesh for the wgpu 3D viewport. When present, the
+    /// preview pane allocates an inline 3D rect and feeds this to
+    /// [`crate::viewport3d::paint_mesh`].
+    pub mesh3d: Option<Arc<Mesh3dCpu>>,
+}
+
+/// CPU-side indexed mesh handed from a preview plugin to the 3D viewport.
+/// Geometry only — materials/textures live in v1.
+pub struct Mesh3dCpu {
+    pub positions: Vec<[f32; 3]>,
+    pub indices: Vec<u32>,
+    pub bbox_min: [f32; 3],
+    pub bbox_max: [f32; 3],
 }
 
 impl PreviewOutput {
@@ -52,6 +66,7 @@ impl PreviewOutput {
             texture: None,
             texture_pixels: None,
             extra_exports: vec![],
+            mesh3d: None,
         }
     }
 
@@ -115,6 +130,7 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         Box::new(pcx::PcxPreview),
         Box::new(tex::TexPreview),
         // Structured-data format summaries.
+        Box::new(model3d::Model3dPreview),
         Box::new(pow::PowPreview),
         Box::new(vid::VidPreview),
         Box::new(audio::AudioPreview),

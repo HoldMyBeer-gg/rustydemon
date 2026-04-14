@@ -67,6 +67,12 @@ pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
             ui.separator();
         }
 
+        // 3D mesh viewport (currently only WMO group geometry).
+        if let Some(mesh) = preview.mesh3d.clone() {
+            crate::viewport3d::paint_mesh(ui, mesh);
+            ui.separator();
+        }
+
         // Text block (formatted summary or full text file).
         if let Some(text) = &preview.text {
             egui::ScrollArea::vertical()

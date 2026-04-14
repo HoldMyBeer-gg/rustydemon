@@ -117,6 +117,8 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                     app.expanded.clear();
                     app.expansion_dirty = true;
                 }
+                ui.separator();
+                ui.checkbox(&mut app.viewport3d_open, "3D Test Viewport");
             });
 
             // ── Tools ─────────────────────────────────────────────────────────

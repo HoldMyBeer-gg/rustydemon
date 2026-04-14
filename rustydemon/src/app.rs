@@ -160,10 +160,17 @@ pub struct CascExplorerApp {
     cancel: Arc<AtomicBool>,
     /// True while a background task is running.
     pub loading: bool,
+
+    // ── 3D viewport spike ─────────────────────────────────────────────────────
+    pub viewport3d_open: bool,
 }
 
 impl CascExplorerApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Install GPU resources for the 3D viewport spike, if wgpu is active.
+        if let Some(render_state) = cc.wgpu_render_state.as_ref() {
+            crate::viewport3d::init(render_state);
+        }
         Self {
             handler: None,
             product: String::new(),
@@ -184,6 +191,7 @@ impl CascExplorerApp {
             bg_rx: None,
             cancel: Arc::new(AtomicBool::new(false)),
             loading: false,
+            viewport3d_open: false,
         }
     }
 
@@ -373,11 +381,17 @@ impl CascExplorerApp {
             if cancel.load(Ordering::Relaxed) {
                 return;
             }
-            match std::fs::read_to_string(&path) {
-                Ok(content) => {
+            // Lossy decode: community listfiles are mostly ASCII but
+            // occasionally contain non-UTF-8 bytes (Latin-1 path fragments,
+            // stray binary). Strict read_to_string fails the whole file;
+            // lossy decode keeps every valid path and replaces only the
+            // bad bytes inside whichever line they appear on.
+            match std::fs::read(&path) {
+                Ok(bytes) => {
                     if cancel.load(Ordering::Relaxed) {
                         return;
                     }
+                    let content = String::from_utf8_lossy(&bytes);
                     let (filenames, tree) =
                         rustydemon_lib::prepare_listfile(&content, &fdid_hashes);
                     let _ = tx.send(BgResult::ListfileLoaded {
@@ -610,6 +624,7 @@ impl eframe::App for CascExplorerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_background(ctx);
         crate::ui::draw(ctx, self);
+        crate::viewport3d::show_window(ctx, &mut self.viewport3d_open);
     }
 }
 
