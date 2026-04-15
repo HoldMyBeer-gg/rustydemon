@@ -59,11 +59,22 @@ archives, written entirely in Rust.
 - **Deep search** - optionally search *inside* container files via a parallel
   [`ContentSearcher`](rustydemon/src/deep_search/mod.rs) plug-in interface
   (`.pow` D4 skill data supported out of the box).
+- **Glob path search** - search bar and CLI accept literal paths *or* glob
+  patterns (`*.wmo`, `textures/*.tex`, `**/cinematics/*.vid`); matching is
+  case-insensitive and `**/` is auto-prepended for convenience.
+- **Headless CLI exporter** (`rustydemon-cli`) - batch-extract files from a
+  local CASC install without launching the GUI. Supports path/glob/FDID
+  selection, parallel workers, dry-run, flatten, and overwrite. See
+  [CLI](#cli) below.
 - **Auto product detection** - reads `.build.info` so you never need to know internal product codes (`fenris`, `wow`, etc.)
 - **Cross-platform** - Windows · macOS · Linux · Steam Deck (touch-ready via egui)
 - **Steam Diablo IV support** - first-ever reader for the Steam-distribution
   static container format (no `.build.info`, no encoding file, location
   encoded directly in each EKey)
+- **Diablo II: Resurrected support** - reads D2R 3.1.2's TVFS-based layout,
+  including the multi-storage `Data/data` + `Data/ecache` split and
+  archive-style `.index` files, with an optional CDN fallback fetcher
+  (behind the `cdn` cargo feature).
 
 ---
 
@@ -159,6 +170,7 @@ The product UID is detected automatically:
 |------|------------|
 | World of Warcraft | `wow` |
 | Diablo IV | `fenris` |
+| Diablo II: Resurrected | `osi` |
 | Diablo III | `d3` |
 | Hearthstone | `hs` |
 | Heroes of the Storm | `hero` |
@@ -180,6 +192,10 @@ Type a filename fragment in the search bar and press **Enter** or click **Search
 Results are drawn from the *entire* root manifest, every locale and content
 variant, so nothing is hidden behind an unexpanded folder.
 
+The query can be a literal substring *or* a glob: `*.wmo`, `textures/*.tex`,
+`**/cinematics/*.vid`. Matching is case-insensitive, and `**/` is
+auto-prepended unless the pattern already anchors at `/` or `**/`.
+
 ### 4 -Deep search *(optional)*
 
 Check **Deep search** and click **🔍 Find All (Deep Search)** to also search
@@ -200,12 +216,46 @@ Click any file in the tree or search results to load it into the preview panel.
 
 ---
 
+## CLI
+
+`rustydemon-cli` is a headless batch exporter for scripting and
+server-side extraction. The GUI binary remains the way to browse
+interactively.
+
+```bash
+cargo run --release -p rustydemon-cli -- \
+    --archive "/home/deck/.steam/steam/steamapps/common/Diablo IV" \
+    --path    "base/meta/Sound" \
+    --output  ./out
+```
+
+Key flags:
+
+| Flag | Purpose |
+|------|---------|
+| `-a, --archive <DIR>` | Game install root (Battle.net or Steam) |
+| `-p, --path <PATH>` | Literal folder, literal file, or glob (`*.wmo`, `**/cinematics/*.vid`) |
+| `--fdid <N>` | Extract a single WoW file by FileDataID (no listfile needed) |
+| `-l, --listfile <FILE>` | Listfile for WoW (required to resolve paths) |
+| `-o, --output <DIR>` | Host directory; created if missing |
+| `--flat` | Drop files into `--output` instead of mirroring virtual dirs |
+| `--dry-run` | Print matches without writing |
+| `--overwrite` | Replace existing files (default: skip) |
+| `-j, --parallel <N>` | Worker thread count (defaults to CPU cores) |
+| `-q, --quiet` | Suppress progress bar |
+
+D4 and other TVFS-based archives self-describe, so `--listfile` is not
+needed there. For WoW, pass either `--listfile` or `--fdid`.
+
+---
+
 ## Workspace Layout
 
 ```
 rustydemon/
 ├── rustydemon-blp2/   BLP0/1/2 texture decoder (palette, DXT1/3/5, ARGB, JPEG)
 ├── rustydemon-lib/    CASC library (config, index, encoding, BLTE, root, search)
+├── rustydemon-cli/    Headless batch exporter (clap + rayon)
 └── rustydemon/        egui/eframe GUI application
 ```
 
