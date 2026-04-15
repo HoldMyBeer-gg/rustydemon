@@ -57,6 +57,11 @@ pub struct SelectedFile {
     /// Output produced by the first matching [`PreviewPlugin`].  When
     /// `None`, the panel falls back to a hex dump.
     pub preview: Option<crate::preview::PreviewOutput>,
+    /// Index into [`crate::preview::registry`] of a plugin the user
+    /// forced via the "Viewer:" dropdown.  `None` means auto-dispatch
+    /// (first matching `can_preview` wins, same as before).  Cleared
+    /// when the selection changes.
+    pub preview_override: Option<usize>,
     /// Deep-search hits inside this container file.
     pub content_matches: Vec<ContentMatch>,
 }
@@ -68,6 +73,7 @@ impl SelectedFile {
             data: None,
             load_error: None,
             preview: None,
+            preview_override: None,
             content_matches: vec![],
         }
     }
