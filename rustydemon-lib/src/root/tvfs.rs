@@ -62,9 +62,17 @@ pub(crate) trait FileOpener {
 /// Local-install backend — loads from `*.idx` local index files and the
 /// `data.NNN` archive files they point at, across one or more storage
 /// directories.  Uses the encoding table for ckey↔ekey translation.
+///
+/// When built with the `cdn` feature, an optional `CdnFetcher` is used as
+/// a fallback on local misses.  D2R 3.1.2 ships its TVFS root (and some
+/// sub-directories) as loose CDN blobs that aren't present in any local
+/// `.idx` / archive `.index`, so TVFS loading must be able to reach the
+/// CDN or it fails at open time.
 pub(crate) struct LocalFileOpener<'a> {
     pub encoding: &'a EncodingHandler,
     pub local_index: &'a LocalIndexHandler,
+    #[cfg(feature = "cdn")]
+    pub cdn: Option<std::sync::Arc<crate::cdn::CdnFetcher>>,
 }
 
 impl FileOpener for LocalFileOpener<'_> {
@@ -72,8 +80,23 @@ impl FileOpener for LocalFileOpener<'_> {
         // `read_block` routes to the correct storage (primary vs ecache
         // for D2R 3.1.2+), so we don't have to care which one the ekey
         // lives in.
-        let raw = self.local_index.read_block(ekey)?;
-        blte::decode(&raw, ekey, false)
+        let local_err = match self.local_index.read_block(ekey) {
+            Ok(raw) => return blte::decode(&raw, ekey, false),
+            Err(e) => e,
+        };
+        #[cfg(feature = "cdn")]
+        if let Some(fetcher) = self.cdn.as_ref() {
+            match fetcher.fetch(ekey) {
+                Ok(raw) => return blte::decode(&raw, ekey, false),
+                Err(cdn_err) => {
+                    return Err(CascError::Config(format!(
+                        "read {} failed locally ({local_err}) and via CDN ({cdn_err})",
+                        ekey.to_hex()
+                    )));
+                }
+            }
+        }
+        Err(local_err)
     }
 
     fn ckey_for_ekey(&self, ekey: &Md5Hash) -> Option<Md5Hash> {
