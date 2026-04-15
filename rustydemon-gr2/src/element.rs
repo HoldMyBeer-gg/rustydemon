@@ -501,18 +501,62 @@ impl<'a> Ctx<'a> {
                 *data_cursor += 4;
                 ElementValue::F32(v)
             }
-            // Types 11..=18 are various small ints / half floats / normals —
-            // size varies.  Treat them as opaque + skip a sensible number of
-            // bytes so the struct cursor stays aligned.  See Granny docs:
-            //   11 Int8 / 12 UInt8 / 13 BinormalInt8 / 14 NormalUInt8
-            //   15 Int16 / 16 UInt16 / 17 BinormalInt16 / 18 NormalUInt16
-            11..=14 => {
+            // Small int types.  All of these live inside vertex
+            // structs for D2R and we need the numeric values, so they
+            // get decoded into F32 / I32 instead of staying opaque:
+            //
+            //   11 Int8          → I32 (signed byte, raw)
+            //   12 UInt8         → I32 (unsigned byte, raw)
+            //   13 BinormalInt8  → F32 (signed byte / 127.0, [-1, 1])
+            //   14 NormalUInt8   → F32 (unsigned byte / 255.0, [0, 1])
+            11 => {
+                let pos = *data_cursor;
                 advance_data(data_cursor, 1, data_sec)?;
-                ElementValue::Opaque(info.type_id)
+                ElementValue::I32(data_sec.data[pos] as i8 as i32)
             }
-            15..=18 => {
+            12 => {
+                let pos = *data_cursor;
+                advance_data(data_cursor, 1, data_sec)?;
+                ElementValue::I32(data_sec.data[pos] as i32)
+            }
+            13 => {
+                let pos = *data_cursor;
+                advance_data(data_cursor, 1, data_sec)?;
+                ElementValue::F32((data_sec.data[pos] as i8 as f32) / 127.0)
+            }
+            14 => {
+                let pos = *data_cursor;
+                advance_data(data_cursor, 1, data_sec)?;
+                ElementValue::F32((data_sec.data[pos] as f32) / 255.0)
+            }
+            // 16-bit variants:
+            //   15 Int16         → I32 (signed short, raw)
+            //   16 UInt16        → I32 (unsigned short, raw)
+            //   17 BinormalInt16 → F32 (signed short / 32767.0, [-1, 1])
+            //   18 NormalUInt16  → F32 (unsigned short / 65535.0, [0, 1])
+            15 => {
+                let pos = *data_cursor;
                 advance_data(data_cursor, 2, data_sec)?;
-                ElementValue::Opaque(info.type_id)
+                let v = i16::from_le_bytes([data_sec.data[pos], data_sec.data[pos + 1]]);
+                ElementValue::I32(v as i32)
+            }
+            16 => {
+                let pos = *data_cursor;
+                advance_data(data_cursor, 2, data_sec)?;
+                let v = u16::from_le_bytes([data_sec.data[pos], data_sec.data[pos + 1]]);
+                ElementValue::I32(v as i32)
+            }
+            17 => {
+                let pos = *data_cursor;
+                advance_data(data_cursor, 2, data_sec)?;
+                let v = i16::from_le_bytes([data_sec.data[pos], data_sec.data[pos + 1]]);
+                ElementValue::F32((v as f32) / 32767.0)
+            }
+            18 => {
+                let pos = *data_cursor;
+                advance_data(data_cursor, 2, data_sec)?;
+                let v = u16::from_le_bytes([data_sec.data[pos], data_sec.data[pos + 1]]);
+                ElementValue::F32((v as f32) / 65535.0)
             }
             19 => {
                 // Int32.
@@ -543,9 +587,13 @@ impl<'a> Ctx<'a> {
                 ElementValue::I32(v as i32)
             }
             21 => {
-                // HalfFloat — 2 bytes, not actually decoded.
+                // HalfFloat — IEEE 754 half precision.  D2R stores
+                // vertex positions as HalfFloat[4] so we actually need
+                // to decode these rather than skip the bytes.
+                let pos = *data_cursor;
                 advance_data(data_cursor, 2, data_sec)?;
-                ElementValue::Opaque(21)
+                let h = u16::from_le_bytes([data_sec.data[pos], data_sec.data[pos + 1]]);
+                ElementValue::F32(f16_to_f32(h))
             }
             22 => {
                 // EmptyReference — pointer-sized.
@@ -562,6 +610,40 @@ impl<'a> Ctx<'a> {
         };
         Ok(v)
     }
+}
+
+/// IEEE 754 half-precision (binary16) → single-precision (binary32)
+/// conversion.  Used for Granny type 21 (HalfFloat), which D2R stores
+/// vertex positions/normals/tangents in.  Handles NaN/Inf/denormal
+/// edge cases so a bogus vertex doesn't poison the whole mesh.
+fn f16_to_f32(bits: u16) -> f32 {
+    let sign = (bits >> 15) & 0x1;
+    let exp = (bits >> 10) & 0x1F;
+    let mant = bits & 0x3FF;
+    let f32_bits: u32 = if exp == 0 {
+        if mant == 0 {
+            // Signed zero.
+            (sign as u32) << 31
+        } else {
+            // Denormal: normalise into the f32 range.
+            let mut m = mant as u32;
+            let mut e: i32 = -14;
+            while (m & 0x400) == 0 {
+                m <<= 1;
+                e -= 1;
+            }
+            m &= 0x3FF;
+            ((sign as u32) << 31) | (((e + 127) as u32) << 23) | (m << 13)
+        }
+    } else if exp == 0x1F {
+        // Inf / NaN.
+        ((sign as u32) << 31) | (0xFF << 23) | ((mant as u32) << 13)
+    } else {
+        // Normal number.
+        let e = (exp as i32) - 15 + 127;
+        ((sign as u32) << 31) | ((e as u32) << 23) | ((mant as u32) << 13)
+    };
+    f32::from_bits(f32_bits)
 }
 
 fn advance_data(cursor: &mut usize, n: usize, sec: &Section) -> Result<()> {

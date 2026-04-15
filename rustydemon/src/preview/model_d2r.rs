@@ -7,7 +7,9 @@
 //! will build on, so this plugin also serves as the integration
 //! point where the reader first hits real end-user data.
 
-use super::{PreviewOutput, PreviewPlugin};
+use std::sync::Arc;
+
+use super::{Mesh3dCpu, MeshBatch, PreviewOutput, PreviewPlugin};
 use rustydemon_gr2::{has_granny_magic, Element, ElementValue, GrannyFile};
 
 pub struct ModelD2rPreview;
@@ -103,19 +105,79 @@ impl PreviewPlugin for ModelD2rPreview {
             }
         }
 
+        // Geometry: extract every mesh and feed the first one to the
+        // 3D viewport.  Multi-mesh D2R models merge into a single
+        // Mesh3dCpu with one batch per source mesh, so the whole thing
+        // renders at once.
+        let meshes = gf.meshes();
+        if !meshes.is_empty() {
+            text.push_str("\nDecoded meshes:\n");
+            for m in &meshes {
+                text.push_str(&format!(
+                    "  '{}'  {} verts / {} tris\n",
+                    m.name,
+                    m.positions.len(),
+                    m.indices.len() / 3
+                ));
+            }
+
+            // Flatten all meshes into one combined buffer with a
+            // per-mesh MeshBatch so the renderer can colour-code them.
+            let mut positions: Vec<[f32; 3]> = Vec::new();
+            let mut uvs: Vec<[f32; 2]> = Vec::new();
+            let mut indices: Vec<u32> = Vec::new();
+            let mut batches: Vec<MeshBatch> = Vec::new();
+            let mut bbox_min = [f32::INFINITY; 3];
+            let mut bbox_max = [f32::NEG_INFINITY; 3];
+            for (mesh_i, m) in meshes.iter().enumerate() {
+                let vbase = positions.len() as u32;
+                let ibase = indices.len() as u32;
+                positions.extend_from_slice(&m.positions);
+                uvs.extend_from_slice(&m.uvs);
+                for i in &m.indices {
+                    indices.push(vbase + i);
+                }
+                batches.push(MeshBatch {
+                    start_index: ibase,
+                    index_count: m.indices.len() as u32,
+                    material_id: m.material_index.unwrap_or(mesh_i as u32),
+                });
+                for axis in 0..3 {
+                    if m.bbox_min[axis] < bbox_min[axis] {
+                        bbox_min[axis] = m.bbox_min[axis];
+                    }
+                    if m.bbox_max[axis] > bbox_max[axis] {
+                        bbox_max[axis] = m.bbox_max[axis];
+                    }
+                }
+            }
+            if bbox_min[0] == f32::INFINITY {
+                bbox_min = [0.0; 3];
+                bbox_max = [0.0; 3];
+            }
+            out.mesh3d = Some(Arc::new(Mesh3dCpu {
+                positions,
+                uvs,
+                indices,
+                bbox_min,
+                bbox_max,
+                batches,
+                // Texture wiring is a follow-up: we'd need to resolve
+                // the sibling .texture files via the fetcher, decode
+                // each via rustydemon/src/preview/texture.rs, and feed
+                // them as MeshMaterial entries.  Until then the
+                // renderer falls back to hash-coloured batches.
+                materials: Vec::new(),
+            }));
+        }
+
         // Top-level element tree — one level deep.  Users can see the
         // skeleton name, mesh name, etc. without us having to interpret
         // the geometry.
-        text.push_str("Top-level tree:\n");
+        text.push_str("\nTop-level tree:\n");
         for e in &gf.root_elements {
             text.push_str(&format!("  - {} :: {}\n", e.name, kind_label(&e.value)));
         }
-
-        text.push_str(
-            "\nGeometry extraction for the 3D viewport is the next step — \
-             the parser already exposes the mesh trees, we just need a\n\
-             plugin that walks VertexData + TriTopology and fills a Mesh3dCpu.\n",
-        );
 
         out.text = Some(text);
         out

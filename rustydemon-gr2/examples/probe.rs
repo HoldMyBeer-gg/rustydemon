@@ -35,7 +35,27 @@ fn main() {
             }
             let summary = gf.summary();
             println!("summary: {:?}", summary);
-            println!("root elements ({}):", gf.root_elements.len());
+
+            let meshes = gf.meshes();
+            println!("\nextracted meshes ({}):", meshes.len());
+            for m in &meshes {
+                println!(
+                    "  '{}'  verts={} tris={} bbox=[{:.2},{:.2},{:.2}]..[{:.2},{:.2},{:.2}] mat={:?}",
+                    m.name,
+                    m.positions.len(),
+                    m.indices.len() / 3,
+                    m.bbox_min[0], m.bbox_min[1], m.bbox_min[2],
+                    m.bbox_max[0], m.bbox_max[1], m.bbox_max[2],
+                    m.material_index
+                );
+                if !m.positions.is_empty() {
+                    println!("    first pos = {:?}", m.positions[0]);
+                    println!("    first uv  = {:?}", m.uvs[0]);
+                    println!("    first idx = {:?}", &m.indices[..6.min(m.indices.len())]);
+                }
+            }
+
+            println!("\nroot elements ({}):", gf.root_elements.len());
             for e in gf.root_elements.iter() {
                 print_element(e, 1);
             }
@@ -50,7 +70,7 @@ fn print_element(e: &rustydemon_gr2::Element, depth: usize) {
     let pad = "  ".repeat(depth);
     println!("{pad}- {} :: {}", e.name, value_kind(&e.value));
     use rustydemon_gr2::ElementValue::*;
-    if depth > 3 {
+    if depth > 6 {
         return;
     }
     match &e.value {
