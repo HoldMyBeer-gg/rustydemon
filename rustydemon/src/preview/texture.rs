@@ -138,9 +138,7 @@ struct CandidateList {
 /// even when the decode is perfectly correct.  Unknown codes fall
 /// through to a block-size-matched brute force where `looks_valid` is
 /// still needed to distinguish a real decode from BC noise.
-fn candidates_for(header: &DeHeader, filename: &str) -> CandidateList {
-    let lower = filename.to_ascii_lowercase();
-
+fn candidates_for(header: &DeHeader, _filename: &str) -> CandidateList {
     // Block-size class is authoritative: we know it exactly from the
     // header, so we only try formats whose block size matches mip0's
     // bytes/block ratio (w*h/16 × block_bytes == mip0_size).
@@ -156,16 +154,16 @@ fn candidates_for(header: &DeHeader, filename: &str) -> CandidateList {
         // Verified from block inspection on aluminum_alb (all-white BC3).
         (0x3E, true) => (vec![BC3, BC7], true),
 
-        // Observed on normal maps, masks, ORM, LUTs, gradients.  Default
-        // to BC7 (D4/D2R-era general-purpose format), with a BC5 hint
-        // for normal maps since two-channel encoding is common there.
-        (0x3D, true) => {
-            if lower.contains("_nrm") || lower.contains("_normal") {
-                (vec![BC5, BC7, BC3], true)
-            } else {
-                (vec![BC7, BC3, BC5], true)
-            }
-        }
+        // Observed on normal maps, masks, ORM, LUTs, gradients.  Test
+        // samples at 4×4 (default_mask: ffff/ffff/aaaaaaaa; aluminum:
+        // ffff/bef7beef/aaaaaaaa) decode as clean BC3 "flat white" /
+        // "flat solid" blocks.  BC3 is most likely the canonical
+        // format and the difference vs 0x3E is probably an sRGB
+        // vs linear colorspace flag (0x3E = sRGB albedo, 0x3D =
+        // linear data).  BC7 and BC5 stay in the fallback chain in
+        // case specific content — LUTs, gradients — was actually
+        // encoded differently; user can force them via the override.
+        (0x3D, true) => (vec![BC3, BC7, BC5], true),
 
         // Flow maps (default_flow, gfxtest_hair_flow).  Two-channel
         // vector field — adjacent pixels are high-frequency direction
