@@ -14,6 +14,7 @@ pub mod audio;
 pub mod blp;
 pub mod m2;
 pub mod model3d;
+pub mod model_d2r;
 pub mod pcx;
 pub mod pow;
 pub mod tex;
@@ -184,6 +185,8 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         // Structured-data format summaries.
         Box::new(model3d::Model3dPreview),
         Box::new(m2::M2Preview),
+        // D2R model recognizer (structural summary, no geometry yet).
+        Box::new(model_d2r::ModelD2rPreview),
         Box::new(pow::PowPreview),
         Box::new(vid::VidPreview),
         Box::new(audio::AudioPreview),
