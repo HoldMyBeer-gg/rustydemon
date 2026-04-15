@@ -1,0 +1,13 @@
+[package]
+name                 = "rustydemon-gr2"
+description          = "Granny3D (.gr2) reader used by Rusty Demon for D2R .model files"
+version.workspace    = true
+authors.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+
+[dependencies]
+thiserror = "2"
+
+[dev-dependencies]

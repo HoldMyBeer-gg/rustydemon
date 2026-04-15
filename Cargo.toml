@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "rustydemon-blp2",
+    "rustydemon-gr2",
     "rustydemon-lib",
     "rustydemon",
     "rustydemon-cli",
