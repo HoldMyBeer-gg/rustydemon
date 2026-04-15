@@ -179,6 +179,26 @@ pub struct CascExplorerApp {
     /// `Some(None)` means "switch back to Auto"; `Some(Some(idx))` means
     /// "force plugin at registry index idx".
     pub pending_preview_override: Option<Option<usize>>,
+
+    // ── Audio playback ────────────────────────────────────────────────────────
+    /// Lazily-initialised audio player.  `None` means "not yet tried"
+    /// until the first selection with an audio file, at which point we
+    /// attempt `AudioPlayer::try_new()`.  If that fails (no audio
+    /// device), this stays `Some(None)` as a sentinel so we don't
+    /// keep retrying.
+    pub audio_player: Option<Option<crate::audio::AudioPlayer>>,
+    /// Audio action collected from the preview panel's Play / Pause /
+    /// Stop buttons, applied during the next [`poll_background`] tick.
+    pub pending_audio_action: Option<AudioAction>,
+}
+
+#[derive(Debug, Clone)]
+pub enum AudioAction {
+    /// Decode the given bytes with the given display label and start
+    /// playback, replacing any current track.
+    Play(Vec<u8>, String),
+    TogglePause,
+    Stop,
 }
 
 impl CascExplorerApp {
@@ -209,6 +229,42 @@ impl CascExplorerApp {
             loading: false,
             viewport3d_open: false,
             pending_preview_override: None,
+            audio_player: None,
+            pending_audio_action: None,
+        }
+    }
+
+    /// Access the audio player, initialising it on first use.  Returns
+    /// `None` if the machine has no working audio device.
+    pub fn audio_player_mut(&mut self) -> Option<&mut crate::audio::AudioPlayer> {
+        let slot = self
+            .audio_player
+            .get_or_insert_with(crate::audio::AudioPlayer::try_new);
+        slot.as_mut()
+    }
+
+    /// Apply any queued audio action.  Called from `update()` so the
+    /// preview panel can collect button clicks into an intent and let
+    /// the app touch `audio_player` (which requires `&mut self`)
+    /// outside of the borrow-conflicted `sel` render loop.
+    pub fn apply_pending_audio(&mut self) {
+        let Some(action) = self.pending_audio_action.take() else {
+            return;
+        };
+        let Some(player) = self.audio_player_mut() else {
+            self.status = "Audio playback unavailable (no output device).".into();
+            return;
+        };
+        match action {
+            AudioAction::Play(bytes, label) => {
+                if let Err(e) = player.play(bytes, label.clone()) {
+                    self.status = format!("Audio: {e}");
+                } else {
+                    self.status = format!("Playing {label}");
+                }
+            }
+            AudioAction::TogglePause => player.toggle_pause(),
+            AudioAction::Stop => player.stop(),
         }
     }
 
@@ -667,6 +723,7 @@ impl eframe::App for CascExplorerApp {
         if let Some(new_override) = self.pending_preview_override.take() {
             crate::ui::preview::apply_preview_override(self, new_override, ctx);
         }
+        self.apply_pending_audio();
         self.poll_background(ctx);
         crate::ui::draw(ctx, self);
         crate::viewport3d::show_window(ctx, &mut self.viewport3d_open);
