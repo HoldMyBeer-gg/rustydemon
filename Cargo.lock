@@ -3297,6 +3297,7 @@ dependencies = [
  "image",
  "rfd",
  "rustydemon-blp2",
+ "rustydemon-gr2",
  "rustydemon-lib",
  "texture2ddecoder",
  "wgpu",
@@ -3322,6 +3323,13 @@ dependencies = [
  "indicatif",
  "rayon",
  "rustydemon-lib",
+]
+
+[[package]]
+name = "rustydemon-gr2"
+version = "0.3.1"
+dependencies = [
+ "thiserror 2.0.18",
 ]
 
 [[package]]
