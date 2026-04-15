@@ -95,6 +95,20 @@ fn guess_all_dimensions(pixel_count: usize) -> Vec<(usize, usize)> {
     results
 }
 
+/// Public wrapper for [`looks_valid`] so other preview plugins (e.g. the
+/// D2R `<DE(` reader) can reuse the same plausibility heuristic when
+/// brute-forcing BC candidates.
+pub(crate) fn looks_valid_u32(pixels: &[u32], width: usize) -> bool {
+    looks_valid(pixels, width)
+}
+
+/// Public wrapper for [`u32_to_rgba`] so other preview plugins can
+/// convert the decoder's `u32` output into the `[R,G,B,A]` byte layout
+/// egui expects.
+pub(crate) fn u32_to_rgba_bytes(pixels: &[u32]) -> Vec<u8> {
+    u32_to_rgba(pixels)
+}
+
 /// Validate decoded image: real textures have spatial coherence (adjacent
 /// pixels tend to be similar). Noise from a wrong BC format has high
 /// pixel-to-pixel variation. Checks both horizontal and vertical adjacency.

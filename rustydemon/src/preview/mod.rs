@@ -18,6 +18,7 @@ pub mod pcx;
 pub mod pow;
 pub mod tex;
 pub mod text;
+pub mod texture;
 pub mod vid;
 
 use std::sync::Arc;
@@ -175,6 +176,10 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         // the text heuristic could false-positive on a binary header.
         Box::new(blp::BlpPreview),
         Box::new(pcx::PcxPreview),
+        // D2R `<DE(` container — magic-sniffed, so it sits above the
+        // extension-only `.tex` plugin to claim D2R textures before a
+        // name collision could matter.
+        Box::new(texture::TextureDePreview),
         Box::new(tex::TexPreview),
         // Structured-data format summaries.
         Box::new(model3d::Model3dPreview),
