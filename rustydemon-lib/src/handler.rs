@@ -236,6 +236,8 @@ impl CascHandler {
             let opener = crate::root::tvfs::LocalFileOpener {
                 encoding: &encoding,
                 local_index: &local_index,
+                #[cfg(feature = "cdn")]
+                cdn: cdn_fetcher.clone(),
             };
 
             let tvfs = TvfsRootHandler::load(&vfs_ekey, &vfs_list, &opener)?;
@@ -269,6 +271,8 @@ impl CascHandler {
                 let opener = crate::root::tvfs::LocalFileOpener {
                     encoding: &encoding,
                     local_index: &local_index,
+                    #[cfg(feature = "cdn")]
+                    cdn: cdn_fetcher.clone(),
                 };
                 match TvfsRootHandler::load(&vfs_ekey, &vfs_list, &opener) {
                     Ok(tvfs) => {
