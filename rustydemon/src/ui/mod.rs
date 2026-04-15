@@ -1,5 +1,5 @@
 mod menu;
-mod preview;
+pub(crate) mod preview;
 mod results;
 mod tree;
 
