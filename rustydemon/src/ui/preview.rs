@@ -194,6 +194,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     let mut pcx_clear_palette = false;
     let mut export_action_clicked: Option<usize> = None;
     let mut export_raw_clicked = false;
+    let mut audio_action: Option<crate::app::AudioAction> = None;
 
     if is_pcx {
         ui.horizontal(|ui| {
@@ -215,6 +216,109 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
                 );
             }
         });
+        ui.separator();
+    }
+
+    // ── Audio playback controls ───────────────────────────────────────────────
+    // Shown whenever the selected file has a playable audio extension
+    // (.wav / .mp3 / .ogg / .flac) and its bytes are loaded.  The
+    // rodio-backed AudioPlayer lives on app.audio_player and owns the
+    // output stream for the whole process lifetime, so the controls
+    // just queue Play / Pause / Stop intents for the next frame.
+    let is_audio = sel
+        .result
+        .filename
+        .as_deref()
+        .map(crate::audio::is_audio_filename)
+        .unwrap_or(false);
+    if is_audio && sel.data.is_some() {
+        // Look at the live player (if any) to decide button states.
+        // We can't borrow `app` mutably here, but the immutable peek
+        // at `audio_player` is fine because we only read is_playing /
+        // is_paused / current_label — the AudioPlayer's interior
+        // state is all owned values we can copy out.
+        let (is_playing, is_paused, current_label, elapsed) =
+            match app.audio_player.as_ref().and_then(|slot| slot.as_ref()) {
+                Some(p) => (
+                    p.is_playing(),
+                    p.is_paused(),
+                    p.current_label().map(str::to_owned),
+                    p.elapsed_secs(),
+                ),
+                None => (false, false, None, 0.0),
+            };
+
+        let own_label = sel
+            .result
+            .filename
+            .as_deref()
+            .and_then(|p| p.rsplit(['/', '\\']).next())
+            .map(str::to_owned);
+
+        // Only show this track as "the current one" if the player's
+        // loaded track label matches the currently-selected file.
+        let this_is_current = current_label == own_label && current_label.is_some();
+
+        ui.horizontal(|ui| {
+            let play_label = if this_is_current && is_playing {
+                "▶ Playing"
+            } else if this_is_current && is_paused {
+                "▶ Resume"
+            } else {
+                "▶ Play"
+            };
+            if ui
+                .add_enabled(
+                    !(this_is_current && is_playing),
+                    egui::Button::new(play_label),
+                )
+                .clicked()
+            {
+                if this_is_current && is_paused {
+                    audio_action = Some(crate::app::AudioAction::TogglePause);
+                } else if let Some(data) = sel.data.clone() {
+                    audio_action = Some(crate::app::AudioAction::Play(
+                        data,
+                        own_label.clone().unwrap_or_else(|| "audio".into()),
+                    ));
+                }
+            }
+            if ui
+                .add_enabled(this_is_current && is_playing, egui::Button::new("⏸ Pause"))
+                .clicked()
+            {
+                audio_action = Some(crate::app::AudioAction::TogglePause);
+            }
+            if ui
+                .add_enabled(
+                    this_is_current && (is_playing || is_paused),
+                    egui::Button::new("⏹ Stop"),
+                )
+                .clicked()
+            {
+                audio_action = Some(crate::app::AudioAction::Stop);
+            }
+            if this_is_current && (is_playing || is_paused) {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{:02}:{:05.2}",
+                        (elapsed as u64) / 60,
+                        elapsed % 60.0
+                    ))
+                    .monospace()
+                    .small()
+                    .color(egui::Color32::from_gray(180)),
+                );
+            }
+        });
+
+        // Keep the frame ticking while audio is playing so the elapsed
+        // counter updates even if the user doesn't move the mouse.
+        if this_is_current && is_playing {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(200));
+        }
+
         ui.separator();
     }
 
@@ -245,6 +349,10 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         // `App::update` drains `pending_preview_override` before any
         // rendering starts.
         app.pending_preview_override = Some(new_override);
+        ui.ctx().request_repaint();
+    }
+    if let Some(action) = audio_action {
+        app.pending_audio_action = Some(action);
         ui.ctx().request_repaint();
     }
     if pcx_load_palette {

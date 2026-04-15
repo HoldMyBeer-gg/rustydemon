@@ -34,3 +34,17 @@ wow-alchemy-data = "0.2.0"
 rfd         = "0.15"
 image       = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 texture2ddecoder = "0.1"
+
+# Audio playback for .wav/.mp3/.ogg in the preview panel.
+#
+# rodio -> cpal, which uses WASAPI on Windows, CoreAudio on macOS,
+# and ALSA on Linux.  The Linux path needs `pkg-config` + the
+# `libasound2-dev` (Debian/Ubuntu) / `alsa-lib` (Arch) system
+# headers, which aren't available on a stock SteamOS install
+# without disabling read-only mode.  We therefore restrict the
+# dependency to non-Linux targets and stub it out on Linux — the
+# preview panel still renders disabled playback controls so the
+# UI is consistent across OSes.  Linux devs who have the system
+# deps can re-enable it by dropping the target cfg.
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
+rodio = { version = "0.19", default-features = false, features = ["mp3", "vorbis", "wav"] }

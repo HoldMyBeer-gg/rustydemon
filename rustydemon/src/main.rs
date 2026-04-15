@@ -1,4 +1,5 @@
 mod app;
+mod audio;
 mod deep_search;
 pub mod pow_preview;
 mod preview;
