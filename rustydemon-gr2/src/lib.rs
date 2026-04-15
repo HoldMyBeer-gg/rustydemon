@@ -29,6 +29,7 @@ pub mod error;
 pub mod file_info;
 pub mod granny_file;
 pub mod header;
+pub mod mesh;
 pub mod reference;
 pub mod section;
 
@@ -36,3 +37,4 @@ pub use element::{Element, ElementValue, Transform};
 pub use error::{GrannyError, Result};
 pub use granny_file::{GrannyFile, GrannySummary};
 pub use header::{has_granny_magic, Endian, Header};
+pub use mesh::Mesh;
