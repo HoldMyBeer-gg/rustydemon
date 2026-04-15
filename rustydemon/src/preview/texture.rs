@@ -210,11 +210,32 @@ fn decode_mip0(data: &[u8], filename: &str) -> Option<(Vec<u8>, u32, u32, &'stat
         if !list.trusted && !crate::tex_preview::looks_valid_u32(&rgba_u32, w) {
             continue;
         }
-        let rgba = crate::tex_preview::u32_to_rgba_bytes(&rgba_u32);
+        let mut rgba = crate::tex_preview::u32_to_rgba_bytes(&rgba_u32);
+        // BC5 stores only X (in R) and Y (in G); reconstruct Z in the
+        // B channel so normal maps render as the classic blue-ish look
+        // instead of a flat red/green field.  Harmless for non-normal
+        // BC5 uses because B starts at 0 anyway.
+        if cand.name == "BC5" {
+            reconstruct_bc5_normal_z(&mut rgba);
+        }
         return Some((rgba, header.width, header.height, cand.name));
     }
 
     None
+}
+
+/// Turn a BC5-decoded RGBA buffer (X in R, Y in G, B=0) into a
+/// proper tangent-space normal map by computing Z = sqrt(1 - X² - Y²)
+/// and writing it into B.  Alpha is forced to fully opaque.
+fn reconstruct_bc5_normal_z(rgba: &mut [u8]) {
+    for px in rgba.chunks_exact_mut(4) {
+        let x = (px[0] as f32) / 127.5 - 1.0;
+        let y = (px[1] as f32) / 127.5 - 1.0;
+        let z2 = (1.0 - x * x - y * y).max(0.0);
+        let z = z2.sqrt();
+        px[2] = ((z + 1.0) * 127.5).clamp(0.0, 255.0) as u8;
+        px[3] = 0xFF;
+    }
 }
 
 impl PreviewPlugin for TextureDePreview {
