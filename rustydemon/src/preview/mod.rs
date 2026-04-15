@@ -14,10 +14,12 @@ pub mod audio;
 pub mod blp;
 pub mod m2;
 pub mod model3d;
+pub mod model_d2r;
 pub mod pcx;
 pub mod pow;
 pub mod tex;
 pub mod text;
+pub mod texture;
 pub mod vid;
 
 use std::sync::Arc;
@@ -175,10 +177,16 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         // the text heuristic could false-positive on a binary header.
         Box::new(blp::BlpPreview),
         Box::new(pcx::PcxPreview),
+        // D2R `<DE(` container — magic-sniffed, so it sits above the
+        // extension-only `.tex` plugin to claim D2R textures before a
+        // name collision could matter.
+        Box::new(texture::TextureDePreview),
         Box::new(tex::TexPreview),
         // Structured-data format summaries.
         Box::new(model3d::Model3dPreview),
         Box::new(m2::M2Preview),
+        // D2R model recognizer (structural summary, no geometry yet).
+        Box::new(model_d2r::ModelD2rPreview),
         Box::new(pow::PowPreview),
         Box::new(vid::VidPreview),
         Box::new(audio::AudioPreview),
@@ -202,6 +210,34 @@ pub fn run(
         }
     }
     None
+}
+
+/// Force a specific plugin to handle a file regardless of its
+/// `can_preview` vote.  Used by the "Viewer:" override dropdown in the
+/// preview panel to try an unrelated decoder on a mystery format.
+///
+/// Plugins already fail soft when handed unrelated bytes (they fill in
+/// a human-readable `text` blob and return), so forcing a mismatch is
+/// safe — you either see a decoded image or a "could not decode"
+/// message, never a panic.
+pub fn run_with_override(
+    plugin_index: usize,
+    filename: Option<&str>,
+    data: &[u8],
+    ctx: &egui::Context,
+    siblings: &SiblingFetcher<'_>,
+) -> Option<PreviewOutput> {
+    let name = filename.unwrap_or("");
+    let registry = registry();
+    let plugin = registry.get(plugin_index)?;
+    Some(plugin.build(name, data, ctx, siblings))
+}
+
+/// Names of every registered plugin, in the same order as
+/// [`registry`].  The preview panel uses this to populate its
+/// "Viewer:" override dropdown.
+pub fn plugin_names() -> Vec<String> {
+    registry().iter().map(|p| p.name().to_owned()).collect()
 }
 
 /// Encode an 8-bit RGBA pixel buffer to a PNG byte stream.  Used by

@@ -66,6 +66,43 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         return;
     }
 
+    // ── Viewer override dropdown ──────────────────────────────────────────────
+    // Lets the user force a specific preview plugin on files whose
+    // format isn't auto-detected.  Great for reverse-engineering new
+    // formats: try the BC-texture decoder on a mystery blob, see if
+    // anything recognisable comes out.  Deferred because we can't
+    // mutate `app` while `sel` is borrowed.
+    let mut override_change: Option<Option<usize>> = None;
+    if sel.data.is_some() {
+        let names = crate::preview::plugin_names();
+        let current_label = match sel.preview_override {
+            None => "Auto".to_string(),
+            Some(i) => names.get(i).cloned().unwrap_or_else(|| format!("#{i}")),
+        };
+        ui.horizontal(|ui| {
+            ui.label("Viewer:");
+            egui::ComboBox::from_id_salt("preview_override")
+                .selected_text(current_label)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(sel.preview_override.is_none(), "Auto")
+                        .clicked()
+                    {
+                        override_change = Some(None);
+                    }
+                    for (i, name) in names.iter().enumerate() {
+                        if ui
+                            .selectable_label(sel.preview_override == Some(i), name.as_str())
+                            .clicked()
+                        {
+                            override_change = Some(Some(i));
+                        }
+                    }
+                });
+        });
+        ui.separator();
+    }
+
     // ── Plugin-provided preview ───────────────────────────────────────────────
     if let Some(preview) = &sel.preview {
         // Texture (inline image).
@@ -201,6 +238,15 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     // Drop the `sel` immutable borrow before touching `app` mutably.
     let _ = sel;
 
+    if let Some(new_override) = override_change {
+        // Defer the actual swap to the next frame: dropping the old
+        // PreviewOutput's GPU texture mid-frame (after egui already
+        // queued a paint command using it) crashes wgpu.  The top of
+        // `App::update` drains `pending_preview_override` before any
+        // rendering starts.
+        app.pending_preview_override = Some(new_override);
+        ui.ctx().request_repaint();
+    }
     if pcx_load_palette {
         load_pcx_palette(app, ui.ctx());
     }
@@ -223,6 +269,56 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     }
     if export_raw_clicked {
         export_raw(app);
+    }
+}
+
+/// Apply a new viewer override to the current selection and re-run
+/// the preview pipeline.  `new_override` is `None` for auto-dispatch
+/// or `Some(index)` to force a specific plugin from the registry.
+///
+/// **Must be called from the top of `App::update`** — dropping the old
+/// `PreviewOutput`'s GPU texture handle mid-frame (after egui has
+/// already queued a paint using it) crashes wgpu at queue-submit time.
+/// UI code should set `app.pending_preview_override` and let the next
+/// frame pick it up instead of calling this directly.
+pub fn apply_preview_override(
+    app: &mut CascExplorerApp,
+    new_override: Option<usize>,
+    ctx: &egui::Context,
+) {
+    // Snapshot everything we need before we take any borrows that
+    // would conflict with `app.handler`.
+    let (data, filename) = {
+        let Some(sel) = app.selected.as_ref() else {
+            return;
+        };
+        let Some(data) = sel.data.clone() else {
+            return;
+        };
+        (data, sel.result.filename.clone())
+    };
+
+    // Multi-file plugins (WMO → groups, M2 → textures) need a sibling
+    // fetcher; the override path gives them the same one the initial
+    // dispatch uses.
+    let handler_ref = app.handler.as_ref();
+    let by_name = |path: &str| -> Option<Vec<u8>> { handler_ref?.open_file_by_name(path).ok() };
+    let by_fdid = |id: u32| -> Option<Vec<u8>> { handler_ref?.open_file_by_fdid(id).ok() };
+    let siblings = crate::preview::SiblingFetcher {
+        by_name: &by_name,
+        by_fdid: &by_fdid,
+    };
+
+    let new_preview = match new_override {
+        Some(idx) => {
+            crate::preview::run_with_override(idx, filename.as_deref(), &data, ctx, &siblings)
+        }
+        None => crate::preview::run(filename.as_deref(), &data, ctx, &siblings),
+    };
+
+    if let Some(sel) = app.selected.as_mut() {
+        sel.preview_override = new_override;
+        sel.preview = new_preview;
     }
 }
 
