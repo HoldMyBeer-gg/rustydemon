@@ -169,6 +169,16 @@ pub struct CascExplorerApp {
 
     // ── 3D viewport spike ─────────────────────────────────────────────────────
     pub viewport3d_open: bool,
+
+    // ── Deferred actions ──────────────────────────────────────────────────────
+    /// A viewer-override change requested on the previous frame.  Applied
+    /// at the top of the next `update` so the old `PreviewOutput`'s GPU
+    /// texture handle isn't dropped mid-frame while egui still has paint
+    /// commands referencing it — dropping a live `egui::TextureHandle`
+    /// inside the frame that used it crashes wgpu at queue-submit time.
+    /// `Some(None)` means "switch back to Auto"; `Some(Some(idx))` means
+    /// "force plugin at registry index idx".
+    pub pending_preview_override: Option<Option<usize>>,
 }
 
 impl CascExplorerApp {
@@ -198,6 +208,7 @@ impl CascExplorerApp {
             cancel: Arc::new(AtomicBool::new(false)),
             loading: false,
             viewport3d_open: false,
+            pending_preview_override: None,
         }
     }
 
@@ -648,6 +659,14 @@ impl CascExplorerApp {
 
 impl eframe::App for CascExplorerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Apply any viewer-override swap requested on the previous frame
+        // BEFORE we start drawing.  Doing this at the top of update()
+        // guarantees the old `PreviewOutput`'s texture handle is dropped
+        // while no egui paint command references it — dropping mid-frame
+        // crashes wgpu with "Texture has been destroyed".
+        if let Some(new_override) = self.pending_preview_override.take() {
+            crate::ui::preview::apply_preview_override(self, new_override, ctx);
+        }
         self.poll_background(ctx);
         crate::ui::draw(ctx, self);
         crate::viewport3d::show_window(ctx, &mut self.viewport3d_open);

@@ -239,7 +239,13 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     let _ = sel;
 
     if let Some(new_override) = override_change {
-        apply_preview_override(app, new_override, ui.ctx());
+        // Defer the actual swap to the next frame: dropping the old
+        // PreviewOutput's GPU texture mid-frame (after egui already
+        // queued a paint command using it) crashes wgpu.  The top of
+        // `App::update` drains `pending_preview_override` before any
+        // rendering starts.
+        app.pending_preview_override = Some(new_override);
+        ui.ctx().request_repaint();
     }
     if pcx_load_palette {
         load_pcx_palette(app, ui.ctx());
@@ -269,7 +275,13 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
 /// Apply a new viewer override to the current selection and re-run
 /// the preview pipeline.  `new_override` is `None` for auto-dispatch
 /// or `Some(index)` to force a specific plugin from the registry.
-fn apply_preview_override(
+///
+/// **Must be called from the top of `App::update`** — dropping the old
+/// `PreviewOutput`'s GPU texture handle mid-frame (after egui has
+/// already queued a paint using it) crashes wgpu at queue-submit time.
+/// UI code should set `app.pending_preview_override` and let the next
+/// frame pick it up instead of calling this directly.
+pub fn apply_preview_override(
     app: &mut CascExplorerApp,
     new_override: Option<usize>,
     ctx: &egui::Context,
