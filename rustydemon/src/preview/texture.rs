@@ -116,13 +116,29 @@ const BC7: BcCandidate = BcCandidate {
     decode: texture2ddecoder::decode_bc7,
 };
 
+/// Result of [`candidates_for`] — the BC formats to try plus whether
+/// they came from a confident known-code mapping (`trusted = true`) or
+/// a fallback brute force (`trusted = false`).
+struct CandidateList {
+    candidates: Vec<BcCandidate>,
+    /// When true, the first successful decode is accepted without
+    /// running the spatial-coherence plausibility check — necessary
+    /// for content like flow maps and normal maps whose adjacent
+    /// pixels legitimately look like high-frequency noise.
+    trusted: bool,
+}
+
 /// Pick decode candidates for a given format code + filename hint.
 ///
 /// The format code is the 5th byte of the header (the one I originally
 /// mis-read as a closing `>`).  The table below came from eyeballing
-/// known-content samples; unknown codes fall through to a block-size-
-/// matched brute force that almost always resolves on the first try.
-fn candidates_for(header: &DeHeader, filename: &str) -> Vec<BcCandidate> {
+/// known-content samples.  For codes I have a confident mapping for,
+/// `trusted` is set so the caller skips `looks_valid` — flow maps,
+/// normal maps, and other high-frequency content fail that heuristic
+/// even when the decode is perfectly correct.  Unknown codes fall
+/// through to a block-size-matched brute force where `looks_valid` is
+/// still needed to distinguish a real decode from BC noise.
+fn candidates_for(header: &DeHeader, filename: &str) -> CandidateList {
     let lower = filename.to_ascii_lowercase();
 
     // Block-size class is authoritative: we know it exactly from the
@@ -136,32 +152,40 @@ fn candidates_for(header: &DeHeader, filename: &str) -> Vec<BcCandidate> {
 
     let is_16b = bytes_per_block == 16;
 
-    match (header.format_code, is_16b) {
+    let (candidates, trusted) = match (header.format_code, is_16b) {
         // Verified from block inspection on aluminum_alb (all-white BC3).
-        (0x3E, true) => vec![BC3, BC7],
+        (0x3E, true) => (vec![BC3, BC7], true),
 
         // Observed on normal maps, masks, ORM, LUTs, gradients.  Default
         // to BC7 (D4/D2R-era general-purpose format), with a BC5 hint
         // for normal maps since two-channel encoding is common there.
         (0x3D, true) => {
             if lower.contains("_nrm") || lower.contains("_normal") {
-                vec![BC5, BC7, BC3]
+                (vec![BC5, BC7, BC3], true)
             } else {
-                vec![BC7, BC3, BC5]
+                (vec![BC7, BC3, BC5], true)
             }
         }
 
-        // Flow maps (default_flow).  Two-channel vector field.
-        (0x39, false) => vec![BC1, BC4],
+        // Flow maps (default_flow, gfxtest_hair_flow).  Two-channel
+        // vector field — adjacent pixels are high-frequency direction
+        // vectors, so `looks_valid` must be skipped.
+        (0x39, false) => (vec![BC1, BC4], true),
 
         // Single-channel mask / scalar (default_hrt, default_thickness).
-        (0x3A, false) | (0x3F, false) => vec![BC4, BC1],
+        (0x3A, false) | (0x3F, false) => (vec![BC4, BC1], true),
 
-        // Unknown code, 16-byte blocks: try the full "big BC" set.
-        (_, true) => vec![BC7, BC3, BC5],
+        // Unknown code, 16-byte blocks: try the full "big BC" set and
+        // gate on plausibility so garbage decodes don't win.
+        (_, true) => (vec![BC7, BC3, BC5], false),
 
         // Unknown code, 8-byte blocks.
-        (_, false) => vec![BC1, BC4],
+        (_, false) => (vec![BC1, BC4], false),
+    };
+
+    CandidateList {
+        candidates,
+        trusted,
     }
 }
 
@@ -177,13 +201,13 @@ fn decode_mip0(data: &[u8], filename: &str) -> Option<(Vec<u8>, u32, u32, &'stat
     let w = header.width as usize;
     let h = header.height as usize;
 
-    for cand in candidates_for(&header, filename) {
+    let list = candidates_for(&header, filename);
+    for cand in &list.candidates {
         let mut rgba_u32 = vec![0u32; w * h];
-        let ok = (cand.decode)(mip, w, h, &mut rgba_u32).is_ok();
-        if !ok {
+        if (cand.decode)(mip, w, h, &mut rgba_u32).is_err() {
             continue;
         }
-        if !crate::tex_preview::looks_valid_u32(&rgba_u32, w) {
+        if !list.trusted && !crate::tex_preview::looks_valid_u32(&rgba_u32, w) {
             continue;
         }
         let rgba = crate::tex_preview::u32_to_rgba_bytes(&rgba_u32);
