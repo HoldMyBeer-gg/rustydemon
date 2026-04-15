@@ -3325,6 +3325,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustydemon-gr2"
+version = "0.3.1"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "rustydemon-lib"
 version = "0.3.1"
 dependencies = [
