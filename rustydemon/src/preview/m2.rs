@@ -19,7 +19,7 @@ use wow_alchemy_data::types::{VWowStructR, WowStructR};
 use wow_alchemy_m2::skin::SkinVersion;
 use wow_alchemy_m2::{M2Model, Skin};
 
-use super::{Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin};
+use super::{ExportAction, Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin};
 
 pub struct M2Preview;
 
@@ -248,7 +248,7 @@ impl PreviewPlugin for M2Preview {
         };
 
         let (mn, mx) = compute_bbox(&positions);
-        out.mesh3d = Some(Arc::new(Mesh3dCpu {
+        let mesh = Arc::new(Mesh3dCpu {
             positions,
             uvs,
             indices,
@@ -256,7 +256,19 @@ impl PreviewPlugin for M2Preview {
             bbox_max: mx,
             batches,
             materials,
-        }));
+        });
+
+        // OBJ export captures the resolved mesh so the skin indirection
+        // and texture mapping are already baked in.
+        let mesh_for_export = Arc::clone(&mesh);
+        out.extra_exports.push(ExportAction {
+            label: "Export As OBJ",
+            default_extension: "obj",
+            filter_name: "Wavefront OBJ",
+            build: Arc::new(move |_raw| Ok(super::encode_obj(&mesh_for_export))),
+        });
+
+        out.mesh3d = Some(mesh);
 
         if !texture_fdids.is_empty() {
             text.push_str(&format!(

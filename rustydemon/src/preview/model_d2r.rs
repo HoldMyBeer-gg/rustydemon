@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use super::{Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin};
+use super::{ExportAction, Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin};
 use rustydemon_gr2::{has_granny_magic, Element, ElementValue, GrannyFile};
 
 pub struct ModelD2rPreview;
@@ -205,7 +205,7 @@ impl PreviewPlugin for ModelD2rPreview {
                 ));
             }
 
-            out.mesh3d = Some(Arc::new(Mesh3dCpu {
+            let mesh = Arc::new(Mesh3dCpu {
                 positions,
                 uvs,
                 indices,
@@ -213,7 +213,17 @@ impl PreviewPlugin for ModelD2rPreview {
                 bbox_max,
                 batches,
                 materials,
-            }));
+            });
+
+            let mesh_for_export = Arc::clone(&mesh);
+            out.extra_exports.push(ExportAction {
+                label: "Export As OBJ",
+                default_extension: "obj",
+                filter_name: "Wavefront OBJ",
+                build: Arc::new(move |_raw| Ok(super::encode_obj(&mesh_for_export))),
+            });
+
+            out.mesh3d = Some(mesh);
         }
 
         // Top-level element tree — one level deep.  Users can see the
