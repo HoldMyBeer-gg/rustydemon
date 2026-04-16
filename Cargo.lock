@@ -3591,7 +3591,13 @@ dependencies = [
  "clap",
  "indicatif",
  "rayon",
+ "rustydemon-blp2",
+ "rustydemon-gr2",
  "rustydemon-lib",
+ "texture2ddecoder",
+ "wow-alchemy-data",
+ "wow-alchemy-m2",
+ "wow-wmo",
 ]
 
 [[package]]

@@ -1,18 +1,27 @@
-//! Rusty Demon CLI — headless batch exporter for CASC archives.
+//! Rusty Demon CLI — headless batch exporter and file inspector for CASC
+//! archives.
 //!
-//! Reads a local CASC installation (Battle.net or Steam), walks a virtual
-//! subdirectory, and writes matching files to a host directory.  Intended
-//! for scripting and server-side extraction; the GUI binary remains the
-//! way to browse interactively.
+//! Two subcommands:
 //!
-//! ## Example
+//! - **`export`** — walk a CASC installation, match virtual paths, and
+//!   write files to a host directory (the original `rustydemon-cli`
+//!   behavior).
+//! - **`inspect`** — read a local file from disk and print a
+//!   format-specific text summary (Granny3D, M2, WMO, BLP, D2R
+//!   `.texture`).  Useful for quick validation without launching the GUI.
+//!
+//! ## Examples
 //!
 //! ```text
-//! rustydemon-cli \
+//! rustydemon-cli export \
 //!     --archive "/home/deck/.steam/steam/steamapps/common/Diablo IV" \
 //!     --path base/meta/Sound \
 //!     --output ./out
+//!
+//! rustydemon-cli inspect ~/Downloads/LadySylvanasWindrunner.m2
 //! ```
+
+mod inspect;
 
 use std::{
     path::{Path, PathBuf},
@@ -21,15 +30,30 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use rustydemon_lib::{CascConfig, CascFile, CascHandler, PathQuery};
 
-/// Rusty Demon CLI — batch export files from a CASC archive.
+/// Rusty Demon CLI — batch export and inspect CASC archive files.
 #[derive(Debug, Parser)]
 #[command(name = "rustydemon-cli", version, about)]
-struct Args {
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Batch export files from a CASC archive.
+    Export(ExportArgs),
+    /// Inspect a local file and print format-specific metadata.
+    Inspect(inspect::InspectArgs),
+}
+
+/// Arguments for the `export` subcommand.
+#[derive(Debug, Parser)]
+struct ExportArgs {
     /// Game installation root (the directory that contains `.build.info`
     /// for Battle.net installs, or `Data/.build.config` for Steam installs).
     #[arg(long, short = 'a')]
@@ -99,13 +123,15 @@ struct Args {
 }
 
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let cli = Cli::parse();
+    match cli.command {
+        Command::Export(args) => run_export(&args),
+        Command::Inspect(args) => inspect::run(&args),
+    }
+}
 
+fn run_export(args: &ExportArgs) -> Result<()> {
     // ── Open archive ──────────────────────────────────────────────────────
-    // Detection order: --product flag → .build.info → Steam D4 fallback
-    // (fenris, the only static-container game we ship support for). If we
-    // guess wrong the handler's own auto-detection catches it anyway, but
-    // a good guess keeps the log line honest.
     let product = args.product.clone().unwrap_or_else(|| {
         detect_product(&args.archive).unwrap_or_else(|| {
             if args.archive.join("Data").join(".build.config").is_file() {
@@ -149,13 +175,9 @@ fn main() -> Result<()> {
 
     // ── Build match list ──────────────────────────────────────────────────
     let matches: Vec<CascFile> = if let Some(fdid) = args.fdid {
-        // FileDataID path: bypass the tree entirely.  We still need a hash
-        // to key the export closure off, so we walk the filename map in
-        // reverse; for unnamed files we fall back to a synthetic path.
         if !casc.file_exists_by_fdid(fdid) {
             return Err(anyhow!("FileDataID {fdid} not found in root manifest"));
         }
-        // fdid_hash_snapshot gives us the fdid→hash map cheaply.
         let fdid_map = casc.fdid_hash_snapshot();
         let hash = fdid_map
             .get(&fdid)
@@ -166,9 +188,7 @@ fn main() -> Result<()> {
             .unwrap_or_else(|| format!("fdid_{fdid}.bin"));
         vec![CascFile::new(name, hash, Some(fdid))]
     } else {
-        // Path-based: requires a virtual tree. WoW needs a listfile unless
-        // the user accepts the "unknown tree" error and switches to --fdid.
-        let path = args.path.as_deref().unwrap(); // clap guarantees one of path/fdid
+        let path = args.path.as_deref().unwrap();
         let tree = casc.root_folder.as_ref().ok_or_else(|| {
             anyhow!(
                 "archive has no virtual file tree — for WoW, pass --listfile \
@@ -203,7 +223,7 @@ fn main() -> Result<()> {
         rayon::ThreadPoolBuilder::new()
             .num_threads(n)
             .build_global()
-            .ok(); // ignore "already initialised"
+            .ok();
     }
 
     // ── Export in parallel ────────────────────────────────────────────────
@@ -264,11 +284,6 @@ fn main() -> Result<()> {
                 }
             }
             Err(e) => {
-                // Non-installed content (Steam chunks on disk) reports as a
-                // "no file on disk" index error from the static container —
-                // treat that as "skipped" rather than a hard failure, since
-                // it's the expected behaviour for files outside the locally
-                // installed chunks.
                 let msg = e.to_string();
                 if msg.contains("no file on disk") || msg.contains("IndexNotFound") {
                     skipped_missing_chunk.fetch_add(1, Ordering::Relaxed);
