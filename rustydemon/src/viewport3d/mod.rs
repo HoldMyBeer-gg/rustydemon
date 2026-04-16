@@ -99,11 +99,17 @@ struct UploadedMesh {
 /// elevates the eye above the bbox center, distance scales the orbit
 /// radius around the bbox extent. Defaults are tuned to give a sane
 /// initial framing of any model.
+///
+/// `pan` offsets the orbit center in view-space (right, up) so the
+/// user can shift the framing without changing the orbit radius.
+/// Shift+drag triggers panning; plain drag triggers orbit.
 #[derive(Clone, Copy)]
 struct CameraState {
     yaw: f32,
     pitch: f32,
     distance_mul: f32,
+    /// View-space pan offset (right, up) in world units.
+    pan: [f32; 2],
 }
 
 impl Default for CameraState {
@@ -112,6 +118,7 @@ impl Default for CameraState {
             yaw: 0.6,
             pitch: 0.45,
             distance_mul: 1.4,
+            pan: [0.0; 2],
         }
     }
 }
@@ -710,6 +717,8 @@ struct MeshCallback {
     yaw_delta: f32,
     pitch_delta: f32,
     zoom_delta: f32,
+    pan_x_delta: f32,
+    pan_y_delta: f32,
     pixel_width: u32,
     pixel_height: u32,
 }
@@ -944,6 +953,8 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
             );
             c.camera.distance_mul =
                 (c.camera.distance_mul * (1.0 - self.zoom_delta)).clamp(0.2, 10.0);
+            c.camera.pan[0] += self.pan_x_delta;
+            c.camera.pan[1] += self.pan_y_delta;
         }
 
         // ── 2. (Re)create offscreen targets if the rect size changed ──────────
@@ -1012,18 +1023,24 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
         let aspect = width as f32 / height as f32;
         let mn = Vec3::from(self.mesh.bbox_min);
         let mx = Vec3::from(self.mesh.bbox_max);
-        let center = (mn + mx) * 0.5;
+        let bbox_center = (mn + mx) * 0.5;
         let extent = (mx - mn).length().max(1.0);
 
         let cam = res.cached.as_ref().map(|c| c.camera).unwrap_or_default();
         let radius = extent * cam.distance_mul;
         let cos_p = cam.pitch.cos();
-        let eye = center
-            + Vec3::new(
-                radius * cos_p * cam.yaw.cos(),
-                radius * cos_p * cam.yaw.sin(),
-                radius * cam.pitch.sin(),
-            );
+        let forward = Vec3::new(
+            cos_p * cam.yaw.cos(),
+            cos_p * cam.yaw.sin(),
+            cam.pitch.sin(),
+        );
+        let world_up = Vec3::Z;
+        let right = forward.cross(world_up).normalize_or_zero();
+        let up = right.cross(forward).normalize_or_zero();
+
+        // Apply pan offset in view space (right + up).
+        let center = bbox_center + right * cam.pan[0] + up * cam.pan[1];
+        let eye = center + forward * radius;
 
         let view = Mat4::look_at_rh(eye, center, Vec3::Z);
         let proj = Mat4::perspective_rh(
@@ -1151,18 +1168,28 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
 /// Render `mesh` into the inline preview pane. Allocates a fixed-height
 /// rect, reads drag + scroll input for the orbit camera, computes the
 /// equivalent pixel size from the egui DPI scale, and hands everything
-/// off to [`MeshCallback`]. Drag = orbit, scroll = zoom; releasing
-/// returns control without snapping.
+/// off to [`MeshCallback`].
+///
+/// - **Drag** = orbit (yaw/pitch)
+/// - **Shift+Drag** = pan (translate the orbit center)
+/// - **Scroll** = zoom
 pub fn paint_mesh(ui: &mut egui::Ui, mesh: Arc<Mesh3dCpu>) {
     let width = ui.available_width().max(64.0);
     let size = Vec2::new(width, 240.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
 
-    // Convert pointer drag into yaw/pitch deltas. Tuned so a full-rect
-    // horizontal drag covers ~one full revolution.
     let drag = response.drag_delta();
-    let yaw_delta = -drag.x * 0.01;
-    let pitch_delta = -drag.y * 0.01;
+    let shift_held = ui.input(|i| i.modifiers.shift);
+
+    // Shift+drag = pan, plain drag = orbit.
+    let (yaw_delta, pitch_delta, pan_x_delta, pan_y_delta) = if shift_held {
+        // Pan speed scaled to the viewport so it feels consistent
+        // across model sizes.  The 0.005 factor gives ~1 world-unit
+        // per full-width drag at distance_mul=1.
+        (0.0, 0.0, drag.x * 0.005, -drag.y * 0.005)
+    } else {
+        (-drag.x * 0.01, -drag.y * 0.01, 0.0, 0.0)
+    };
 
     // Scroll wheel → zoom multiplier. Only consume scroll while hovered
     // so it doesn't fight the surrounding scroll area.
@@ -1184,6 +1211,8 @@ pub fn paint_mesh(ui: &mut egui::Ui, mesh: Arc<Mesh3dCpu>) {
             yaw_delta,
             pitch_delta,
             zoom_delta,
+            pan_x_delta,
+            pan_y_delta,
             pixel_width,
             pixel_height,
         },
