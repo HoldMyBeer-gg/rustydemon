@@ -189,7 +189,13 @@ fn candidates_for(header: &DeHeader, _filename: &str) -> CandidateList {
 
 /// Decode mip 0 with the first candidate that produces a plausible image.
 /// Returns `(rgba, width, height, format_name)` on success.
-fn decode_mip0(data: &[u8], filename: &str) -> Option<(Vec<u8>, u32, u32, &'static str)> {
+///
+/// `pub(crate)` so the D2R model preview plugin can decode sibling
+/// `.texture` files for material rendering.
+pub(crate) fn decode_mip0(
+    data: &[u8],
+    filename: &str,
+) -> Option<(Vec<u8>, u32, u32, &'static str)> {
     let header = parse_header(data)?;
     let mip = &data[header.mip0_offset..header.mip0_offset + header.mip0_size];
 

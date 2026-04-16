@@ -1,15 +1,14 @@
 //! D2R `.model` preview plugin.
 //!
-//! Uses the pure-Rust [`rustydemon_gr2`] reader to parse the whole
-//! Granny3D file and show a structural summary — source file,
-//! textures, mesh / bone / animation counts, top-level element tree.
-//! The same parser is what a future 3D viewport for Granny meshes
-//! will build on, so this plugin also serves as the integration
-//! point where the reader first hits real end-user data.
+//! Uses the pure-Rust [`rustydemon_gr2`] reader to parse Granny3D
+//! files, extract mesh geometry into the 3D viewport, and resolve
+//! sibling `.texture` files as materials.  Shows a structural summary
+//! (source file, textures, mesh / bone / animation counts, element
+//! tree) alongside the rendered preview.
 
 use std::sync::Arc;
 
-use super::{Mesh3dCpu, MeshBatch, PreviewOutput, PreviewPlugin};
+use super::{Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin};
 use rustydemon_gr2::{has_granny_magic, Element, ElementValue, GrannyFile};
 
 pub struct ModelD2rPreview;
@@ -28,7 +27,7 @@ impl PreviewPlugin for ModelD2rPreview {
         _filename: &str,
         data: &[u8],
         _ctx: &egui::Context,
-        _fetch: &super::SiblingFetcher<'_>,
+        fetch: &super::SiblingFetcher<'_>,
     ) -> PreviewOutput {
         let mut out = PreviewOutput::new();
 
@@ -155,6 +154,57 @@ impl PreviewPlugin for ModelD2rPreview {
                 bbox_min = [0.0; 3];
                 bbox_max = [0.0; 3];
             }
+
+            // ── Resolve sibling .texture files as materials ──────────
+            // Texture filenames from the Granny tree (in order).  Each
+            // mesh's material_index typically maps 1:1 to this array.
+            let tex_names = gf.texture_filenames();
+            let mut materials: Vec<MeshMaterial> = Vec::with_capacity(tex_names.len());
+            let mut tex_loaded: u32 = 0;
+            let mut tex_failed: u32 = 0;
+            for tex_name in &tex_names {
+                // D2R texture paths look like
+                //   "data:data/hd/env/act1/outdoors/…/foo.texture"
+                // The sibling fetcher expects the virtual path without
+                // the "data:" prefix, or just the bare filename. Try
+                // progressively shorter forms.
+                let candidates = texture_lookup_candidates(tex_name);
+                let bytes = candidates.iter().find_map(|c| (fetch.by_name)(c));
+                let decoded = bytes
+                    .as_deref()
+                    .and_then(|b| super::texture::decode_mip0(b, tex_name));
+                match decoded {
+                    Some((rgba, w, h, _fmt)) => {
+                        tex_loaded += 1;
+                        materials.push(MeshMaterial {
+                            rgba: Some(rgba),
+                            width: w,
+                            height: h,
+                        });
+                    }
+                    None => {
+                        tex_failed += 1;
+                        materials.push(MeshMaterial {
+                            rgba: None,
+                            width: 1,
+                            height: 1,
+                        });
+                    }
+                }
+            }
+
+            if !tex_names.is_empty() {
+                text.push_str(&format!(
+                    "\nTexture materials: {tex_loaded}/{} loaded{}",
+                    tex_names.len(),
+                    if tex_failed > 0 {
+                        format!(" ({tex_failed} fallback)")
+                    } else {
+                        String::new()
+                    },
+                ));
+            }
+
             out.mesh3d = Some(Arc::new(Mesh3dCpu {
                 positions,
                 uvs,
@@ -162,12 +212,7 @@ impl PreviewPlugin for ModelD2rPreview {
                 bbox_min,
                 bbox_max,
                 batches,
-                // Texture wiring is a follow-up: we'd need to resolve
-                // the sibling .texture files via the fetcher, decode
-                // each via rustydemon/src/preview/texture.rs, and feed
-                // them as MeshMaterial entries.  Until then the
-                // renderer falls back to hash-coloured batches.
-                materials: Vec::new(),
+                materials,
             }));
         }
 
@@ -204,6 +249,30 @@ fn find_f32(elements: &[Element], name: &str) -> Option<f32> {
         }
         None
     })
+}
+
+/// Build lookup candidates for a Granny texture path.
+///
+/// D2R stores paths like `"data:data/hd/env/…/foo.texture"`.  The
+/// CASC virtual tree might index them with or without the `data:`
+/// prefix, so we try the full path, without prefix, and just the
+/// filename — in that order.
+fn texture_lookup_candidates(raw: &str) -> Vec<String> {
+    let mut out = Vec::with_capacity(3);
+    // Full path as-is.
+    out.push(raw.to_string());
+    // Strip `data:` URI prefix.
+    if let Some(stripped) = raw.strip_prefix("data:") {
+        out.push(stripped.to_string());
+    }
+    // Bare filename.
+    if let Some(slash) = raw.rfind('/') {
+        let basename = &raw[slash + 1..];
+        if !basename.is_empty() && !out.iter().any(|c| c == basename) {
+            out.push(basename.to_string());
+        }
+    }
+    out
 }
 
 fn kind_label(v: &ElementValue) -> String {

@@ -68,6 +68,33 @@ impl GrannyFile {
         self.root_elements.iter().find(|e| e.name == name)
     }
 
+    /// Texture filenames from the top-level `Textures` array, in order.
+    /// Each entry is the `FromFileName` string of the corresponding
+    /// texture element.  Returns an empty vec if the file has no
+    /// `Textures` array.
+    pub fn texture_filenames(&self) -> Vec<String> {
+        let Some(textures) = self.find("Textures") else {
+            return Vec::new();
+        };
+        let groups = match &textures.value {
+            ElementValue::ArrayOfReferences(g) | ElementValue::ReferenceArray(g) => g,
+            _ => return Vec::new(),
+        };
+        groups
+            .iter()
+            .filter_map(|g| {
+                g.iter().find_map(|e| {
+                    if e.name == "FromFileName" {
+                        if let ElementValue::String(s) = &e.value {
+                            return Some(s.clone());
+                        }
+                    }
+                    None
+                })
+            })
+            .collect()
+    }
+
     /// Shallow structural summary used by the preview plugin.
     pub fn summary(&self) -> GrannySummary {
         let mut meshes = 0usize;
