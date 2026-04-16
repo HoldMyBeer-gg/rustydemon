@@ -1,0 +1,420 @@
+//! `inspect` subcommand — print format-specific metadata for a local file.
+//!
+//! Reads a file from disk and runs the appropriate parser based on magic
+//! bytes / extension.  Prints a text summary to stdout — the same kind
+//! of info the GUI preview panel shows, minus GPU rendering.
+//!
+//! Supported formats:
+//! - `.model` / Granny3D (`rustydemon-gr2`)
+//! - `.m2` / WoW M2 (`wow-alchemy-m2`)
+//! - `.wmo` / WoW WMO (`wow-wmo`)
+//! - `.blp` / BLP texture (`rustydemon-blp2`)
+//! - `.texture` / D2R `<DE(` container
+
+use std::io::Cursor;
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
+use clap::Args;
+
+#[derive(Debug, Args)]
+pub struct InspectArgs {
+    /// Path to the file to inspect.
+    pub file: PathBuf,
+}
+
+pub fn run(args: &InspectArgs) -> Result<()> {
+    let data =
+        std::fs::read(&args.file).with_context(|| format!("reading {}", args.file.display()))?;
+    let filename = args
+        .file
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    if data.is_empty() {
+        println!("(empty file)");
+        return Ok(());
+    }
+
+    // Dispatch on magic bytes, then fall back to extension.
+    if rustydemon_gr2::has_granny_magic(&data) {
+        inspect_granny(&data)?;
+    } else if data.len() >= 4 && (&data[..4] == b"MD20" || &data[..4] == b"MD21") {
+        inspect_m2(&data, &filename)?;
+    } else if data.len() >= 4 && &data[..4] == b"REVM" {
+        inspect_wmo(&data, &filename)?;
+    } else if data.len() >= 4 && &data[..4] == b"BLP2" {
+        inspect_blp(&data)?;
+    } else if data.len() >= 4 && &data[..4] == b"<DE(" {
+        inspect_texture_de(&data)?;
+    } else {
+        println!(
+            "Unknown format (magic: {:02X?}, {} bytes)",
+            &data[..data.len().min(8)],
+            data.len()
+        );
+    }
+
+    Ok(())
+}
+
+fn inspect_granny(data: &[u8]) -> Result<()> {
+    use rustydemon_gr2::{ElementValue, GrannyFile};
+
+    let gf =
+        GrannyFile::from_bytes(data).map_err(|e| anyhow::anyhow!("Granny3D parse failed: {e}"))?;
+    let summary = gf.summary();
+
+    println!("D2R .model  (Granny3D)\n");
+    println!(
+        "Format            {} ({}-bit {:?})",
+        gf.header.format,
+        if gf.header.bits_64 { 64 } else { 32 },
+        gf.header.endian
+    );
+    println!("File size         {} bytes", gf.file_info.total_size);
+    println!("CRC-32            0x{:08X}", gf.file_info.crc32);
+    println!("Sections          {}\n", summary.section_count);
+
+    println!("Contents");
+    println!("  Models          {}", summary.models);
+    println!("  Meshes          {}", summary.meshes);
+    println!("  Skeletons       {}", summary.skeletons);
+    println!("  Animations      {}", summary.animations);
+    println!("  Textures        {}\n", summary.textures);
+
+    // Source file.
+    for e in &gf.root_elements {
+        if e.name == "FromFileName" {
+            if let ElementValue::String(s) = &e.value {
+                println!("Source file       {s}");
+            }
+        }
+    }
+
+    // Art tool info.
+    if let Some(art_tool) = gf.find("ArtToolInfo") {
+        if let ElementValue::Reference(children) = &art_tool.value {
+            for e in children {
+                match (e.name.as_str(), &e.value) {
+                    ("FromArtToolName", ElementValue::String(s)) => {
+                        println!("Authored in       {s}");
+                    }
+                    ("UnitsPerMeter", ElementValue::F32(v)) => {
+                        println!("Units             {v:.4} per metre");
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    // Texture filenames.
+    let tex_names = gf.texture_filenames();
+    if !tex_names.is_empty() {
+        println!("\nTextures ({}):", tex_names.len());
+        for name in &tex_names {
+            println!("  {name}");
+        }
+    }
+
+    // Mesh geometry.
+    let meshes = gf.meshes();
+    if !meshes.is_empty() {
+        println!("\nMeshes ({}):", meshes.len());
+        for m in &meshes {
+            println!(
+                "  '{}'  {} verts / {} tris  material={}  bbox=({:.2},{:.2},{:.2})..({:.2},{:.2},{:.2})",
+                m.name,
+                m.positions.len(),
+                m.indices.len() / 3,
+                m.material_index
+                    .map(|i| i.to_string())
+                    .unwrap_or_else(|| "none".into()),
+                m.bbox_min[0], m.bbox_min[1], m.bbox_min[2],
+                m.bbox_max[0], m.bbox_max[1], m.bbox_max[2],
+            );
+        }
+    }
+
+    // Top-level tree.
+    println!("\nTop-level tree:");
+    for e in &gf.root_elements {
+        println!("  - {} :: {}", e.name, element_kind(&e.value));
+    }
+
+    Ok(())
+}
+
+fn inspect_m2(data: &[u8], filename: &str) -> Result<()> {
+    use wow_alchemy_data::types::WowStructR;
+    use wow_alchemy_m2::M2Model;
+
+    let mut reader = Cursor::new(data);
+    let m2 = M2Model::wow_read(&mut reader).map_err(|e| anyhow::anyhow!("M2 parse failed: {e}"))?;
+
+    let md20 = &m2.md20;
+    let is_chunked = &m2.magic == b"MD21";
+
+    // SFID chunk (skin file FDIDs).
+    let skin_fdids: Vec<u32> = m2
+        .chunks
+        .iter()
+        .find_map(|c| match c {
+            wow_alchemy_m2::model::M2Chunk::SFID(skins) => Some(skins.file_ids.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+
+    // TXID chunk (texture FDIDs) — stored as a flat Vec<u32>.
+    let texture_fdids: Vec<u32> = m2
+        .chunks
+        .iter()
+        .find_map(|c| match c {
+            wow_alchemy_m2::model::M2Chunk::TXID(ids) => Some(ids.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+
+    println!("M2 model  •  {filename}\n");
+    println!(
+        "Format        {}",
+        if is_chunked {
+            "MD21 (Legion+)"
+        } else {
+            "MD20 (legacy)"
+        }
+    );
+    println!("Name          {}", md20.name);
+    println!("Vertices      {}", md20.vertices.len());
+    println!("Textures      {}", md20.textures.len());
+    println!("Materials     {}", md20.materials.len());
+    println!("Bones         {}", md20.bones.len());
+    println!("Animations    {}", md20.animations.len());
+    println!("Skin files    {}", skin_fdids.len());
+
+    if !skin_fdids.is_empty() {
+        println!("\nSkin FDIDs:");
+        for (i, fdid) in skin_fdids.iter().enumerate() {
+            println!("  [{i}] {fdid}");
+        }
+    }
+
+    if !texture_fdids.is_empty() {
+        println!("\nTexture FDIDs:");
+        for (i, fdid) in texture_fdids.iter().enumerate() {
+            println!("  [{i}] {fdid}");
+        }
+    }
+
+    // Bounding box from header.
+    let bb = &md20.header.bounding_box;
+    println!(
+        "\nBounding box  ({:.2}, {:.2}, {:.2}) .. ({:.2}, {:.2}, {:.2})",
+        bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z,
+    );
+
+    // Chunks summary.
+    if !m2.chunks.is_empty() {
+        println!("\nChunks ({}):", m2.chunks.len());
+        for c in &m2.chunks {
+            println!("  {}", chunk_label(c));
+        }
+    }
+
+    Ok(())
+}
+
+fn inspect_wmo(data: &[u8], filename: &str) -> Result<()> {
+    use wow_wmo::{parse_wmo, ParsedWmo};
+
+    let mut reader = Cursor::new(data);
+    match parse_wmo(&mut reader) {
+        Ok(ParsedWmo::Root(root)) => {
+            let mn = root.bounding_box_min;
+            let mx = root.bounding_box_max;
+            println!("WMO root  •  {filename}\n");
+            println!("Version       {}", root.version);
+            println!("Groups        {}", root.n_groups);
+            println!("Materials     {}", root.n_materials);
+            println!("Textures      {}", root.textures.len());
+            println!("Portals       {}", root.n_portals);
+            println!("Lights        {}", root.n_lights);
+            println!("Doodad sets   {}", root.n_doodad_sets);
+            println!(
+                "\nBounding box  ({:.1}, {:.1}, {:.1}) .. ({:.1}, {:.1}, {:.1})",
+                mn[0], mn[1], mn[2], mx[0], mx[1], mx[2],
+            );
+            if !root.textures.is_empty() {
+                println!("\nTextures:");
+                for (i, t) in root.textures.iter().enumerate() {
+                    println!("  [{i}] {t}");
+                }
+            }
+            if !root.group_file_ids.is_empty() {
+                println!("\nGroup FDIDs:");
+                for (i, fdid) in root.group_file_ids.iter().enumerate() {
+                    println!("  [{i}] {fdid}");
+                }
+            }
+        }
+        Ok(ParsedWmo::Group(group)) => {
+            let total_batches = group.trans_batch_count as u32
+                + group.int_batch_count as u32
+                + group.ext_batch_count as u32;
+            println!("WMO group  •  {filename}\n");
+            println!("Version       {}", group.version);
+            println!("Vertices      {}", group.n_vertices);
+            println!("Triangles     {}", group.n_triangles);
+            println!(
+                "Batches       {} (trans {} / int {} / ext {})",
+                total_batches,
+                group.trans_batch_count,
+                group.int_batch_count,
+                group.ext_batch_count,
+            );
+        }
+        Err(e) => {
+            println!("WMO magic detected but parse failed: {e}");
+        }
+    }
+
+    Ok(())
+}
+
+fn inspect_blp(data: &[u8]) -> Result<()> {
+    use rustydemon_blp2::BlpFile;
+
+    let blp =
+        BlpFile::from_bytes(data.to_vec()).map_err(|e| anyhow::anyhow!("BLP parse failed: {e}"))?;
+
+    println!("BLP texture\n");
+    println!("Dimensions    {}x{}", blp.width, blp.height);
+    println!("Encoding      {:?}", blp.color_encoding);
+    println!("Alpha size    {}", blp.alpha_size);
+    println!("Mipmap count  {}", blp.mipmap_count());
+    println!("File size     {} bytes", data.len());
+
+    // Try decoding mip 0 to verify it works.
+    match blp.get_pixels(0) {
+        Ok((_, w, h)) => println!("\nMip 0 decode  OK ({w}x{h})"),
+        Err(e) => println!("\nMip 0 decode  FAILED: {e}"),
+    }
+
+    Ok(())
+}
+
+fn inspect_texture_de(data: &[u8]) -> Result<()> {
+    // Inline the small <DE( header parse — avoids pulling in the GUI crate.
+    if data.len() < 0x2C {
+        println!("<DE( header too short ({} bytes)", data.len());
+        return Ok(());
+    }
+
+    let format_code = data[4];
+    let width = u32::from_le_bytes(data[0x08..0x0C].try_into().unwrap());
+    let height = u32::from_le_bytes(data[0x0C..0x10].try_into().unwrap());
+    let mip_count = u32::from_le_bytes(data[0x1C..0x20].try_into().unwrap());
+
+    println!("D2R .texture  (<DE( container)\n");
+    println!("Dimensions    {width}x{height}");
+    println!("Format code   0x{format_code:02X}");
+    println!("Mip count     {mip_count}");
+    println!("File size     {} bytes", data.len());
+
+    // Block size class.
+    if width > 0 && height > 0 && mip_count > 0 {
+        let table_start = 0x24usize;
+        if data.len() >= table_start + 8 {
+            let mip0_size =
+                u32::from_le_bytes(data[table_start..table_start + 4].try_into().unwrap()) as usize;
+            let blocks = ((width.max(4) / 4) as usize) * ((height.max(4) / 4) as usize);
+            let bpb = mip0_size.checked_div(blocks.max(1)).unwrap_or(0);
+            let bc_guess = match bpb {
+                8 => "BC1 or BC4 (8 bytes/block)",
+                16 => "BC3, BC5, or BC7 (16 bytes/block)",
+                _ => "unknown block size",
+            };
+            println!("Mip 0 size    {} bytes", mip0_size);
+            println!("Block class   {bc_guess}");
+
+            // Try decoding mip 0.
+            let offset_field_pos = table_start + 4;
+            if data.len() >= offset_field_pos + 4 {
+                let self_rel = u32::from_le_bytes(
+                    data[offset_field_pos..offset_field_pos + 4]
+                        .try_into()
+                        .unwrap(),
+                ) as usize;
+                let mip0_offset = offset_field_pos + self_rel;
+                if mip0_offset + mip0_size <= data.len() {
+                    let mip = &data[mip0_offset..mip0_offset + mip0_size];
+                    let w = width as usize;
+                    let h = height as usize;
+                    let mut pixels = vec![0u32; w * h];
+
+                    // Try the likely BC format based on block size.
+                    let (ok, name) = if bpb == 8 {
+                        if texture2ddecoder::decode_bc1(mip, w, h, &mut pixels).is_ok() {
+                            (true, "BC1")
+                        } else if texture2ddecoder::decode_bc4(mip, w, h, &mut pixels).is_ok() {
+                            (true, "BC4")
+                        } else {
+                            (false, "?")
+                        }
+                    } else if bpb == 16 {
+                        if texture2ddecoder::decode_bc3(mip, w, h, &mut pixels).is_ok() {
+                            (true, "BC3")
+                        } else if texture2ddecoder::decode_bc7(mip, w, h, &mut pixels).is_ok() {
+                            (true, "BC7")
+                        } else if texture2ddecoder::decode_bc5(mip, w, h, &mut pixels).is_ok() {
+                            (true, "BC5")
+                        } else {
+                            (false, "?")
+                        }
+                    } else {
+                        (false, "?")
+                    };
+
+                    if ok {
+                        println!("\nMip 0 decode  OK ({name})");
+                    } else {
+                        println!("\nMip 0 decode  FAILED (no BC codec matched)");
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn element_kind(v: &rustydemon_gr2::ElementValue) -> String {
+    use rustydemon_gr2::ElementValue;
+    match v {
+        ElementValue::Reference(c) => format!("Reference ({} children)", c.len()),
+        ElementValue::ReferenceArray(g) => format!("ReferenceArray ({} entries)", g.len()),
+        ElementValue::ArrayOfReferences(g) => {
+            format!("ArrayOfReferences ({} entries)", g.len())
+        }
+        ElementValue::String(s) => format!("String {s:?}"),
+        ElementValue::Transform(_) => "Transform".into(),
+        ElementValue::F32(v) => format!("f32 {v}"),
+        ElementValue::I32(v) => format!("i32 {v}"),
+        ElementValue::Opaque(id) => format!("Opaque(type={id})"),
+        ElementValue::Array(v) => format!("Array ({} entries)", v.len()),
+    }
+}
+
+fn chunk_label(c: &wow_alchemy_m2::model::M2Chunk) -> String {
+    use wow_alchemy_m2::model::M2Chunk;
+    match c {
+        M2Chunk::SFID(s) => format!("SFID — {} skin file IDs", s.file_ids.len()),
+        M2Chunk::TXID(t) => format!("TXID — {} texture file IDs", t.len()),
+        M2Chunk::AFID(a) => format!("AFID — {} animation file IDs", a.len()),
+        M2Chunk::TXAC(t) => format!("TXAC — {} entries", t.len()),
+        M2Chunk::Unknown(bytes) => format!("Unknown — {} bytes", bytes.len()),
+        _ => format!("{c:?}"),
+    }
+}

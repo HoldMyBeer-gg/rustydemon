@@ -12,8 +12,14 @@ name = "rustydemon-cli"
 path = "src/main.rs"
 
 [dependencies]
-rustydemon-lib = { path = "../rustydemon-lib", version = "0.3.0", features = ["cdn"] }
-clap           = { version = "4", features = ["derive"] }
-rayon          = "1"
-indicatif      = "0.17"
-anyhow         = "1"
+rustydemon-lib  = { path = "../rustydemon-lib", version = "0.3.0", features = ["cdn"] }
+rustydemon-blp2 = { path = "../rustydemon-blp2" }
+rustydemon-gr2  = { path = "../rustydemon-gr2" }
+wow-wmo          = "0.6.4"
+wow-alchemy-m2   = "0.2.0"
+wow-alchemy-data = "0.2.0"
+texture2ddecoder = "0.1"
+clap             = { version = "4", features = ["derive"] }
+rayon            = "1"
+indicatif        = "0.17"
+anyhow           = "1"
