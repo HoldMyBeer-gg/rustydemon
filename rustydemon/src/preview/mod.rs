@@ -241,6 +241,30 @@ pub fn plugin_names() -> Vec<String> {
     registry().iter().map(|p| p.name().to_owned()).collect()
 }
 
+/// Encode a `Mesh3dCpu` as Wavefront OBJ.  Used by model preview
+/// plugins for their "Export As OBJ" buttons.
+pub fn encode_obj(mesh: &Mesh3dCpu) -> Vec<u8> {
+    use std::fmt::Write;
+    let mut s = String::new();
+    let _ = writeln!(s, "# rustydemon OBJ export");
+    for p in &mesh.positions {
+        let _ = writeln!(s, "v {:.6} {:.6} {:.6}", p[0], p[1], p[2]);
+    }
+    for uv in &mesh.uvs {
+        let _ = writeln!(s, "vt {:.6} {:.6}", uv[0], uv[1]);
+    }
+    let has_uvs = !mesh.uvs.is_empty();
+    for tri in mesh.indices.chunks_exact(3) {
+        let (a, b, c) = (tri[0] + 1, tri[1] + 1, tri[2] + 1);
+        if has_uvs {
+            let _ = writeln!(s, "f {a}/{a} {b}/{b} {c}/{c}");
+        } else {
+            let _ = writeln!(s, "f {a} {b} {c}");
+        }
+    }
+    s.into_bytes()
+}
+
 /// Encode an 8-bit RGBA pixel buffer to a PNG byte stream.  Used by
 /// texture-format plugins from their `Export As PNG` closures.
 pub fn encode_png(pixels: &[u8], w: u32, h: u32) -> Result<Vec<u8>, String> {

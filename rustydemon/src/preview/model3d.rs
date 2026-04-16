@@ -17,7 +17,7 @@ use std::sync::Arc;
 use wow_wmo::group_parser::WmoGroup as ParsedGroup;
 use wow_wmo::{parse_wmo, ParsedWmo};
 
-use super::{Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin};
+use super::{ExportAction, Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin};
 
 struct GroupMeshParts {
     positions: Vec<[f32; 3]>,
@@ -271,7 +271,7 @@ impl PreviewPlugin for Model3dPreview {
 
                 if !combined_positions.is_empty() {
                     let (bmn, bmx) = compute_bbox(&combined_positions);
-                    out.mesh3d = Some(Arc::new(Mesh3dCpu {
+                    let mesh = Arc::new(Mesh3dCpu {
                         positions: combined_positions,
                         uvs: combined_uvs,
                         indices: combined_indices,
@@ -279,7 +279,15 @@ impl PreviewPlugin for Model3dPreview {
                         bbox_max: bmx,
                         batches: combined_batches,
                         materials,
-                    }));
+                    });
+                    let mesh_for_export = Arc::clone(&mesh);
+                    out.extra_exports.push(ExportAction {
+                        label: "Export As OBJ",
+                        default_extension: "obj",
+                        filter_name: "Wavefront OBJ",
+                        build: Arc::new(move |_raw| Ok(super::encode_obj(&mesh_for_export))),
+                    });
+                    out.mesh3d = Some(mesh);
                     if let Some(t) = out.text.as_mut() {
                         let textures_loaded = root.materials.len() as u32 - texture_failures;
                         t.push_str(&format!(
@@ -327,7 +335,7 @@ impl PreviewPlugin for Model3dPreview {
 
                 if let Some(parts) = group_to_mesh_parts(&group) {
                     let (mn, mx) = compute_bbox(&parts.positions);
-                    out.mesh3d = Some(Arc::new(Mesh3dCpu {
+                    let mesh = Arc::new(Mesh3dCpu {
                         positions: parts.positions,
                         uvs: parts.uvs,
                         indices: parts.indices,
@@ -337,7 +345,15 @@ impl PreviewPlugin for Model3dPreview {
                         // No root → no material info → renderer falls
                         // back to per-batch hash colours.
                         materials: Vec::new(),
-                    }));
+                    });
+                    let mesh_for_export = Arc::clone(&mesh);
+                    out.extra_exports.push(ExportAction {
+                        label: "Export As OBJ",
+                        default_extension: "obj",
+                        filter_name: "Wavefront OBJ",
+                        build: Arc::new(move |_raw| Ok(super::encode_obj(&mesh_for_export))),
+                    });
+                    out.mesh3d = Some(mesh);
                 }
             }
             Err(e) => {
