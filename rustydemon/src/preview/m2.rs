@@ -132,8 +132,14 @@ impl PreviewPlugin for M2Preview {
             .map(|v| [v.tex_coords.x, v.tex_coords.y])
             .collect();
 
-        // Skin triangles already index directly into MD20 vertices.
-        let indices: Vec<u32> = skin.triangles.iter().map(|&i| i as u32).collect();
+        // Skin triangles index into `skin.indices` (the vertex lookup
+        // table), which in turn indexes into the MD20 vertex array.
+        // Skipping this indirection connects wrong vertices → missing faces.
+        let indices: Vec<u32> = skin
+            .triangles
+            .iter()
+            .map(|&i| skin.indices.get(i as usize).copied().unwrap_or(0) as u32)
+            .collect();
 
         if positions.is_empty() || indices.is_empty() {
             text.push_str("\n\nModel has no geometry to render.");
