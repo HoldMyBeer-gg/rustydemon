@@ -26,6 +26,11 @@ pub struct InspectArgs {
     /// Works for .m2, .wmo, and .model files.
     #[arg(long)]
     pub obj: Option<PathBuf>,
+
+    /// Render the mesh to a PNG file (headless wgpu, no window).
+    /// Works for .model files with inline geometry.
+    #[arg(long)]
+    pub png: Option<PathBuf>,
 }
 
 pub fn run(args: &InspectArgs) -> Result<()> {
@@ -44,9 +49,9 @@ pub fn run(args: &InspectArgs) -> Result<()> {
 
     // Dispatch on magic bytes, then fall back to extension.
     if rustydemon_gr2::has_granny_magic(&data) {
-        inspect_granny(&data, args.obj.as_deref())?;
+        inspect_granny(&data, args.obj.as_deref(), args.png.as_deref())?;
     } else if data.len() >= 4 && (&data[..4] == b"MD20" || &data[..4] == b"MD21") {
-        inspect_m2(&data, &filename, args.obj.as_deref())?;
+        inspect_m2(&data, &filename, args.obj.as_deref(), args.png.as_deref())?;
     } else if data.len() >= 4 && &data[..4] == b"REVM" {
         inspect_wmo(&data, &filename, args.obj.as_deref())?;
     } else if data.len() >= 4 && &data[..4] == b"BLP2" {
@@ -64,7 +69,7 @@ pub fn run(args: &InspectArgs) -> Result<()> {
     Ok(())
 }
 
-fn inspect_granny(data: &[u8], obj_path: Option<&Path>) -> Result<()> {
+fn inspect_granny(data: &[u8], obj_path: Option<&Path>, png_path: Option<&Path>) -> Result<()> {
     use rustydemon_gr2::{ElementValue, GrannyFile};
 
     let gf =
@@ -158,10 +163,47 @@ fn inspect_granny(data: &[u8], obj_path: Option<&Path>) -> Result<()> {
         }
     }
 
+    // PNG render.
+    if let Some(path) = png_path {
+        if meshes.is_empty() {
+            println!("\nNo geometry to render.");
+        } else {
+            // Flatten all meshes into one RenderMesh.
+            let mut positions: Vec<[f32; 3]> = Vec::new();
+            let mut all_uvs: Vec<[f32; 2]> = Vec::new();
+            let mut indices: Vec<u32> = Vec::new();
+            let mut bbox_min = [f32::INFINITY; 3];
+            let mut bbox_max = [f32::NEG_INFINITY; 3];
+            for m in &meshes {
+                let vbase = positions.len() as u32;
+                positions.extend_from_slice(&m.positions);
+                all_uvs.extend_from_slice(&m.uvs);
+                indices.extend(m.indices.iter().map(|i| vbase + i));
+                for axis in 0..3 {
+                    bbox_min[axis] = bbox_min[axis].min(m.bbox_min[axis]);
+                    bbox_max[axis] = bbox_max[axis].max(m.bbox_max[axis]);
+                }
+            }
+            let render_mesh = crate::render::RenderMesh {
+                positions,
+                uvs: all_uvs,
+                indices,
+                bbox_min,
+                bbox_max,
+            };
+            crate::render::render_to_png(&render_mesh, path, 800, 600)?;
+        }
+    }
+
     Ok(())
 }
 
-fn inspect_m2(data: &[u8], filename: &str, obj_path: Option<&Path>) -> Result<()> {
+fn inspect_m2(
+    data: &[u8],
+    filename: &str,
+    obj_path: Option<&Path>,
+    _png_path: Option<&Path>,
+) -> Result<()> {
     use wow_alchemy_data::types::WowStructR;
     use wow_alchemy_m2::M2Model;
 
