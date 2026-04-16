@@ -185,7 +185,7 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         // Structured-data format summaries.
         Box::new(model3d::Model3dPreview),
         Box::new(m2::M2Preview),
-        // D2R model recognizer (structural summary, no geometry yet).
+        // D2R .model (Granny3D): 3D viewport + texture materials.
         Box::new(model_d2r::ModelD2rPreview),
         Box::new(pow::PowPreview),
         Box::new(vid::VidPreview),
