@@ -12,7 +12,7 @@
 //! - `.texture` / D2R `<DE(` container
 
 use std::io::Cursor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Args;
@@ -21,6 +21,11 @@ use clap::Args;
 pub struct InspectArgs {
     /// Path to the file to inspect.
     pub file: PathBuf,
+
+    /// Export mesh geometry as Wavefront OBJ to this path.
+    /// Works for .m2, .wmo, and .model files.
+    #[arg(long)]
+    pub obj: Option<PathBuf>,
 }
 
 pub fn run(args: &InspectArgs) -> Result<()> {
@@ -39,11 +44,11 @@ pub fn run(args: &InspectArgs) -> Result<()> {
 
     // Dispatch on magic bytes, then fall back to extension.
     if rustydemon_gr2::has_granny_magic(&data) {
-        inspect_granny(&data)?;
+        inspect_granny(&data, args.obj.as_deref())?;
     } else if data.len() >= 4 && (&data[..4] == b"MD20" || &data[..4] == b"MD21") {
-        inspect_m2(&data, &filename)?;
+        inspect_m2(&data, &filename, args.obj.as_deref())?;
     } else if data.len() >= 4 && &data[..4] == b"REVM" {
-        inspect_wmo(&data, &filename)?;
+        inspect_wmo(&data, &filename, args.obj.as_deref())?;
     } else if data.len() >= 4 && &data[..4] == b"BLP2" {
         inspect_blp(&data)?;
     } else if data.len() >= 4 && &data[..4] == b"<DE(" {
@@ -59,7 +64,7 @@ pub fn run(args: &InspectArgs) -> Result<()> {
     Ok(())
 }
 
-fn inspect_granny(data: &[u8]) -> Result<()> {
+fn inspect_granny(data: &[u8], obj_path: Option<&Path>) -> Result<()> {
     use rustydemon_gr2::{ElementValue, GrannyFile};
 
     let gf =
@@ -144,10 +149,19 @@ fn inspect_granny(data: &[u8]) -> Result<()> {
         println!("  - {} :: {}", e.name, element_kind(&e.value));
     }
 
+    // OBJ export.
+    if let Some(path) = obj_path {
+        if meshes.is_empty() {
+            println!("\nNo geometry to export.");
+        } else {
+            write_obj_multi(path, &meshes)?;
+        }
+    }
+
     Ok(())
 }
 
-fn inspect_m2(data: &[u8], filename: &str) -> Result<()> {
+fn inspect_m2(data: &[u8], filename: &str, obj_path: Option<&Path>) -> Result<()> {
     use wow_alchemy_data::types::WowStructR;
     use wow_alchemy_m2::M2Model;
 
@@ -223,10 +237,39 @@ fn inspect_m2(data: &[u8], filename: &str) -> Result<()> {
         }
     }
 
+    // OBJ export — uses MD20 vertices + SKIN indirection (no archive
+    // needed since the M2 carries all vertices inline and the skin
+    // file would only be needed for LOD selection, which we skip).
+    if let Some(path) = obj_path {
+        let positions: Vec<[f32; 3]> = md20
+            .vertices
+            .iter()
+            .map(|v| [v.position.x, v.position.y, v.position.z])
+            .collect();
+        let normals: Vec<[f32; 3]> = md20
+            .vertices
+            .iter()
+            .map(|v| [v.normal.x, v.normal.y, v.normal.z])
+            .collect();
+        let uvs: Vec<[f32; 2]> = md20
+            .vertices
+            .iter()
+            .map(|v| [v.tex_coords.x, v.tex_coords.y])
+            .collect();
+
+        // Without a skin file we can't build triangles (the skin carries
+        // the index buffer). Report that clearly.
+        println!(
+            "\nOBJ export: writing {} vertices (no triangles — skin file not available from disk)",
+            positions.len()
+        );
+        write_obj_verts_only(path, &positions, &normals, &uvs)?;
+    }
+
     Ok(())
 }
 
-fn inspect_wmo(data: &[u8], filename: &str) -> Result<()> {
+fn inspect_wmo(data: &[u8], filename: &str, _obj_path: Option<&Path>) -> Result<()> {
     use wow_wmo::{parse_wmo, ParsedWmo};
 
     let mut reader = Cursor::new(data);
@@ -405,6 +448,114 @@ fn element_kind(v: &rustydemon_gr2::ElementValue) -> String {
         ElementValue::Opaque(id) => format!("Opaque(type={id})"),
         ElementValue::Array(v) => format!("Array ({} entries)", v.len()),
     }
+}
+
+// ── OBJ export helpers ──────────────────────────────────────────────────────
+
+/// Mesh data suitable for OBJ export.
+struct ObjMesh<'a> {
+    name: &'a str,
+    positions: &'a [[f32; 3]],
+    normals: &'a [[f32; 3]],
+    uvs: &'a [[f32; 2]],
+    indices: &'a [u32],
+}
+
+/// Write multiple Granny meshes to a single OBJ file with named groups.
+fn write_obj_multi(path: &Path, meshes: &[rustydemon_gr2::Mesh]) -> Result<()> {
+    let obj_meshes: Vec<ObjMesh<'_>> = meshes
+        .iter()
+        .map(|m| ObjMesh {
+            name: &m.name,
+            positions: &m.positions,
+            normals: &m.normals,
+            uvs: &m.uvs,
+            indices: &m.indices,
+        })
+        .collect();
+    write_obj_file(path, &obj_meshes)
+}
+
+/// Write an OBJ with vertices only (no faces). Used for M2 when the
+/// skin file isn't available on disk.
+fn write_obj_verts_only(
+    path: &Path,
+    positions: &[[f32; 3]],
+    normals: &[[f32; 3]],
+    uvs: &[[f32; 2]],
+) -> Result<()> {
+    use std::io::Write;
+    let mut f = std::io::BufWriter::new(
+        std::fs::File::create(path).with_context(|| format!("creating {}", path.display()))?,
+    );
+    writeln!(f, "# rustydemon-cli inspect --obj")?;
+    writeln!(f, "# vertices only (no skin file for triangles)\n")?;
+    for p in positions {
+        writeln!(f, "v {:.6} {:.6} {:.6}", p[0], p[1], p[2])?;
+    }
+    for n in normals {
+        writeln!(f, "vn {:.6} {:.6} {:.6}", n[0], n[1], n[2])?;
+    }
+    for uv in uvs {
+        writeln!(f, "vt {:.6} {:.6}", uv[0], uv[1])?;
+    }
+    println!("Wrote {} to {}", positions.len(), path.display());
+    Ok(())
+}
+
+/// Write one or more meshes to a Wavefront OBJ file.
+fn write_obj_file(path: &Path, meshes: &[ObjMesh<'_>]) -> Result<()> {
+    use std::io::Write;
+    let mut f = std::io::BufWriter::new(
+        std::fs::File::create(path).with_context(|| format!("creating {}", path.display()))?,
+    );
+    writeln!(f, "# rustydemon-cli inspect --obj")?;
+
+    // OBJ uses 1-based global vertex indices across all groups, so we
+    // track the running offset as we emit each mesh.
+    let mut v_offset: u32 = 0;
+    let mut total_verts: u32 = 0;
+    let mut total_tris: u32 = 0;
+
+    for mesh in meshes {
+        writeln!(f, "\ng {}", mesh.name)?;
+
+        for p in mesh.positions {
+            writeln!(f, "v {:.6} {:.6} {:.6}", p[0], p[1], p[2])?;
+        }
+        for n in mesh.normals {
+            writeln!(f, "vn {:.6} {:.6} {:.6}", n[0], n[1], n[2])?;
+        }
+        for uv in mesh.uvs {
+            writeln!(f, "vt {:.6} {:.6}", uv[0], uv[1])?;
+        }
+
+        let has_normals = !mesh.normals.is_empty();
+        let has_uvs = !mesh.uvs.is_empty();
+        for tri in mesh.indices.chunks_exact(3) {
+            let (a, b, c) = (
+                tri[0] + v_offset + 1,
+                tri[1] + v_offset + 1,
+                tri[2] + v_offset + 1,
+            );
+            match (has_uvs, has_normals) {
+                (true, true) => writeln!(f, "f {a}/{a}/{a} {b}/{b}/{b} {c}/{c}/{c}")?,
+                (true, false) => writeln!(f, "f {a}/{a} {b}/{b} {c}/{c}")?,
+                (false, true) => writeln!(f, "f {a}//{a} {b}//{b} {c}//{c}")?,
+                (false, false) => writeln!(f, "f {a} {b} {c}")?,
+            }
+        }
+
+        total_verts += mesh.positions.len() as u32;
+        total_tris += mesh.indices.len() as u32 / 3;
+        v_offset += mesh.positions.len() as u32;
+    }
+
+    println!(
+        "Wrote {total_verts} verts / {total_tris} tris to {}",
+        path.display()
+    );
+    Ok(())
 }
 
 fn chunk_label(c: &wow_alchemy_m2::model::M2Chunk) -> String {

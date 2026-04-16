@@ -476,7 +476,11 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
             topology: wgpu::PrimitiveTopology::TriangleList,
             strip_index_format: None,
             front_face: wgpu::FrontFace::Cw,
-            cull_mode: Some(wgpu::Face::Back),
+            // No back-face culling — M2/Granny models have mixed
+            // winding (hair, capes, two-sided geometry), and WMO
+            // groups occasionally do too.  The flat-shading normal
+            // derivation via dpdx/dpdy handles both sides correctly.
+            cull_mode: None,
             unclipped_depth: false,
             polygon_mode: wgpu::PolygonMode::Fill,
             conservative: false,
