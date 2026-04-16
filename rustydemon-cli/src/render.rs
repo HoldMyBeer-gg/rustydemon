@@ -76,7 +76,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let headlamp = max(dot(n, view_dir), 0.0);
     let fill_dir = normalize(vec3<f32>(0.0, 0.0, 1.0));
     let fill = max(dot(n, fill_dir), 0.0);
-    let shaded = 0.25 + 0.55 * headlamp + 0.20 * fill;
+    let shaded = 0.45 + 0.40 * headlamp + 0.15 * fill;
     let tex = textureSample(mat_tex, mat_smp, in.uv);
     return vec4<f32>(tex.rgb * b.color.rgb * shaded, 1.0);
 }
