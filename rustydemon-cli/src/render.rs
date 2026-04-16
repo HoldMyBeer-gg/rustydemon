@@ -24,6 +24,8 @@ pub struct RenderMesh {
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct Uniforms {
     view_proj: [[f32; 4]; 4],
+    eye_pos: [f32; 3],
+    _pad: f32,
 }
 
 #[repr(C)]
@@ -35,6 +37,7 @@ struct BatchUniform {
 const SHADER: &str = r#"
 struct Uniforms {
     view_proj: mat4x4<f32>,
+    eye_pos: vec3<f32>,
 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
@@ -69,9 +72,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let dx = dpdx(in.world);
     let dy = dpdy(in.world);
     let n = normalize(cross(dx, dy));
-    let light_dir = normalize(vec3<f32>(0.4, 0.8, 0.5));
-    let lambert = max(dot(n, light_dir), 0.0);
-    let shaded = 0.3 + 0.7 * lambert;
+    let view_dir = normalize(u.eye_pos - in.world);
+    let headlamp = max(dot(n, view_dir), 0.0);
+    let fill_dir = normalize(vec3<f32>(0.0, 0.0, 1.0));
+    let fill = max(dot(n, fill_dir), 0.0);
+    let shaded = 0.25 + 0.55 * headlamp + 0.20 * fill;
     let tex = textureSample(mat_tex, mat_smp, in.uv);
     return vec4<f32>(tex.rgb * b.color.rgb * shaded, 1.0);
 }
@@ -117,7 +122,7 @@ async fn render_to_png_async(
         label: Some("uniform bgl"),
         entries: &[wgpu::BindGroupLayoutEntry {
             binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Uniform,
                 has_dynamic_offset: false,
@@ -260,6 +265,8 @@ async fn render_to_png_async(
         label: Some("uniform buf"),
         contents: bytemuck::bytes_of(&Uniforms {
             view_proj: view_proj.to_cols_array_2d(),
+            eye_pos: eye.into(),
+            _pad: 0.0,
         }),
         usage: wgpu::BufferUsages::UNIFORM,
     });
