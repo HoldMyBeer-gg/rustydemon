@@ -1,16 +1,16 @@
 //! M2 model preview plugin (wow-alchemy-m2 backend).
 //!
-//! v0: standalone M2 viewer. Click an `.m2` file, see the static bind
-//! pose with per-submesh hash colours. No animation, no doodad
-//! placement, no texture lookup yet — those layer on later.
+//! Renders the static bind pose with per-submesh textures loaded from
+//! the TXID chunk's FileDataIDs.  The texture lookup chain is:
 //!
-//! Why `wow-alchemy-m2` instead of `wow-m2`: the older `wow-m2` 0.6.4
-//! crate ships a stub MD21 parser that returns an empty model and
-//! hardcodes pre-TWW chunk sizes (LDV1 etc.), so retail TWW M2s fail
-//! either silently or with a chunk-size mismatch error. The
-//! `wow-alchemy-m2` fork properly unwraps the MD21 wrapper, parses the
-//! inner MD20 from a chunk-relative cursor, and tolerates unknown
-//! chunks by stashing them as opaque blobs.
+//! ```text
+//! skin.texture_units[i].texture_combo_index
+//!   → md20.texture_lookup_table[combo_index]
+//!   → texture_fdids[lookup_value]
+//!   → BLP file (fetched via SiblingFetcher::by_fdid)
+//! ```
+//!
+//! No animation, no doodad placement — those layer on later.
 
 use std::io::Cursor;
 use std::sync::Arc;
@@ -19,12 +19,19 @@ use wow_alchemy_data::types::{VWowStructR, WowStructR};
 use wow_alchemy_m2::skin::SkinVersion;
 use wow_alchemy_m2::{M2Model, Skin};
 
-use super::{Mesh3dCpu, MeshBatch, PreviewOutput, PreviewPlugin};
+use super::{Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin};
 
 pub struct M2Preview;
 
 fn looks_like_m2(data: &[u8]) -> bool {
     data.len() >= 4 && (&data[..4] == b"MD20" || &data[..4] == b"MD21")
+}
+
+/// Decode a BLP byte buffer into RGBA8 + dimensions.
+fn decode_blp(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    let blp = rustydemon_blp2::BlpFile::from_bytes(bytes.to_vec()).ok()?;
+    let (pixels, w, h) = blp.get_pixels(0).ok()?;
+    Some((pixels, w, h))
 }
 
 impl PreviewPlugin for M2Preview {
@@ -60,13 +67,22 @@ impl PreviewPlugin for M2Preview {
         let md20 = &m2.md20;
         let is_chunked = &m2.magic == b"MD21";
 
-        // Locate the SFID chunk (skin file FDIDs) by walking m2.chunks.
-        // wow-alchemy-m2 stores them in a typed enum variant.
+        // Locate the SFID chunk (skin file FDIDs).
         let skin_fdids: Vec<u32> = m2
             .chunks
             .iter()
             .find_map(|c| match c {
                 wow_alchemy_m2::model::M2Chunk::SFID(skins) => Some(skins.file_ids.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        // TXID chunk (texture FDIDs).
+        let texture_fdids: Vec<u32> = m2
+            .chunks
+            .iter()
+            .find_map(|c| match c {
+                wow_alchemy_m2::model::M2Chunk::TXID(ids) => Some(ids.clone()),
                 _ => None,
             })
             .unwrap_or_default();
@@ -134,7 +150,6 @@ impl PreviewPlugin for M2Preview {
 
         // Skin triangles index into `skin.indices` (the vertex lookup
         // table), which in turn indexes into the MD20 vertex array.
-        // Skipping this indirection connects wrong vertices → missing faces.
         let indices: Vec<u32> = skin
             .triangles
             .iter()
@@ -147,9 +162,73 @@ impl PreviewPlugin for M2Preview {
             return out;
         }
 
-        // One batch per skin submesh. SkinSubmesh.triangle_start /
-        // triangle_count are in *index* units (each = one entry in the
-        // triangles buffer), so they slot directly into our index buffer.
+        // ── Fetch and decode textures by FDID ────────────────────────────────
+        // Build one MeshMaterial per TXID entry.  The texture_lookup_table
+        // and skin texture_units will map submeshes → material slots.
+        let mut materials: Vec<MeshMaterial> = Vec::with_capacity(texture_fdids.len());
+        let mut tex_loaded: u32 = 0;
+        let mut tex_failed: u32 = 0;
+        for &fdid in &texture_fdids {
+            if fdid == 0 {
+                // Slot 0 with FDID 0 = runtime-composited texture (skin,
+                // hair, etc).  Can't resolve statically.
+                tex_failed += 1;
+                materials.push(MeshMaterial {
+                    rgba: None,
+                    width: 1,
+                    height: 1,
+                });
+                continue;
+            }
+            let decoded = (siblings.by_fdid)(fdid).as_deref().and_then(decode_blp);
+            match decoded {
+                Some((rgba, w, h)) => {
+                    tex_loaded += 1;
+                    materials.push(MeshMaterial {
+                        rgba: Some(rgba),
+                        width: w,
+                        height: h,
+                    });
+                }
+                None => {
+                    tex_failed += 1;
+                    materials.push(MeshMaterial {
+                        rgba: None,
+                        width: 1,
+                        height: 1,
+                    });
+                }
+            }
+        }
+
+        // ── Map submeshes → texture via the skin's texture_units ─────────────
+        // Each texture_unit has a skin_section_index (submesh) and a
+        // texture_combo_index that resolves through the lookup table to the
+        // actual texture slot.  Build a submesh→texture map so each
+        // MeshBatch gets the right material_id.
+        let mut submesh_texture: Vec<u32> = vec![u32::MAX; skin.submeshes.len()];
+        for tu in &skin.texture_units {
+            let sub_idx = tu.skin_section_index as usize;
+            if sub_idx >= submesh_texture.len() {
+                continue;
+            }
+            // Already assigned? First texture_unit wins (later ones are
+            // multi-layer passes we don't render yet).
+            if submesh_texture[sub_idx] != u32::MAX {
+                continue;
+            }
+            let combo_idx = tu.texture_combo_index as usize;
+            let tex_idx = md20
+                .texture_lookup_table
+                .get(combo_idx)
+                .copied()
+                .unwrap_or(-1);
+            if tex_idx >= 0 && (tex_idx as usize) < materials.len() {
+                submesh_texture[sub_idx] = tex_idx as u32;
+            }
+        }
+
+        // One batch per skin submesh with the resolved material_id.
         let batches: Vec<MeshBatch> = if skin.submeshes.is_empty() {
             vec![MeshBatch {
                 start_index: 0,
@@ -159,10 +238,11 @@ impl PreviewPlugin for M2Preview {
         } else {
             skin.submeshes
                 .iter()
-                .map(|s| MeshBatch {
+                .enumerate()
+                .map(|(i, s)| MeshBatch {
                     start_index: s.triangle_start as u32,
                     index_count: s.triangle_count as u32,
-                    material_id: s.id as u32,
+                    material_id: submesh_texture.get(i).copied().unwrap_or(i as u32),
                 })
                 .collect()
         };
@@ -175,13 +255,22 @@ impl PreviewPlugin for M2Preview {
             bbox_min: mn,
             bbox_max: mx,
             batches,
-            // No texture wiring yet — renderer falls back to per-batch
-            // hash colours from material_id.
-            materials: Vec::new(),
+            materials,
         }));
 
+        if !texture_fdids.is_empty() {
+            text.push_str(&format!(
+                "\n\nTextures: {tex_loaded}/{} loaded{}",
+                texture_fdids.len(),
+                if tex_failed > 0 {
+                    format!(" ({tex_failed} fallback)")
+                } else {
+                    String::new()
+                },
+            ));
+        }
         text.push_str(&format!(
-            "\n\nLoaded SKIN with {} submesh(es)",
+            "\nLoaded SKIN with {} submesh(es)",
             skin.submeshes.len()
         ));
         out.text = Some(text);

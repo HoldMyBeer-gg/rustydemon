@@ -184,6 +184,7 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         Box::new(tex::TexPreview),
         // Structured-data format summaries.
         Box::new(model3d::Model3dPreview),
+        // M2: 3D viewport + BLP textures via TXID FDIDs.
         Box::new(m2::M2Preview),
         // D2R .model (Granny3D): 3D viewport + texture materials.
         Box::new(model_d2r::ModelD2rPreview),
