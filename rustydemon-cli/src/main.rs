@@ -22,6 +22,7 @@
 //! ```
 
 mod inspect;
+pub mod render;
 
 use std::{
     path::{Path, PathBuf},
