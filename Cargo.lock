@@ -3555,7 +3555,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rustydemon"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bytemuck",
  "eframe",
@@ -3577,7 +3577,7 @@ dependencies = [
 
 [[package]]
 name = "rustydemon-blp2"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "image",
  "thiserror 2.0.18",
@@ -3585,16 +3585,21 @@ dependencies = [
 
 [[package]]
 name = "rustydemon-cli"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "clap",
+ "glam 0.29.3",
+ "image",
  "indicatif",
+ "pollster 0.4.0",
  "rayon",
  "rustydemon-blp2",
  "rustydemon-gr2",
  "rustydemon-lib",
  "texture2ddecoder",
+ "wgpu",
  "wow-alchemy-data",
  "wow-alchemy-m2",
  "wow-wmo",
@@ -3602,14 +3607,14 @@ dependencies = [
 
 [[package]]
 name = "rustydemon-gr2"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "rustydemon-lib"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bitflags 2.11.0",
  "flate2",
