@@ -744,6 +744,7 @@ mod resolve_folder_case_tests {
         assert_eq!(resolve_folder_case(tmp.path(), "Data"), "Data");
     }
 
+    #[cfg(unix)]
     #[test]
     fn lowercase_fallback() {
         let tmp = tempdir();
@@ -751,6 +752,7 @@ mod resolve_folder_case_tests {
         assert_eq!(resolve_folder_case(tmp.path(), "Data"), "data");
     }
 
+    #[cfg(unix)]
     #[test]
     fn uppercase_variant() {
         let tmp = tempdir();
