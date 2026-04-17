@@ -393,10 +393,7 @@ impl CascConfig {
             if key.len() < 4 {
                 return Err(CascError::Config(format!("config key too short: {key}")));
             }
-            let path = config_dir
-                .join(&key[..2])
-                .join(&key[2..4])
-                .join(key);
+            let path = config_dir.join(&key[..2]).join(&key[2..4]).join(key);
             if path.is_file() {
                 return std::fs::File::open(&path).map_err(|e| {
                     CascError::Config(format!("Cannot open config {}: {e}", path.display()))
