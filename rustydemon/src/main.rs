@@ -9,9 +9,23 @@ mod ui;
 pub mod vid_preview;
 mod viewport3d;
 
+use std::path::PathBuf;
+
 use app::CascExplorerApp;
 
 fn main() -> eframe::Result {
+    // Optional CLI argument: path to a game directory to open on launch.
+    // Supports `rustydemon /path/to/game` or `rustydemon .` for cwd.
+    let open_path: Option<PathBuf> =
+        std::env::args()
+            .nth(1)
+            .filter(|a| !a.starts_with('-'))
+            .map(|a| {
+                let p = PathBuf::from(&a);
+                // Resolve `.` and relative paths to absolute.
+                std::fs::canonicalize(&p).unwrap_or(p)
+            });
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Rusty Demon — CASC Explorer")
@@ -27,6 +41,12 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Rusty Demon — CASC Explorer",
         native_options,
-        Box::new(|cc| Ok(Box::new(CascExplorerApp::new(cc)))),
+        Box::new(move |cc| {
+            let mut app = CascExplorerApp::new(cc);
+            if let Some(path) = open_path {
+                app.open_game_dir(path);
+            }
+            Ok(Box::new(app))
+        }),
     )
 }
