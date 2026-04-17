@@ -19,28 +19,56 @@ use clap::Args;
 
 #[derive(Debug, Args)]
 pub struct InspectArgs {
-    /// Path to the file to inspect.
-    pub file: PathBuf,
+    /// Path to a local file, OR a virtual path inside a CASC archive
+    /// (when --archive is set).
+    pub file: String,
+
+    /// CASC game installation root.  When set, `file` is treated as a
+    /// virtual path inside the archive (e.g.
+    /// `Creature/LadySylvanasWindrunner/LadySylvanasWindrunner.m2`).
+    #[arg(long, short = 'a')]
+    pub archive: Option<PathBuf>,
+
+    /// Community listfile (required for WoW path resolution when using
+    /// --archive).
+    #[arg(long, short = 'l')]
+    pub listfile: Option<PathBuf>,
+
+    /// Extract by FileDataID instead of path (use with --archive).
+    #[arg(long)]
+    pub fdid: Option<u32>,
+
+    /// Product UID (auto-detected if omitted).
+    #[arg(long)]
+    pub product: Option<String>,
 
     /// Export mesh geometry as Wavefront OBJ to this path.
-    /// Works for .m2, .wmo, and .model files.
     #[arg(long)]
     pub obj: Option<PathBuf>,
 
     /// Render the mesh to a PNG file (headless wgpu, no window).
-    /// Works for .model files with inline geometry.
     #[arg(long)]
     pub png: Option<PathBuf>,
 }
 
 pub fn run(args: &InspectArgs) -> Result<()> {
-    let data =
-        std::fs::read(&args.file).with_context(|| format!("reading {}", args.file.display()))?;
-    let filename = args
-        .file
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let (data, filename) = if let Some(archive_path) = &args.archive {
+        load_from_archive(
+            archive_path,
+            &args.file,
+            args.fdid,
+            args.listfile.as_deref(),
+            args.product.as_deref(),
+        )?
+    } else {
+        let path = Path::new(&args.file);
+        let data = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+        let filename = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        (data, filename)
+    };
 
     if data.is_empty() {
         println!("(empty file)");
@@ -598,6 +626,64 @@ fn write_obj_file(path: &Path, meshes: &[ObjMesh<'_>]) -> Result<()> {
         path.display()
     );
     Ok(())
+}
+
+/// Load a file from a CASC archive by virtual path.
+fn load_from_archive(
+    archive_path: &Path,
+    virtual_path: &str,
+    fdid: Option<u32>,
+    listfile: Option<&Path>,
+    product: Option<&str>,
+) -> Result<(Vec<u8>, String)> {
+    use rustydemon_lib::{CascConfig, CascHandler};
+
+    let product = product.map(String::from).unwrap_or_else(|| {
+        CascConfig::detect_products(archive_path)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| {
+                if archive_path.join("Data").join(".build.config").is_file() {
+                    "fenris".into()
+                } else {
+                    "wow".into()
+                }
+            })
+    });
+
+    eprintln!("Opening {} (product: {product})", archive_path.display());
+    let mut casc = CascHandler::open_local(archive_path, &product)
+        .with_context(|| format!("opening {}", archive_path.display()))?;
+    casc.load_builtin_paths();
+
+    if let Some(lf) = listfile {
+        let content = std::fs::read_to_string(lf)
+            .with_context(|| format!("reading listfile {}", lf.display()))?;
+        let fdid_map = casc.fdid_hash_snapshot();
+        let (filenames, tree) = rustydemon_lib::prepare_listfile(&content, &fdid_map);
+        eprintln!("  listfile: {} entries", filenames.len());
+        casc.apply_listfile(filenames, tree);
+    }
+
+    let (data, label) = if let Some(id) = fdid {
+        let data = casc
+            .open_file_by_fdid(id)
+            .with_context(|| format!("opening FDID {id} from archive"))?;
+        (data, format!("FDID {id}"))
+    } else {
+        let data = casc
+            .open_file_by_name(virtual_path)
+            .with_context(|| format!("opening {virtual_path} from archive"))?;
+        (data, virtual_path.to_string())
+    };
+
+    let filename = Path::new(virtual_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| virtual_path.to_string());
+
+    eprintln!("  loaded {} ({} bytes)", label, data.len());
+    Ok((data, filename))
 }
 
 fn chunk_label(c: &wow_alchemy_m2::model::M2Chunk) -> String {
