@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::app::{detect_game_installs, CascExplorerApp};
 use egui::Context;
 
@@ -161,7 +163,7 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                     .map(|h| h.validate_hashes)
                     .unwrap_or(false);
                 if ui.checkbox(&mut validate, "Validate Hashes").clicked() {
-                    if let Some(h) = &mut app.handler {
+                    if let Some(h) = app.handler.as_mut().and_then(Arc::get_mut) {
                         h.validate_hashes = validate;
                     }
                 }
