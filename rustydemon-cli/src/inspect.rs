@@ -52,14 +52,15 @@ pub struct InspectArgs {
 }
 
 pub fn run(args: &InspectArgs) -> Result<()> {
-    let (data, filename) = if let Some(archive_path) = &args.archive {
-        load_from_archive(
+    let (data, filename, casc) = if let Some(archive_path) = &args.archive {
+        let (data, filename, casc) = load_from_archive(
             archive_path,
             &args.file,
             args.fdid,
             args.listfile.as_deref(),
             args.product.as_deref(),
-        )?
+        )?;
+        (data, filename, Some(casc))
     } else {
         let path = Path::new(&args.file);
         let data = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
@@ -67,7 +68,7 @@ pub fn run(args: &InspectArgs) -> Result<()> {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        (data, filename)
+        (data, filename, None)
     };
 
     if data.is_empty() {
@@ -79,7 +80,13 @@ pub fn run(args: &InspectArgs) -> Result<()> {
     if rustydemon_gr2::has_granny_magic(&data) {
         inspect_granny(&data, args.obj.as_deref(), args.png.as_deref())?;
     } else if data.len() >= 4 && (&data[..4] == b"MD20" || &data[..4] == b"MD21") {
-        inspect_m2(&data, &filename, args.obj.as_deref(), args.png.as_deref())?;
+        inspect_m2(
+            &data,
+            &filename,
+            casc.as_ref(),
+            args.obj.as_deref(),
+            args.png.as_deref(),
+        )?;
     } else if data.len() >= 4 && &data[..4] == b"REVM" {
         inspect_wmo(&data, &filename, args.obj.as_deref())?;
     } else if data.len() >= 4 && &data[..4] == b"BLP2" {
@@ -229,6 +236,7 @@ fn inspect_granny(data: &[u8], obj_path: Option<&Path>, png_path: Option<&Path>)
 fn inspect_m2(
     data: &[u8],
     filename: &str,
+    casc: Option<&rustydemon_lib::CascHandler>,
     obj_path: Option<&Path>,
     _png_path: Option<&Path>,
 ) -> Result<()> {
@@ -307,9 +315,86 @@ fn inspect_m2(
         }
     }
 
-    // OBJ export — uses MD20 vertices + SKIN indirection (no archive
-    // needed since the M2 carries all vertices inline and the skin
-    // file would only be needed for LOD selection, which we skip).
+    // Texture lookup table.
+    println!(
+        "\nTexture lookup table ({}):",
+        md20.texture_lookup_table.len()
+    );
+    for (i, &idx) in md20.texture_lookup_table.iter().enumerate() {
+        let fdid_info = if idx >= 0 && (idx as usize) < texture_fdids.len() {
+            format!(" → FDID {}", texture_fdids[idx as usize])
+        } else {
+            String::new()
+        };
+        println!("  [{i}] = {idx}{fdid_info}");
+    }
+
+    // ── Fetch SKIN file if we have a CASC handler ────────────────────────
+    if let (Some(casc), Some(&skin_fdid)) = (casc, skin_fdids.first()) {
+        use wow_alchemy_data::types::VWowStructR;
+        use wow_alchemy_m2::skin::SkinVersion;
+        use wow_alchemy_m2::Skin;
+
+        match casc.open_file_by_fdid(skin_fdid) {
+            Ok(skin_bytes) => {
+                let mut skin_reader = Cursor::new(skin_bytes.as_slice());
+                match Skin::wow_read(&mut skin_reader, SkinVersion::V3) {
+                    Ok(skin) => {
+                        println!(
+                            "\nSKIN 0 (FDID {skin_fdid}): {} submeshes, {} texture_units, {} indices, {} triangles",
+                            skin.submeshes.len(),
+                            skin.texture_units.len(),
+                            skin.indices.len(),
+                            skin.triangles.len(),
+                        );
+
+                        println!("\nSubmeshes:");
+                        for (i, s) in skin.submeshes.iter().enumerate() {
+                            println!(
+                                "  [{i}] id={} verts={}..+{} tris={}..+{}",
+                                s.id,
+                                s.vertex_start,
+                                s.vertex_count,
+                                s.triangle_start,
+                                s.triangle_count,
+                            );
+                        }
+
+                        println!("\nTexture units (render batches):");
+                        for (i, tu) in skin.texture_units.iter().enumerate() {
+                            let combo_idx = tu.texture_combo_index as usize;
+                            let tex_idx = md20
+                                .texture_lookup_table
+                                .get(combo_idx)
+                                .copied()
+                                .unwrap_or(-1);
+                            let fdid_info =
+                                if tex_idx >= 0 && (tex_idx as usize) < texture_fdids.len() {
+                                    format!(" → FDID {}", texture_fdids[tex_idx as usize])
+                                } else {
+                                    String::new()
+                                };
+                            println!(
+                                "  [{i}] section={} layer={} shader=0x{:04X} mat_idx={} tex_combo={} tex_count={} → lookup[{}]={}{fdid_info}",
+                                tu.skin_section_index,
+                                tu.material_layer,
+                                tu.shader_id,
+                                tu.material_index,
+                                tu.texture_combo_index,
+                                tu.texture_count,
+                                combo_idx,
+                                tex_idx,
+                            );
+                        }
+                    }
+                    Err(e) => println!("\nSKIN parse failed: {e}"),
+                }
+            }
+            Err(e) => println!("\nCould not fetch SKIN FDID {skin_fdid}: {e}"),
+        }
+    }
+
+    // OBJ export.
     if let Some(path) = obj_path {
         let positions: Vec<[f32; 3]> = md20
             .vertices
@@ -327,8 +412,6 @@ fn inspect_m2(
             .map(|v| [v.tex_coords.x, v.tex_coords.y])
             .collect();
 
-        // Without a skin file we can't build triangles (the skin carries
-        // the index buffer). Report that clearly.
         println!(
             "\nOBJ export: writing {} vertices (no triangles — skin file not available from disk)",
             positions.len()
@@ -635,7 +718,7 @@ fn load_from_archive(
     fdid: Option<u32>,
     listfile: Option<&Path>,
     product: Option<&str>,
-) -> Result<(Vec<u8>, String)> {
+) -> Result<(Vec<u8>, String, rustydemon_lib::CascHandler)> {
     use rustydemon_lib::{CascConfig, CascHandler};
 
     let product = product.map(String::from).unwrap_or_else(|| {
@@ -683,7 +766,7 @@ fn load_from_archive(
         .unwrap_or_else(|| virtual_path.to_string());
 
     eprintln!("  loaded {} ({} bytes)", label, data.len());
-    Ok((data, filename))
+    Ok((data, filename, casc))
 }
 
 fn chunk_label(c: &wow_alchemy_m2::model::M2Chunk) -> String {
