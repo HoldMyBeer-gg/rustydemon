@@ -506,7 +506,7 @@ fn run_plugin_export(app: &CascExplorerApp, action: &crate::preview::ExportActio
         return;
     };
 
-    match (action.build)(data) {
+    match (action.build)(data, &path) {
         Ok(bytes) => {
             if let Err(e) = std::fs::write(&path, &bytes) {
                 rfd::MessageDialog::new()

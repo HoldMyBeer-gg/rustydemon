@@ -48,7 +48,7 @@ impl PreviewPlugin for PcxPreview {
                     label: "Export As PNG",
                     default_extension: "png",
                     filter_name: "PNG image",
-                    build: Arc::new(|data| {
+                    build: Arc::new(|data, _path| {
                         let (pixels, w, h) =
                             decode_pcx(data).map_err(|e| format!("pcx decode: {e}"))?;
                         crate::preview::encode_png(&pixels, w, h)

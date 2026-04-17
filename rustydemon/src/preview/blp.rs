@@ -51,7 +51,7 @@ impl PreviewPlugin for BlpPreview {
             label: "Export As PNG",
             default_extension: "png",
             filter_name: "PNG image",
-            build: Arc::new(|data| {
+            build: Arc::new(|data, _path| {
                 let blp = rustydemon_blp2::BlpFile::from_bytes(data.to_vec())
                     .map_err(|e| format!("{e:?}"))?;
                 let (pixels, w, h) = blp.get_pixels(0).map_err(|e| format!("{e:?}"))?;

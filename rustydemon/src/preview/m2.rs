@@ -260,13 +260,26 @@ impl PreviewPlugin for M2Preview {
 
         // OBJ export captures the resolved mesh so the skin indirection
         // and texture mapping are already baked in.
-        let mesh_for_export = Arc::clone(&mesh);
+        let mesh_for_obj = Arc::clone(&mesh);
         out.extra_exports.push(ExportAction {
             label: "Export As OBJ",
             default_extension: "obj",
             filter_name: "Wavefront OBJ",
-            build: Arc::new(move |_raw| Ok(super::encode_obj(&mesh_for_export))),
+            build: Arc::new(move |_raw, _path| Ok(super::encode_obj(&mesh_for_obj))),
         });
+
+        // OBJ + MTL + texture PNGs — writes sibling files next to the OBJ.
+        if !mesh.materials.is_empty() {
+            let mesh_for_mtl = Arc::clone(&mesh);
+            out.extra_exports.push(ExportAction {
+                label: "Export As OBJ + MTL",
+                default_extension: "obj",
+                filter_name: "Wavefront OBJ",
+                build: Arc::new(move |_raw, path| {
+                    super::encode_obj_with_materials(&mesh_for_mtl, path)
+                }),
+            });
+        }
 
         out.mesh3d = Some(mesh);
 

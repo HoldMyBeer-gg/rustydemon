@@ -46,7 +46,7 @@ impl PreviewPlugin for VidPreview {
             label: "Export As BK2",
             default_extension: "bk2",
             filter_name: "Bink Video 2",
-            build: Arc::new(|data| {
+            build: Arc::new(|data, _path| {
                 if data.len() < MOVI_HEADER_BYTES {
                     return Err("file shorter than MOVI header".into());
                 }
