@@ -35,7 +35,7 @@ pub fn apply_pcx_palette_override(
             label: "Export As PNG",
             default_extension: "png",
             filter_name: "PNG image",
-            build: std::sync::Arc::new(move |data| {
+            build: std::sync::Arc::new(move |data, _path| {
                 let (pixels, w, h) =
                     crate::preview::pcx::decode_pcx_with_palette(data, Some(pal_clone.as_slice()))
                         .map_err(|e| format!("pcx decode: {e}"))?;

@@ -45,7 +45,7 @@ impl PreviewPlugin for TexPreview {
             label: "Export As PNG",
             default_extension: "png",
             filter_name: "PNG image",
-            build: Arc::new(move |data| {
+            build: Arc::new(move |data, _path| {
                 let (rgba, w, h, _fmt) = crate::tex_preview::decode_tex(data, &filename)
                     .ok_or_else(|| "tex decode failed".to_string())?;
                 crate::preview::encode_png(&rgba, w, h)

@@ -300,7 +300,7 @@ impl PreviewPlugin for TextureDePreview {
             label: "Export As PNG",
             default_extension: "png",
             filter_name: "PNG image",
-            build: Arc::new(move |data| {
+            build: Arc::new(move |data, _path| {
                 let (rgba, w, h, _fmt) = decode_mip0(data, &filename)
                     .ok_or_else(|| "texture decode failed".to_string())?;
                 crate::preview::encode_png(&rgba, w, h)

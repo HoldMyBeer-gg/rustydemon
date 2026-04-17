@@ -26,7 +26,12 @@ use std::sync::Arc;
 
 /// Closure type used by [`ExportAction::build`] to transform the original
 /// file bytes into the exported representation (e.g. PNG, BK2).
-pub type ExportBuilder = Arc<dyn Fn(&[u8]) -> Result<Vec<u8>, String> + Send + Sync>;
+///
+/// The second argument is the output path chosen by the user. Most
+/// exporters ignore it, but multi-file exports (OBJ+MTL+textures)
+/// use it to derive sibling file paths.
+pub type ExportBuilder =
+    Arc<dyn Fn(&[u8], &std::path::Path) -> Result<Vec<u8>, String> + Send + Sync>;
 
 /// Output produced by a preview plugin for one selected file.
 ///
@@ -263,6 +268,81 @@ pub fn encode_obj(mesh: &Mesh3dCpu) -> Vec<u8> {
         }
     }
     s.into_bytes()
+}
+
+/// Encode a `Mesh3dCpu` as OBJ + MTL + texture PNGs.
+///
+/// Writes the MTL and texture PNGs as siblings of `obj_path`. Returns
+/// the OBJ file bytes (the caller writes those to `obj_path`).
+pub fn encode_obj_with_materials(
+    mesh: &Mesh3dCpu,
+    obj_path: &std::path::Path,
+) -> Result<Vec<u8>, String> {
+    use std::fmt::Write;
+
+    let stem = obj_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("model");
+    let parent = obj_path.parent().unwrap_or(std::path::Path::new("."));
+    let mtl_name = format!("{stem}.mtl");
+
+    // ── Write texture PNGs and build the MTL ─────────────────────────
+    let mut mtl = String::new();
+    let _ = writeln!(mtl, "# rustydemon material export");
+    for (i, mat) in mesh.materials.iter().enumerate() {
+        let mat_name = format!("material_{i}");
+        let _ = writeln!(mtl, "\nnewmtl {mat_name}");
+        if let Some(rgba) = &mat.rgba {
+            let tex_name = format!("{stem}_tex{i}.png");
+            let tex_path = parent.join(&tex_name);
+            let png = encode_png(rgba, mat.width, mat.height)
+                .map_err(|e| format!("texture {i} PNG encode: {e}"))?;
+            std::fs::write(&tex_path, &png)
+                .map_err(|e| format!("write {}: {e}", tex_path.display()))?;
+            let _ = writeln!(mtl, "map_Kd {tex_name}");
+        }
+    }
+
+    // Write the MTL file.
+    let mtl_path = parent.join(&mtl_name);
+    std::fs::write(&mtl_path, mtl.as_bytes())
+        .map_err(|e| format!("write {}: {e}", mtl_path.display()))?;
+
+    // ── Build the OBJ ────────────────────────────────────────────────
+    let mut s = String::new();
+    let _ = writeln!(s, "# rustydemon OBJ export");
+    let _ = writeln!(s, "mtllib {mtl_name}");
+    for p in &mesh.positions {
+        let _ = writeln!(s, "v {:.6} {:.6} {:.6}", p[0], p[1], p[2]);
+    }
+    for uv in &mesh.uvs {
+        let _ = writeln!(s, "vt {:.6} {:.6}", uv[0], uv[1]);
+    }
+    let has_uvs = !mesh.uvs.is_empty();
+
+    // Group faces by batch so each batch gets its material assignment.
+    for (bi, batch) in mesh.batches.iter().enumerate() {
+        let mat_name = if (batch.material_id as usize) < mesh.materials.len() {
+            format!("material_{}", batch.material_id)
+        } else {
+            format!("material_{bi}")
+        };
+        let _ = writeln!(s, "usemtl {mat_name}");
+        let start = batch.start_index as usize;
+        let end = start + batch.index_count as usize;
+        let tri_indices = &mesh.indices[start..end];
+        for tri in tri_indices.chunks_exact(3) {
+            let (a, b, c) = (tri[0] + 1, tri[1] + 1, tri[2] + 1);
+            if has_uvs {
+                let _ = writeln!(s, "f {a}/{a} {b}/{b} {c}/{c}");
+            } else {
+                let _ = writeln!(s, "f {a} {b} {c}");
+            }
+        }
+    }
+
+    Ok(s.into_bytes())
 }
 
 /// Encode an 8-bit RGBA pixel buffer to a PNG byte stream.  Used by
