@@ -201,48 +201,53 @@ impl PreviewPlugin for M2Preview {
             }
         }
 
-        // ── Map submeshes → texture via the skin's texture_units ─────────────
-        // Each texture_unit has a skin_section_index (submesh) and a
-        // texture_combo_index that resolves through the lookup table to the
-        // actual texture slot.  Build a submesh→texture map so each
-        // MeshBatch gets the right material_id.
-        let mut submesh_texture: Vec<u32> = vec![u32::MAX; skin.submeshes.len()];
-        for tu in &skin.texture_units {
-            let sub_idx = tu.skin_section_index as usize;
-            if sub_idx >= submesh_texture.len() {
-                continue;
-            }
-            // Already assigned? First texture_unit wins (later ones are
-            // multi-layer passes we don't render yet).
-            if submesh_texture[sub_idx] != u32::MAX {
-                continue;
-            }
-            let combo_idx = tu.texture_combo_index as usize;
-            let tex_idx = md20
-                .texture_lookup_table
-                .get(combo_idx)
-                .copied()
-                .unwrap_or(-1);
-            if tex_idx >= 0 && (tex_idx as usize) < materials.len() {
-                submesh_texture[sub_idx] = tex_idx as u32;
-            }
-        }
-
-        // One batch per skin submesh with the resolved material_id.
-        let batches: Vec<MeshBatch> = if skin.submeshes.is_empty() {
-            vec![MeshBatch {
-                start_index: 0,
-                index_count: indices.len() as u32,
-                material_id: 0,
-            }]
-        } else {
+        // ── Build render batches from skin texture_units ─────────────────────
+        // Following Everlook's pattern: iterate texture_units (render
+        // batches), not submeshes.  Each texture_unit references a submesh
+        // via `skin_section_index` for geometry and resolves its texture
+        // via `texture_combo_index` + `texture_count` into the
+        // `texture_lookup_table`.  The first lookup entry is the diffuse
+        // texture.
+        //
+        // Multiple texture_units can reference the same submesh (diffuse
+        // pass, specular pass, env map pass).  For our single-texture
+        // renderer we take `material_layer == 0` as the base/diffuse pass
+        // and skip higher layers.
+        let batches: Vec<MeshBatch> = if skin.texture_units.is_empty() {
+            // Fallback: one batch per submesh (legacy models).
             skin.submeshes
                 .iter()
                 .enumerate()
                 .map(|(i, s)| MeshBatch {
                     start_index: s.triangle_start as u32,
                     index_count: s.triangle_count as u32,
-                    material_id: submesh_texture.get(i).copied().unwrap_or(i as u32),
+                    material_id: i as u32,
+                })
+                .collect()
+        } else {
+            skin.texture_units
+                .iter()
+                .filter(|tu| tu.material_layer == 0)
+                .filter_map(|tu| {
+                    let sub = skin.submeshes.get(tu.skin_section_index as usize)?;
+                    // Resolve texture: skip combo_index entries in the
+                    // lookup table, take texture_count, first is diffuse.
+                    let combo_idx = tu.texture_combo_index as usize;
+                    let tex_idx = md20
+                        .texture_lookup_table
+                        .get(combo_idx)
+                        .copied()
+                        .unwrap_or(-1);
+                    let material_id = if tex_idx >= 0 && (tex_idx as usize) < materials.len() {
+                        tex_idx as u32
+                    } else {
+                        tu.skin_section_index as u32
+                    };
+                    Some(MeshBatch {
+                        start_index: sub.triangle_start as u32,
+                        index_count: sub.triangle_count as u32,
+                        material_id,
+                    })
                 })
                 .collect()
         };
@@ -281,6 +286,7 @@ impl PreviewPlugin for M2Preview {
             });
         }
 
+        let batch_count = mesh.batches.len();
         out.mesh3d = Some(mesh);
 
         if !texture_fdids.is_empty() {
@@ -295,8 +301,9 @@ impl PreviewPlugin for M2Preview {
             ));
         }
         text.push_str(&format!(
-            "\nLoaded SKIN with {} submesh(es)",
-            skin.submeshes.len()
+            "\nLoaded SKIN with {} submesh(es), {} render batch(es)",
+            skin.submeshes.len(),
+            batch_count
         ));
         out.text = Some(text);
         out
