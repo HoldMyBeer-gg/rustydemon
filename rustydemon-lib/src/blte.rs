@@ -270,7 +270,7 @@ fn decrypt_block(data: &[u8], block_idx: usize) -> Result<Option<Vec<u8>>, CascE
         0x53 => {
             // 'S' — Salsa20.
             let mut buf = payload.to_vec();
-            Salsa20::new(key, &iv).apply_keystream(&mut buf);
+            Salsa20::new(&key, &iv).apply_keystream(&mut buf);
             Ok(Some(buf))
         }
         0x41 => {

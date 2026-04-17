@@ -127,6 +127,11 @@ struct ExportArgs {
     /// Suppress progress bar; only print the final summary.
     #[arg(long, short = 'q')]
     quiet: bool,
+
+    /// Path to a TACT key file (wowdev space-separated format: KEY_NAME KEY_VALUE).
+    /// Loads additional decryption keys for encrypted BLTE blocks at runtime.
+    #[arg(long)]
+    tact_keys: Option<PathBuf>,
 }
 
 /// Arguments for the `probe` subcommand.
@@ -156,6 +161,13 @@ fn main() -> Result<()> {
 }
 
 fn run_export(args: &ExportArgs) -> Result<()> {
+    // ── Load runtime TACT keys ────────────────────────────────────────────
+    if let Some(key_path) = &args.tact_keys {
+        let n = rustydemon_lib::key_service::load_keys_from_file(key_path)
+            .with_context(|| format!("loading TACT keys from {}", key_path.display()))?;
+        eprintln!("  tact-keys: loaded {n} key(s) from {}", key_path.display());
+    }
+
     // ── Open archive ──────────────────────────────────────────────────────
     let product = args.product.clone().unwrap_or_else(|| {
         detect_product(&args.archive).unwrap_or_else(|| {
