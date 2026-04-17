@@ -120,6 +120,50 @@ impl CdnFetcher {
         }))
     }
 
+    /// Fetch a config blob (BuildKey / CDNKey) from CDN and cache it under
+    /// `cache_dir/<ab>/<cd>/<key>` — the same layout the game uses for its
+    /// local `Data/config/` tree, so passing the game's config directory
+    /// makes the file available for future opens without re-downloading.
+    ///
+    /// Uses the `config/` CDN prefix instead of the `data/` prefix used by
+    /// [`Self::fetch`].
+    pub fn fetch_config_key(&self, key: &str, cache_dir: &Path) -> Result<Vec<u8>, CascError> {
+        if key.len() < 4 {
+            return Err(CascError::Config(format!(
+                "CdnFetcher: config key too short: {key}"
+            )));
+        }
+        let ab = &key[..2];
+        let cd = &key[2..4];
+        let cached = cache_dir.join(ab).join(cd).join(key);
+        if cached.exists() {
+            return fs::read(&cached).map_err(|e| cdn_io_err(&cached, e));
+        }
+
+        let rel = format!("{}/config/{ab}/{cd}/{key}", self.cdn_path);
+        let mut last_error: Option<CascError> = None;
+        for host in &self.hosts {
+            let url = format!("http://{host}/{rel}");
+            match self.download(&url) {
+                Ok(bytes) => {
+                    if let Some(parent) = cached.parent() {
+                        if let Err(e) = fs::create_dir_all(parent) {
+                            return Err(cdn_io_err(parent, e));
+                        }
+                    }
+                    let tmp = cached.with_extension("partial");
+                    fs::write(&tmp, &bytes).map_err(|e| cdn_io_err(&tmp, e))?;
+                    fs::rename(&tmp, &cached).map_err(|e| cdn_io_err(&cached, e))?;
+                    return Ok(bytes);
+                }
+                Err(e) => last_error = Some(e),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            CascError::Config("CdnFetcher: all hosts failed (no hosts configured?)".into())
+        }))
+    }
+
     fn download(&self, url: &str) -> Result<Vec<u8>, CascError> {
         let resp = self
             .agent

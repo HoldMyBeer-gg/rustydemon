@@ -125,9 +125,12 @@ impl CascHandler {
             // Prefer the static container path whenever a `.build.config`
             // exists — even if `.build.info` is also present (Windows Steam
             // D4 ships both, but only the static config has key-layout fields).
-            let static_config = CascConfig::load_local_static(base_path)?;
-            if static_config.is_static_container() {
-                return Self::finish_static(static_config);
+            // Use if-let so a malformed/non-static `.build.config` falls
+            // through to the `.build.info` path rather than hard-erroring.
+            if let Ok(static_config) = CascConfig::load_local_static(base_path) {
+                if static_config.is_static_container() {
+                    return Self::finish_static(static_config);
+                }
             }
         }
 

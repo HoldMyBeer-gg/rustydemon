@@ -362,21 +362,80 @@ impl CascConfig {
         // which matches the old hard-coded behaviour.
         let data_folder = resolve_folder_case(&base_path, expected_folder);
 
+        // Extract CDN info up front so the config-blob opener can fall back
+        // to CDN when a blob isn't cached locally (common after a game update).
+        let pick_col = |col: &str| -> String {
+            build_info
+                .get("Product", &resolved_product, col)
+                .or_else(|| {
+                    build_info
+                        .rows()
+                        .first()
+                        .and_then(|r| r.get(col).map(String::as_str))
+                })
+                .unwrap_or("")
+                .to_owned()
+        };
+        let cdn_hosts: Vec<String> = pick_col("CDNHosts")
+            .split_ascii_whitespace()
+            .map(std::borrow::ToOwned::to_owned)
+            .collect();
+        let cdn_path = pick_col("CDNPath");
+
         // Helper: open a two-level hash-keyed config file (aa/bb/aabb…).
+        // Falls back to CDN (when the `cdn` feature is enabled) so a fresh
+        // install or post-update state where the blob isn't yet cached locally
+        // can still open the archive.  The fetched blob is written into the
+        // game's own config tree so subsequent opens are local.
         let data_folder_ref = &data_folder;
+        let config_dir = base_path.join(data_folder_ref).join("config");
         let open_config = |key: &str| -> Result<std::fs::File, CascError> {
             if key.len() < 4 {
                 return Err(CascError::Config(format!("config key too short: {key}")));
             }
-            let path = base_path
-                .join(data_folder_ref)
-                .join("config")
+            let path = config_dir
                 .join(&key[..2])
                 .join(&key[2..4])
                 .join(key);
-            std::fs::File::open(&path).map_err(|e| {
-                CascError::Config(format!("Cannot open config {}: {e}", path.display()))
-            })
+            if path.is_file() {
+                return std::fs::File::open(&path).map_err(|e| {
+                    CascError::Config(format!("Cannot open config {}: {e}", path.display()))
+                });
+            }
+            // Not cached locally — try CDN.
+            #[cfg(feature = "cdn")]
+            if !cdn_hosts.is_empty() && !cdn_path.is_empty() {
+                match crate::cdn::CdnFetcher::new(
+                    cdn_hosts.clone(),
+                    cdn_path.clone(),
+                    config_dir.clone(),
+                ) {
+                    Ok(fetcher) => {
+                        fetcher.fetch_config_key(key, &config_dir)?;
+                        return std::fs::File::open(&path).map_err(|e| {
+                            CascError::Config(format!(
+                                "Cannot open config {} (after CDN fetch): {e}",
+                                path.display()
+                            ))
+                        });
+                    }
+                    Err(e) => {
+                        return Err(CascError::Config(format!(
+                            "Cannot open config {}: not cached locally and CDN init failed: {e}",
+                            path.display()
+                        )));
+                    }
+                }
+            }
+            Err(CascError::Config(format!(
+                "Cannot open config {}: not cached locally{}",
+                path.display(),
+                if cfg!(feature = "cdn") {
+                    " and no CDN hosts available"
+                } else {
+                    " (cdn feature disabled)"
+                }
+            )))
         };
 
         // ── Build config ───────────────────────────────────────────────────
@@ -402,28 +461,6 @@ impl CascConfig {
             .to_lowercase();
 
         let cdn = KeyValueConfig::from_reader(open_config(&cdn_key)?)?;
-
-        // CDN host list + path from the same row we already picked BuildKey
-        // from.  Both are space-separated lists in `.build.info`; the path
-        // column is usually a single segment like `tpr/osi` but we take
-        // whatever's in the column verbatim.
-        let pick_col = |col: &str| -> String {
-            build_info
-                .get("Product", &resolved_product, col)
-                .or_else(|| {
-                    build_info
-                        .rows()
-                        .first()
-                        .and_then(|r| r.get(col).map(String::as_str))
-                })
-                .unwrap_or("")
-                .to_owned()
-        };
-        let cdn_hosts: Vec<String> = pick_col("CDNHosts")
-            .split_ascii_whitespace()
-            .map(std::borrow::ToOwned::to_owned)
-            .collect();
-        let cdn_path = pick_col("CDNPath");
 
         Ok(CascConfig {
             base_path,
