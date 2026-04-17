@@ -12,6 +12,8 @@ archives, written entirely in Rust.
 
 > **For personal and educational use only.**
 
+> **If you want actual screenshots then take one and link it in an issue. The native GUI is better but I'm not showcasing copyrighted art.**
+
 [![CI](https://github.com/HoldMyBeer-gg/rustydemon/actions/workflows/ci.yml/badge.svg)](https://github.com/HoldMyBeer-gg/rustydemon/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2021-blue?logo=rust)](https://doc.rust-lang.org/edition-guide/rust-2021/index.html)
