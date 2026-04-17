@@ -34,7 +34,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use rustydemon_lib::{CascConfig, CascFile, CascHandler, PathQuery};
+use rustydemon_lib::{CascConfig, CascFile, CascHandler, GameType, PathQuery};
 
 /// Rusty Demon CLI — batch export and inspect CASC archive files.
 #[derive(Debug, Parser)]
@@ -50,6 +50,12 @@ enum Command {
     Export(ExportArgs),
     /// Inspect a local file and print format-specific metadata.
     Inspect(inspect::InspectArgs),
+    /// Smoke-test a CASC archive: open it, read one file, report PASS/FAIL.
+    ///
+    /// Useful for regression testing across games and launchers.
+    /// Exits 0 if the archive opens and at least one file can be extracted,
+    /// 1 on any failure.
+    Probe(ProbeArgs),
 }
 
 /// Arguments for the `export` subcommand.
@@ -123,11 +129,29 @@ struct ExportArgs {
     quiet: bool,
 }
 
+/// Arguments for the `probe` subcommand.
+#[derive(Debug, Parser)]
+struct ProbeArgs {
+    /// Game installation root(s).  Pass multiple times to probe several
+    /// archives in one invocation.
+    #[arg(long, short = 'a', required = true)]
+    archive: Vec<PathBuf>,
+
+    /// Product UID override.  Auto-detected when omitted.
+    #[arg(long)]
+    product: Option<String>,
+
+    /// Exit immediately on first failure instead of probing remaining archives.
+    #[arg(long)]
+    fail_fast: bool,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Export(args) => run_export(&args),
         Command::Inspect(args) => inspect::run(&args),
+        Command::Probe(args) => run_probe(&args),
     }
 }
 
@@ -320,4 +344,115 @@ fn run_export(args: &ExportArgs) -> Result<()> {
 /// directory name for installs that don't carry one.
 fn detect_product(base: &Path) -> Option<String> {
     CascConfig::detect_products(base).into_iter().next()
+}
+
+// ── probe ─────────────────────────────────────────────────────────────────────
+
+fn run_probe(args: &ProbeArgs) -> Result<()> {
+    let mut any_fail = false;
+
+    for archive in &args.archive {
+        let result = probe_one(archive, args.product.as_deref());
+        match result {
+            Ok(info) => {
+                println!(
+                    "[PASS]  {:<28}  {:.2}s  {:>7} entries  {}",
+                    info.label,
+                    info.elapsed_secs,
+                    info.entry_count,
+                    archive.display()
+                );
+            }
+            Err(e) => {
+                println!("[FAIL]  {}  —  {e:#}", archive.display());
+                any_fail = true;
+                if args.fail_fast {
+                    break;
+                }
+            }
+        }
+    }
+
+    if any_fail {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+struct ProbeInfo {
+    label: String,
+    elapsed_secs: f32,
+    entry_count: usize,
+}
+
+fn probe_one(archive: &Path, product_override: Option<&str>) -> Result<ProbeInfo> {
+    let product = product_override
+        .map(str::to_owned)
+        .or_else(|| detect_product(archive))
+        .unwrap_or_else(|| "wow".into());
+
+    let t = Instant::now();
+    let mut casc = CascHandler::open_local(archive, &product)
+        .with_context(|| format!("failed to open {}", archive.display()))?;
+    casc.load_builtin_paths();
+
+    let entry_count = casc.root_count();
+    let game_type = casc.config.game_type;
+    let elapsed_secs = t.elapsed().as_secs_f32();
+
+    // Pick a canonical file to extract per game type so we exercise the full
+    // read path (index lookup → data.NNN read → BLTE decode), not just open.
+    let canonical: Option<&str> = match game_type {
+        GameType::DiabloIIResurrected => Some("data/data/global/dataversionbuild.txt"),
+        GameType::DiabloIV | GameType::DiabloIVBeta => Some("base/Default_GPU_Settings.txt"),
+        GameType::StarCraft => Some("SD/rez/EstT01ED.txt"),
+        // WoW and others don't have builtin paths without a listfile;
+        // opening successfully + having entries is enough signal.
+        _ => None,
+    };
+
+    if let Some(path) = canonical {
+        let bytes = casc
+            .open_file_by_name(path)
+            .with_context(|| format!("extracting canonical file '{path}'"))?;
+        if bytes.is_empty() {
+            return Err(anyhow!("canonical file '{path}' extracted as empty"));
+        }
+    }
+
+    let launcher = launcher_tag(archive);
+    let game_name = game_display_name(game_type, &product);
+    let label = format!("{game_name} [{launcher}]");
+
+    Ok(ProbeInfo {
+        label,
+        elapsed_secs,
+        entry_count,
+    })
+}
+
+fn launcher_tag(path: &Path) -> &'static str {
+    let s = path.to_string_lossy();
+    if s.contains("steamapps") || s.contains("Steam") {
+        "Steam"
+    } else {
+        "Battle.net"
+    }
+}
+
+fn game_display_name(game_type: GameType, fallback_product: &str) -> String {
+    match game_type {
+        GameType::DiabloIIResurrected => "D2R".into(),
+        GameType::DiabloIV => "D4".into(),
+        GameType::DiabloIVBeta => "D4 Beta".into(),
+        GameType::DiabloIII => "D3".into(),
+        GameType::WorldOfWarcraft => "WoW".into(),
+        GameType::Warcraft3Reforged => "WC3".into(),
+        GameType::StarCraft => "SC1".into(),
+        GameType::StarCraft2 => "SC2".into(),
+        GameType::HeroesOfTheStorm => "HotS".into(),
+        GameType::Hearthstone => "HS".into(),
+        GameType::Overwatch => "OW2".into(),
+        _ => fallback_product.to_uppercase(),
+    }
 }
