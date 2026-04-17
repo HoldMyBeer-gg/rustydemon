@@ -1,6 +1,7 @@
 use hex_literal::hex;
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::path::Path;
+use std::sync::{OnceLock, RwLock};
 
 /// Decryption key table for CASC BLTE blocks.
 ///
@@ -9,20 +10,107 @@ use std::sync::OnceLock;
 ///
 /// This table is populated from the known public TACT key set, covering
 /// Overwatch, World of Warcraft, and several other titles.  Additional keys
-/// discovered in-game can be added to [`KNOWN_KEYS`] below.
+/// discovered in-game can be added to [`KNOWN_KEYS`] below, or injected at
+/// runtime via [`load_keys_from_str`] / [`load_keys_from_file`].
 static KEY_TABLE: OnceLock<HashMap<u64, [u8; 16]>> = OnceLock::new();
+
+/// Runtime-added keys (loaded from user-supplied key files).
+static RUNTIME_KEYS: OnceLock<RwLock<HashMap<u64, [u8; 16]>>> = OnceLock::new();
+
+fn runtime_keys() -> &'static RwLock<HashMap<u64, [u8; 16]>> {
+    RUNTIME_KEYS.get_or_init(|| RwLock::new(HashMap::new()))
+}
 
 /// Look up a Salsa20 decryption key by the 64-bit TACT key name.
 ///
-/// Returns `None` when the key is unknown, meaning the encrypted BLTE block
-/// cannot be decoded.
-pub fn get_key(name: u64) -> Option<&'static [u8; 16]> {
-    KEY_TABLE.get_or_init(build_table).get(&name)
+/// Checks the compiled-in key table first, then any runtime-loaded keys.
+/// Returns `None` when the key is unknown.
+pub fn get_key(name: u64) -> Option<[u8; 16]> {
+    if let Some(k) = KEY_TABLE.get_or_init(build_table).get(&name) {
+        return Some(*k);
+    }
+    runtime_keys().read().unwrap().get(&name).copied()
 }
 
-/// Returns `true` if the given TACT key name is present in the table.
+/// Returns `true` if the given TACT key name is present in either table.
 pub fn has_key(name: u64) -> bool {
     get_key(name).is_some()
+}
+
+/// Parse and load TACT keys from a string in the standard wowdev format.
+///
+/// Each non-blank, non-comment line must contain exactly two whitespace-separated
+/// hex tokens:
+///
+/// ```text
+/// # comment
+/// FB680CB6A8BF81F3 62D90EFA7F36D71C398AE2F1FE37BDB9
+/// ```
+///
+/// Lines that don't match the expected format are silently skipped.
+/// Returns the number of keys successfully inserted (duplicates count once each).
+pub fn load_keys_from_str(text: &str) -> usize {
+    let mut map = runtime_keys().write().unwrap();
+    let mut count = 0usize;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        // Accept both space-separated and semicolon-separated formats.
+        let parts: Vec<&str> = if line.contains(';') {
+            line.splitn(2, ';').collect()
+        } else {
+            line.splitn(2, char::is_whitespace).collect()
+        };
+        if parts.len() != 2 {
+            continue;
+        }
+        let name_hex = parts[0].trim();
+        let key_hex = parts[1].trim();
+        if name_hex.len() != 16 || key_hex.len() != 32 {
+            continue;
+        }
+        let name = match u64::from_str_radix(name_hex, 16) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let mut key = [0u8; 16];
+        let mut ok = true;
+        for (i, chunk) in key_hex.as_bytes().chunks(2).enumerate() {
+            let s = match std::str::from_utf8(chunk) {
+                Ok(s) => s,
+                Err(_) => {
+                    ok = false;
+                    break;
+                }
+            };
+            match u8::from_str_radix(s, 16) {
+                Ok(b) => key[i] = b,
+                Err(_) => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok {
+            map.insert(name, key);
+            count += 1;
+        }
+    }
+    count
+}
+
+/// Load TACT keys from a file on disk.
+///
+/// The file format is identical to [`load_keys_from_str`] — the standard
+/// wowdev space-separated hex format used by
+/// <https://github.com/wowdev/TACTKeys>.
+///
+/// Returns the number of keys successfully loaded.
+pub fn load_keys_from_file(path: &Path) -> std::io::Result<usize> {
+    let text = std::fs::read_to_string(path)?;
+    Ok(load_keys_from_str(&text))
 }
 
 // ── Key table ──────────────────────────────────────────────────────────────────
@@ -289,5 +377,44 @@ mod tests {
             has_key(0xFB680CB6A8BF81F3),
             get_key(0xFB680CB6A8BF81F3).is_some()
         );
+    }
+
+    #[test]
+    fn load_keys_from_str_space_separated() {
+        // Use a key name that's definitely not in KNOWN_KEYS.
+        let text = "DEADBEEFCAFE1234 0102030405060708090A0B0C0D0E0F10\n";
+        let n = load_keys_from_str(text);
+        assert_eq!(n, 1);
+        let key = get_key(0xDEADBEEFCAFE1234);
+        assert_eq!(
+            key,
+            Some([
+                0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+                0x0F, 0x10
+            ])
+        );
+    }
+
+    #[test]
+    fn load_keys_from_str_semicolon_separated() {
+        let text = "AABBCCDDEEFF0011;AABBCCDDEEFF00112233445566778899\n";
+        let n = load_keys_from_str(text);
+        assert_eq!(n, 1);
+        assert!(get_key(0xAABBCCDDEEFF0011).is_some());
+    }
+
+    #[test]
+    fn load_keys_from_str_skips_comments_and_blanks() {
+        let text = "\n# this is a comment\n\nDEADBEEFCAFE5678 0102030405060708090A0B0C0D0E0F10\n";
+        let n = load_keys_from_str(text);
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn load_keys_from_str_skips_malformed() {
+        // Too short, wrong length, non-hex.
+        let text = "TOOSHORT AABBCC\nNOTHEX!! ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ\n";
+        let n = load_keys_from_str(text);
+        assert_eq!(n, 0);
     }
 }

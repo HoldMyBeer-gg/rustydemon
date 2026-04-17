@@ -49,9 +49,20 @@ pub struct InspectArgs {
     /// Render the mesh to a PNG file (headless wgpu, no window).
     #[arg(long)]
     pub png: Option<PathBuf>,
+
+    /// Path to a TACT key file (wowdev space-separated format: KEY_NAME KEY_VALUE).
+    /// Loads additional decryption keys for encrypted BLTE blocks at runtime.
+    #[arg(long)]
+    pub tact_keys: Option<PathBuf>,
 }
 
 pub fn run(args: &InspectArgs) -> Result<()> {
+    if let Some(key_path) = &args.tact_keys {
+        let n = rustydemon_lib::key_service::load_keys_from_file(key_path)
+            .with_context(|| format!("loading TACT keys from {}", key_path.display()))?;
+        eprintln!("  tact-keys: loaded {n} key(s) from {}", key_path.display());
+    }
+
     let (data, filename, casc) = if let Some(archive_path) = &args.archive {
         let (data, filename, casc) = load_from_archive(
             archive_path,
