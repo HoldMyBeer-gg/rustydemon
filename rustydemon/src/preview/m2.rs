@@ -289,6 +289,27 @@ impl PreviewPlugin for M2Preview {
         let batch_count = mesh.batches.len();
         out.mesh3d = Some(mesh);
 
+        // Debug: show texture_unit → texture mapping.
+        text.push_str("\n\nTexture unit mapping:");
+        for (i, tu) in skin.texture_units.iter().enumerate() {
+            let combo_idx = tu.texture_combo_index as usize;
+            let tex_idx = md20
+                .texture_lookup_table
+                .get(combo_idx)
+                .copied()
+                .unwrap_or(-1);
+            text.push_str(&format!(
+                "\n  [{}] section={} layer={} combo_idx={} tex_count={} → tex_idx={} shader=0x{:04X}",
+                i,
+                tu.skin_section_index,
+                tu.material_layer,
+                tu.texture_combo_index,
+                tu.texture_count,
+                tex_idx,
+                tu.shader_id,
+            ));
+        }
+
         if !texture_fdids.is_empty() {
             text.push_str(&format!(
                 "\n\nTextures: {tex_loaded}/{} loaded{}",
