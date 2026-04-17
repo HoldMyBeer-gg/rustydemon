@@ -109,6 +109,11 @@ enum BgResult {
         fail: usize,
         label: String,
     },
+    /// A text search completed.
+    SearchComplete {
+        results: Vec<SearchResult>,
+        query: String,
+    },
 }
 
 /// One file prepared for background export.
@@ -121,7 +126,7 @@ struct ExportItem {
 
 pub struct CascExplorerApp {
     // ── CASC backend ──────────────────────────────────────────────────────────
-    pub handler: Option<CascHandler>,
+    pub handler: Option<Arc<CascHandler>>,
     /// Internal product UID (e.g. "fenris", "wow").  Editable in Tools menu.
     pub product: String,
     /// Products detected from the last directory's .build.info.
@@ -297,7 +302,7 @@ impl CascExplorerApp {
                     path.display(),
                     handler.config.product,
                 );
-                self.handler = Some(handler);
+                self.handler = Some(Arc::new(handler));
                 self.search_results.clear();
                 self.selected = None;
                 self.expanded.clear();
@@ -314,7 +319,7 @@ impl CascExplorerApp {
                 tree,
                 path,
             }) => {
-                if let Some(handler) = self.handler.as_mut() {
+                if let Some(handler) = self.handler.as_mut().and_then(Arc::get_mut) {
                     handler.apply_listfile(filenames, tree);
                     self.status = format!("Listfile loaded: {}", path.display());
                 }
@@ -328,6 +333,12 @@ impl CascExplorerApp {
             }
             Ok(BgResult::ExportComplete { ok, fail, label }) => {
                 self.status = format!("Exported {ok} files from {label} ({fail} failed)");
+                self.bg_rx = None;
+                self.loading = false;
+            }
+            Ok(BgResult::SearchComplete { results, query }) => {
+                self.status = format!("{} results for {query:?}", results.len());
+                self.search_results = results;
                 self.bg_rx = None;
                 self.loading = false;
             }
@@ -506,37 +517,46 @@ impl CascExplorerApp {
     /// everything else uses the existing case-insensitive substring search
     /// over the root manifest.
     pub fn run_search(&mut self) {
-        let Some(handler) = self.handler.as_ref() else {
+        if self.handler.is_none() {
             return;
-        };
+        }
+        self.cancel_bg();
         self.browsed_folder = None;
-        self.search_results = handler.search_by_text(&self.search_text, 500);
-        self.status = format!(
-            "{} results for {:?}",
-            self.search_results.len(),
-            self.search_text
-        );
+        self.search_results.clear();
+        self.loading = true;
+        self.status = format!("Searching for {:?}…", self.search_text);
+
+        let handler = Arc::clone(self.handler.as_ref().unwrap());
+        let query = self.search_text.clone();
+        let (tx, rx) = mpsc::channel();
+        self.bg_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let results = handler.search_by_text(&query, 500);
+            let _ = tx.send(BgResult::SearchComplete { results, query });
+        });
     }
 
     /// Run the full global (deep) search — every entry, optionally searching
     /// inside container files.
     pub fn run_deep_search(&mut self) {
-        let Some(handler) = self.handler.as_ref() else {
+        if self.handler.is_none() {
             return;
-        };
-        // Unlimited: deep search wants every hit so the content-matcher has
-        // the full candidate set to work against.
-        self.search_results = handler.search_by_text(&self.search_text, 0);
-        self.status = format!(
-            "Deep search: {} top-level results for {:?} (deep-search into containers: {})",
-            self.search_results.len(),
-            self.search_text,
-            if self.deep_search_enabled {
-                "on"
-            } else {
-                "off"
-            }
-        );
+        }
+        self.cancel_bg();
+        self.search_results.clear();
+        self.loading = true;
+        self.status = format!("Deep searching for {:?}…", self.search_text);
+
+        let handler = Arc::clone(self.handler.as_ref().unwrap());
+        let query = self.search_text.clone();
+        let (tx, rx) = mpsc::channel();
+        self.bg_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let results = handler.search_by_text(&query, 0);
+            let _ = tx.send(BgResult::SearchComplete { results, query });
+        });
     }
 
     /// Select a search result and load its raw bytes in the background.
