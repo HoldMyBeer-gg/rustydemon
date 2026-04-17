@@ -255,8 +255,9 @@ pub fn encode_obj(mesh: &Mesh3dCpu) -> Vec<u8> {
     for p in &mesh.positions {
         let _ = writeln!(s, "v {:.6} {:.6} {:.6}", p[0], p[1], p[2]);
     }
+    // OBJ uses V=0 at the bottom; WoW/Granny use V=0 at the top.
     for uv in &mesh.uvs {
-        let _ = writeln!(s, "vt {:.6} {:.6}", uv[0], uv[1]);
+        let _ = writeln!(s, "vt {:.6} {:.6}", uv[0], 1.0 - uv[1]);
     }
     let has_uvs = !mesh.uvs.is_empty();
     for tri in mesh.indices.chunks_exact(3) {
@@ -317,7 +318,7 @@ pub fn encode_obj_with_materials(
         let _ = writeln!(s, "v {:.6} {:.6} {:.6}", p[0], p[1], p[2]);
     }
     for uv in &mesh.uvs {
-        let _ = writeln!(s, "vt {:.6} {:.6}", uv[0], uv[1]);
+        let _ = writeln!(s, "vt {:.6} {:.6}", uv[0], 1.0 - uv[1]);
     }
     let has_uvs = !mesh.uvs.is_empty();
 
