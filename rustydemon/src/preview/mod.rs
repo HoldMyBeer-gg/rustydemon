@@ -10,6 +10,7 @@
 //! pattern so users can port one new format by dropping a module under
 //! `preview/` and adding one line to [`registry`].
 
+pub mod adt;
 pub mod audio;
 pub mod blp;
 pub mod m2;
@@ -193,6 +194,7 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         Box::new(m2::M2Preview),
         // D2R .model (Granny3D): 3D viewport + texture materials.
         Box::new(model_d2r::ModelD2rPreview),
+        Box::new(adt::AdtPreview),
         Box::new(pow::PowPreview),
         Box::new(vid::VidPreview),
         Box::new(audio::AudioPreview),
