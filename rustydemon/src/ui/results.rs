@@ -84,9 +84,7 @@ fn draw_folder_contents(
             .monospace()
             .color(rd::RUNE_400),
         );
-        ui.label(
-            egui::RichText::new(format!("· {total} items")).color(rd::FG_MUTED),
-        );
+        ui.label(egui::RichText::new(format!("· {total} items")).color(rd::FG_MUTED));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if sel_count > 0 && ui.button(format!("Export {sel_count} Selected")).clicked() {
                 app.export_selected();
