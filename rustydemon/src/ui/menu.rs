@@ -128,6 +128,11 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                     }
                     ui.separator();
                     ui.checkbox(&mut app.viewport3d_open, "3D Test Viewport");
+                    let mut dys = app.dyslexia_friendly;
+                    if ui.checkbox(&mut dys, "Dyslexia-friendly type").changed() {
+                        app.dyslexia_friendly = dys;
+                        crate::ui::theme::set_fonts(ctx, dys);
+                    }
                 });
 
                 // ── Tools ─────────────────────────────────────────────────────────

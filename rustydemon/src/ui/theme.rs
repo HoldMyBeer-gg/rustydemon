@@ -4,15 +4,31 @@
 //! into a single `apply(ctx)` call.  Cold gunmetal surfaces, rune-blue for
 //! technical data, ember fills for selection / focus / active state.
 //!
-//! Fonts: the design system names Cinzel Decorative / Inter / JetBrains
-//! Mono as the display/body/mono faces, but none of those are shipped
-//! locally (only OpenDyslexic, an a11y alternate, is on disk).  We keep
-//! eframe's `default_fonts` for now and only reshape colors, strokes,
-//! radii, and the type scale.  Dropping the three Google Fonts TTFs into
-//! `assets/fonts/` and wiring them through `FontDefinitions` is a clean
-//! follow-up — no other theme code needs to change.
+//! Fonts: bundled OFL faces baked into the binary via `include_bytes!` —
+//! Cinzel Decorative for engraved mastheads, Inter for body/UI, JetBrains
+//! Mono for hashes/hex. OpenDyslexic Regular/Bold ship as the a11y
+//! alternate the design system explicitly calls for; toggle via
+//! View → Dyslexia-friendly type, which calls `set_fonts(ctx, true)`.
 
-use egui::{Color32, Context, FontId, Rounding, Stroke, Style, TextStyle, Visuals};
+use egui::{
+    Color32, Context, FontData, FontDefinitions, FontFamily, FontId, Rounding, Stroke, Style,
+    TextStyle, Visuals,
+};
+use std::sync::Arc;
+
+// ── Bundled font data (baked into the binary) ──────────────────────────────
+// All four faces are OFL-licensed; safe to ship with this AGPL/FOSS tool.
+const FONT_INTER: &[u8] = include_bytes!("../../assets/fonts/Inter-Regular.ttf");
+const FONT_JETBRAINS: &[u8] = include_bytes!("../../assets/fonts/JetBrainsMono-Regular.ttf");
+const FONT_CINZEL: &[u8] = include_bytes!("../../assets/fonts/CinzelDecorative-Bold.ttf");
+const FONT_DYSLEXIA_REG: &[u8] = include_bytes!("../../assets/fonts/OpenDyslexic-Regular.otf");
+const FONT_DYSLEXIA_BOLD: &[u8] = include_bytes!("../../assets/fonts/OpenDyslexic-Bold.otf");
+
+/// Custom font family used by `engraved()` / `section_label()` — Cinzel
+/// Decorative, the medieval-Roman display face from the design system.
+fn display_family() -> FontFamily {
+    FontFamily::Name(Arc::from("display"))
+}
 
 /// RustyDemon design tokens, transcribed from
 /// `RustyDemon Design System/colors_and_type.css`.  Keep in sync if the
@@ -68,9 +84,64 @@ pub mod rd {
     pub const SUCCESS: Color32 = Color32::from_rgb(0x4a, 0xa5, 0x64);
 }
 
+/// Install the bundled design-system fonts on `ctx`.
+///
+/// `dyslexia_friendly = false` (default): Inter for body/UI, JetBrains
+/// Mono for hashes/hex, Cinzel Decorative as a custom `display` family
+/// for engraved mastheads.
+///
+/// `dyslexia_friendly = true`: swaps Inter and JetBrains Mono out for
+/// OpenDyslexic Regular / Bold — the a11y alternate the design system
+/// ships specifically for this toggle. Cinzel stays put (the engraved
+/// look is brand identity, not body type).
+///
+/// Safe to call any time; egui re-shapes affected text on the next frame.
+pub fn set_fonts(ctx: &Context, dyslexia_friendly: bool) {
+    let mut fonts = FontDefinitions::default();
+
+    fonts
+        .font_data
+        .insert("rd_cinzel".into(), FontData::from_static(FONT_CINZEL));
+
+    if dyslexia_friendly {
+        fonts.font_data.insert(
+            "rd_proportional".into(),
+            FontData::from_static(FONT_DYSLEXIA_REG),
+        );
+        fonts.font_data.insert(
+            "rd_monospace".into(),
+            FontData::from_static(FONT_DYSLEXIA_BOLD),
+        );
+    } else {
+        fonts
+            .font_data
+            .insert("rd_proportional".into(), FontData::from_static(FONT_INTER));
+        fonts
+            .font_data
+            .insert("rd_monospace".into(), FontData::from_static(FONT_JETBRAINS));
+    }
+
+    fonts
+        .families
+        .entry(FontFamily::Proportional)
+        .or_default()
+        .insert(0, "rd_proportional".into());
+    fonts
+        .families
+        .entry(FontFamily::Monospace)
+        .or_default()
+        .insert(0, "rd_monospace".into());
+    fonts
+        .families
+        .insert(display_family(), vec!["rd_cinzel".into()]);
+
+    ctx.set_fonts(fonts);
+}
+
 /// Install the RustyDemon visual theme on `ctx`.  Safe to call once at
 /// startup — takes immediate effect and persists across frames.
 pub fn apply(ctx: &Context) {
+    set_fonts(ctx, false);
     let mut visuals = Visuals::dark();
 
     visuals.dark_mode = true;
@@ -188,8 +259,7 @@ pub fn engraved(text: &str) -> egui::RichText {
         .join("\u{2009}");
     egui::RichText::new(spaced)
         .color(rd::FROST_700)
-        .size(13.0)
-        .strong()
+        .font(FontId::new(13.0, display_family()))
 }
 
 // ── v2 additions: panel chrome, row frames, meta grid helpers ────────────
@@ -251,4 +321,32 @@ pub fn filepath_line(text: &str) -> egui::RichText {
         .monospace()
         .size(10.5)
         .color(rd::FG_MUTED)
+}
+
+/// Engraved section label inside a panel — the `.v-sectlabel` from the
+/// frost variant (10.5px, uppercase, wide tracking, rune-blue, hairline
+/// underneath). Use to introduce sub-sections of the preview panel
+/// (`Hex · first 256 bytes`, `Export`, `Audio`, etc.) instead of a bare
+/// `ui.separator()`.
+pub fn section_label(ui: &mut egui::Ui, text: &str) {
+    ui.add_space(8.0);
+    let spaced: String = text
+        .to_uppercase()
+        .chars()
+        .map(|c| c.to_string())
+        .collect::<Vec<_>>()
+        .join("\u{2009}");
+    ui.label(
+        egui::RichText::new(spaced)
+            .font(FontId::new(10.5, display_family()))
+            .color(rd::RUNE_400),
+    );
+    let avail = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(avail, 1.0), egui::Sense::hover());
+    ui.painter().hline(
+        rect.x_range(),
+        rect.center().y,
+        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(29, 50, 71, 153)),
+    );
+    ui.add_space(4.0);
 }

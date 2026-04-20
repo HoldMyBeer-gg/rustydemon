@@ -3,12 +3,17 @@ use crate::ui::theme::{self, rd};
 
 /// Draw the right-panel details/preview area.
 pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
-    ui.add_space(2.0);
-    ui.label(theme::engraved("Details / Preview"));
-    ui.separator();
+    let pill = app
+        .selected
+        .as_ref()
+        .and_then(|s| s.result.filename.as_deref())
+        .and_then(|n| n.rsplit('.').next())
+        .map(str::to_uppercase);
+    theme::panel_header(ui, "Details / Preview", pill.as_deref());
 
     if app.selected.is_none() {
-        ui.label("Select a file to preview it.");
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new("Select a file to preview it.").color(rd::FG_MUTED));
         return;
     }
 
@@ -53,18 +58,20 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
             }
         });
 
-    ui.separator();
-
     // ── Error ──────────────────────────────────────────────────────────────────
     if let Some(err) = &sel.load_error {
+        theme::section_label(ui, "Error");
         ui.colored_label(rd::DANGER, format!("⚠ {err}"));
         return;
     }
 
     // ── Loading spinner while the background task is running ──────────────────
     if sel.data.is_none() && sel.load_error.is_none() && app.loading {
-        ui.spinner();
-        ui.label("Loading file data…");
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(egui::RichText::new("Loading file data…").color(rd::FG_MUTED));
+        });
         return;
     }
 
@@ -81,8 +88,8 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
             None => "Auto".to_string(),
             Some(i) => names.get(i).cloned().unwrap_or_else(|| format!("#{i}")),
         };
+        theme::section_label(ui, "Viewer");
         ui.horizontal(|ui| {
-            ui.label("Viewer:");
             egui::ComboBox::from_id_salt("preview_override")
                 .selected_text(current_label)
                 .show_ui(ui, |ui| {
@@ -102,7 +109,6 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
                     }
                 });
         });
-        ui.separator();
     }
 
     // ── Plugin-provided preview ───────────────────────────────────────────────
@@ -110,33 +116,41 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         // Texture (inline image).
         if let Some(tex) = &preview.texture {
             let tex_size = tex.size_vec2();
+            theme::section_label(
+                ui,
+                &format!(
+                    "Texture · {}×{}",
+                    tex_size.x.round() as u32,
+                    tex_size.y.round() as u32
+                ),
+            );
             let max_w = ui.available_width();
             let scale = (max_w / tex_size.x).min(1.0);
             let display_size = tex_size * scale;
             ui.image((tex.id(), display_size));
-            ui.separator();
         }
 
         // 3D mesh viewport (currently only WMO group geometry).
         if let Some(mesh) = preview.mesh3d.clone() {
+            theme::section_label(ui, "Mesh");
             crate::viewport3d::paint_mesh(ui, mesh);
-            ui.separator();
         }
 
         // Text block (formatted summary or full text file). The outer
         // ScrollArea handles overflow; this widget just lays out as tall
         // as its contents.
         if let Some(text) = &preview.text {
+            theme::section_label(ui, "Text");
             ui.add(
                 egui::TextEdit::multiline(&mut text.as_str())
                     .font(egui::TextStyle::Monospace)
                     .desired_width(f32::INFINITY),
             );
-            ui.separator();
         }
     } else if let Some(data) = &sel.data {
         // ── Hex-dump fallback (no plugin claimed this file) ───────────────────
         let preview_len = data.len().min(256);
+        theme::section_label(ui, &format!("Hex · first {preview_len} bytes"));
         let hex: String = data[..preview_len]
             .chunks(16)
             .enumerate()
@@ -166,21 +180,19 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
 
     // ── Deep-search content matches ────────────────────────────────────────────
     if !sel.content_matches.is_empty() {
-        ui.separator();
-        ui.label(format!(
-            "Deep search: {} entries",
-            sel.content_matches.len()
-        ));
+        theme::section_label(
+            ui,
+            &format!("Deep search · {} entries", sel.content_matches.len()),
+        );
         for m in &sel.content_matches {
             ui.label(
                 egui::RichText::new(format!("[{}] {}", m.kind, m.inner_path))
                     .small()
-                    .monospace(),
+                    .monospace()
+                    .color(rd::FG_PRIMARY),
             );
         }
     }
-
-    ui.separator();
 
     // ── PCX palette picker (for SC1 assets with external palettes) ───────────
     let is_pcx = sel
@@ -199,6 +211,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     let mut audio_action: Option<crate::app::AudioAction> = None;
 
     if is_pcx {
+        theme::section_label(ui, "PCX palette");
         ui.horizontal(|ui| {
             if ui
                 .button("Load Palette…")
@@ -218,7 +231,6 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
                 );
             }
         });
-        ui.separator();
     }
 
     // ── Audio playback controls ───────────────────────────────────────────────
@@ -234,6 +246,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         .map(crate::audio::is_audio_filename)
         .unwrap_or(false);
     if is_audio && sel.data.is_some() {
+        theme::section_label(ui, "Audio");
         // Look at the live player (if any) to decide button states.
         // We can't borrow `app` mutably here, but the immutable peek
         // at `audio_player` is fine because we only read is_playing /
@@ -320,12 +333,11 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(200));
         }
-
-        ui.separator();
     }
 
     // ── Export buttons ─────────────────────────────────────────────────────────
     if sel.data.is_some() {
+        theme::section_label(ui, "Export");
         ui.horizontal(|ui| {
             // Plugin-provided exports (e.g. "Export As PNG", "Export As BK2").
             if let Some(preview) = &sel.preview {
@@ -548,15 +560,10 @@ fn export_raw(app: &CascExplorerApp) {
 }
 
 fn meta_row(ui: &mut egui::Ui, label: &str, value: &str) {
-    // Muted key, primary/rune value — technical data (FDID, Hash, CKey,
-    // Size) gets monospace + rune-blue per the design system; display
-    // fields (Name, Type, Locale) stay in the primary body color.
-    ui.label(
-        egui::RichText::new(label)
-            .small()
-            .color(rd::FG_MUTED)
-            .strong(),
-    );
+    // Frost-variant `.v-meta`: rune-blue bold keys, primary values.
+    // Technical fields (FDID, Hash, CKey, Size) render mono; display
+    // fields (Name, Type, Locale) stay proportional.
+    ui.label(egui::RichText::new(label).strong().color(rd::RUNE_400));
     let is_technical = matches!(label, "FDID:" | "Hash:" | "CKey:" | "Size:");
     let max_chars = 24;
     let (display, tip): (String, Option<&str>) = if value.chars().count() > max_chars {
@@ -564,9 +571,9 @@ fn meta_row(ui: &mut egui::Ui, label: &str, value: &str) {
     } else {
         (value.to_string(), None)
     };
-    let mut rt = egui::RichText::new(&display);
+    let mut rt = egui::RichText::new(&display).color(rd::FG_PRIMARY);
     if is_technical {
-        rt = rt.monospace().color(rd::RUNE_400);
+        rt = rt.monospace();
     }
     let resp = ui.label(rt);
     if let Some(full) = tip {
