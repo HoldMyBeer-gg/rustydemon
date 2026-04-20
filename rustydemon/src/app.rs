@@ -805,11 +805,16 @@ pub fn detect_game_installs() -> Vec<(String, std::path::PathBuf)> {
 
     let mut found = Vec::new();
 
-    // Known Blizzard game UIDs → display names.
+    // Known Blizzard game UIDs → display names.  Some installs (notably
+    // the Mac Battle.net Diablo III) ship with an empty `.build.info`
+    // Product column, so we infer the UID from the CDN path (e.g.
+    // `tpr/diablo3`) — those verbose spellings are listed alongside the
+    // short ones so the menu label is right either way.
     let uid_names: &[(&str, &str)] = &[
         ("fenris", "Diablo IV"),
         ("wow", "World of Warcraft"),
         ("d3", "Diablo III"),
+        ("diablo3", "Diablo III"),
         ("hero", "Heroes of the Storm"),
         ("pro", "Overwatch"),
         ("osi", "Diablo II: Resurrected"),
@@ -826,7 +831,7 @@ pub fn detect_game_installs() -> Vec<(String, std::path::PathBuf)> {
         ("gryphon", "Call of Duty: BO6"),
     ];
 
-    // Common install directories to scan (Windows + Linux/Steam Deck).
+    // Common install directories to scan (Windows + Linux/Steam Deck + macOS).
     let mut candidates: Vec<std::path::PathBuf> = vec![
         // Windows — Battle.net / Steam
         "C:/Program Files (x86)".into(),
@@ -836,6 +841,12 @@ pub fn detect_game_installs() -> Vec<(String, std::path::PathBuf)> {
         "C:/Program Files (x86)/Steam/steamapps/common".into(),
         "D:/SteamLibrary/steamapps/common".into(),
         "E:/SteamLibrary/steamapps/common".into(),
+        // macOS — Battle.net installs each game as a top-level directory
+        // under /Applications (e.g. `/Applications/Diablo III`).  Scanning
+        // one level deep finds every Blizzard title without enumerating
+        // individual `.app` bundles — the `.build.info` filter below
+        // rejects anything that isn't a CASC root.
+        "/Applications".into(),
     ];
 
     // Linux / Steam Deck

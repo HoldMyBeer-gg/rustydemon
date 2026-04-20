@@ -58,7 +58,11 @@ impl GameType {
         if uid.starts_with("wow") {
             return Ok(Self::WorldOfWarcraft);
         }
-        if uid.starts_with("d3") {
+        // Diablo III: short UID is `d3`, but `.build.info` on a Mac Battle.net
+        // install ships with an empty Product column and the CDN path resolves
+        // to `tpr/diablo3` — CascConfig picks the CDN-path form as the UID in
+        // that case, so we accept both spellings.
+        if uid.starts_with("d3") || uid.starts_with("diablo3") {
             return Ok(Self::DiabloIII);
         }
         if uid.starts_with("agent") {
