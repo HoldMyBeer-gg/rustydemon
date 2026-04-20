@@ -153,21 +153,21 @@ fn draw_status_bar(ctx: &Context, app: &CascExplorerApp) {
                 .inner_margin(egui::Margin::symmetric(12.0, 4.0)),
         )
         .show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            if app.loading {
-                ui.spinner();
-            }
-            // Split the status string into an ember-tinted leading verb
-            // (if any) and the rest in muted body color, so live states
-            // ("Opening…", "Loading…", "Searching…") read as hot while
-            // idle status stays calm.
-            let (accent, rest) = split_status_accent(&app.status);
-            if let Some(a) = accent {
-                ui.label(egui::RichText::new(a).color(theme::rd::EMBER_600).strong());
-            }
-            ui.label(egui::RichText::new(rest).color(theme::rd::FG_SECONDARY));
+            ui.horizontal(|ui| {
+                if app.loading {
+                    ui.spinner();
+                }
+                // Split the status string into an ember-tinted leading verb
+                // (if any) and the rest in muted body color, so live states
+                // ("Opening…", "Loading…", "Searching…") read as hot while
+                // idle status stays calm.
+                let (accent, rest) = split_status_accent(&app.status);
+                if let Some(a) = accent {
+                    ui.label(egui::RichText::new(a).color(theme::rd::EMBER_600).strong());
+                }
+                ui.label(egui::RichText::new(rest).color(theme::rd::FG_SECONDARY));
+            });
         });
-    });
 }
 
 /// Split a status string into an optional hot prefix (one of a short
