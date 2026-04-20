@@ -212,6 +212,10 @@ impl CascExplorerApp {
         if let Some(render_state) = cc.wgpu_render_state.as_ref() {
             crate::viewport3d::init(render_state);
         }
+        // Install the RustyDemon design-system theme (frost/ember palette,
+        // ember selection, forge radii).  Persists across frames, so one
+        // call at startup is enough.
+        crate::ui::theme::apply(&cc.egui_ctx);
         Self {
             handler: None,
             product: String::new(),

@@ -1,4 +1,5 @@
 use crate::app::CascExplorerApp;
+use crate::ui::theme::{self, rd};
 use rustydemon_lib::{CascFile, CascFolder};
 
 /// What the user clicked in the tree.
@@ -12,7 +13,8 @@ pub enum TreeClick {
 /// Draw the left-panel file tree.
 /// Returns what the user clicked, if anything.
 pub fn draw_tree(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<TreeClick> {
-    ui.heading("File Browser");
+    ui.add_space(2.0);
+    ui.label(theme::engraved("File Browser"));
     ui.separator();
 
     if app.handler.is_none() {
@@ -56,7 +58,7 @@ fn draw_folder_recursive(
             ui.label(
                 egui::RichText::new("WoW: download from\ngithub.com/wowdev/wow-listfile")
                     .small()
-                    .color(egui::Color32::from_gray(140)),
+                    .color(rd::FG_MUTED),
             );
             return None;
         }
@@ -96,12 +98,15 @@ fn draw_folder_recursive(
         let is_browsed = app.browsed_folder.as_deref() == Some(&child_path);
         let child_path_for_body = child_path.clone();
 
-        // CollapsingHeader makes the entire row clickable.
+        // CollapsingHeader makes the entire row clickable.  The browsed
+        // folder's row gets rune-blue — the design system's "technical /
+        // navigation cue" accent — so you can always spot where you are
+        // in a deep tree.
         let resp = egui::CollapsingHeader::new(egui::RichText::new(format!("📁 {name}")).color(
             if is_browsed {
-                egui::Color32::from_rgb(100, 180, 255)
+                rd::RUNE_400
             } else {
-                egui::Color32::from_gray(220)
+                rd::FG_PRIMARY
             },
         ))
         .id_salt(&child_path_for_body)
@@ -127,7 +132,7 @@ fn draw_folder_recursive(
                 sub_names.len() - MAX_FOLDERS_IN_TREE
             ))
             .small()
-            .color(egui::Color32::from_gray(140)),
+            .color(rd::FG_MUTED),
         );
     }
 
@@ -151,7 +156,7 @@ fn draw_folder_recursive(
                 files.len() - MAX_FILES_IN_TREE
             ))
             .small()
-            .color(egui::Color32::from_gray(140)),
+            .color(rd::FG_MUTED),
         );
     }
 

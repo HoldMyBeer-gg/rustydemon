@@ -1,8 +1,10 @@
 use crate::app::CascExplorerApp;
+use crate::ui::theme::{self, rd};
 
 /// Draw the right-panel details/preview area.
 pub fn draw_preview(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
-    ui.heading("Details / Preview");
+    ui.add_space(2.0);
+    ui.label(theme::engraved("Details / Preview"));
     ui.separator();
 
     if app.selected.is_none() {
@@ -55,7 +57,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
 
     // ── Error ──────────────────────────────────────────────────────────────────
     if let Some(err) = &sel.load_error {
-        ui.colored_label(egui::Color32::from_rgb(220, 80, 80), format!("⚠ {err}"));
+        ui.colored_label(rd::DANGER, format!("⚠ {err}"));
         return;
     }
 
@@ -212,7 +214,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
                 ui.label(
                     egui::RichText::new(format!("Palette: {name}"))
                         .small()
-                        .color(egui::Color32::from_gray(180)),
+                        .color(rd::FG_SECONDARY),
                 );
             }
         });
@@ -307,7 +309,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
                     ))
                     .monospace()
                     .small()
-                    .color(egui::Color32::from_gray(180)),
+                    .color(rd::RUNE_400),
                 );
             }
         });
@@ -546,15 +548,29 @@ fn export_raw(app: &CascExplorerApp) {
 }
 
 fn meta_row(ui: &mut egui::Ui, label: &str, value: &str) {
-    ui.label(egui::RichText::new(label).strong());
-    // Truncate long values to prevent the panel from expanding.
+    // Muted key, primary/rune value — technical data (FDID, Hash, CKey,
+    // Size) gets monospace + rune-blue per the design system; display
+    // fields (Name, Type, Locale) stay in the primary body color.
+    ui.label(
+        egui::RichText::new(label)
+            .small()
+            .color(rd::FG_MUTED)
+            .strong(),
+    );
+    let is_technical = matches!(label, "FDID:" | "Hash:" | "CKey:" | "Size:");
     let max_chars = 24;
-    if value.len() > max_chars {
-        let truncated = format!("{}…", &value[..max_chars]);
-        let resp = ui.label(&truncated);
-        resp.on_hover_text(value);
+    let (display, tip): (String, Option<&str>) = if value.chars().count() > max_chars {
+        (format!("{}…", &value[..max_chars]), Some(value))
     } else {
-        ui.label(value);
+        (value.to_string(), None)
+    };
+    let mut rt = egui::RichText::new(&display);
+    if is_technical {
+        rt = rt.monospace().color(rd::RUNE_400);
+    }
+    let resp = ui.label(rt);
+    if let Some(full) = tip {
+        resp.on_hover_text(full);
     }
     ui.end_row();
 }

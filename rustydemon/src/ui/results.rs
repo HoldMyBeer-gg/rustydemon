@@ -1,4 +1,5 @@
 use crate::app::CascExplorerApp;
+use crate::ui::theme::{self, rd};
 use rustydemon_lib::SearchResult;
 
 /// Draw the center panel — shows either search results or browsed folder contents.
@@ -69,9 +70,23 @@ fn draw_folder_contents(
     let total = sub_names.len() + total_files;
     let sel_count = app.multi_selected.len();
 
-    // Header with export buttons.
+    // Header with export buttons.  The folder path is rune-blue
+    // (technical data per the design system) and the item count is
+    // muted, so the two scan separately.
     ui.horizontal(|ui| {
-        ui.heading(format!("{folder_path}  ({total} items)"));
+        ui.label(theme::engraved("Folder"));
+        ui.label(
+            egui::RichText::new(if folder_path.is_empty() {
+                "/"
+            } else {
+                folder_path.as_str()
+            })
+            .monospace()
+            .color(rd::RUNE_400),
+        );
+        ui.label(
+            egui::RichText::new(format!("· {total} items")).color(rd::FG_MUTED),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if sel_count > 0 && ui.button(format!("Export {sel_count} Selected")).clicked() {
                 app.export_selected();
@@ -157,7 +172,7 @@ fn draw_folder_contents(
                     total_files
                 ))
                 .small()
-                .color(egui::Color32::from_gray(140)),
+                .color(rd::FG_MUTED),
             );
         }
     });
@@ -170,12 +185,14 @@ fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<S
     let sel_count = app.multi_selected.len();
 
     ui.horizontal(|ui| {
-        let header = if count > 0 {
-            format!("Search Results ({count})")
-        } else {
-            "Search Results".to_string()
-        };
-        ui.heading(&header);
+        ui.label(theme::engraved("Search Results"));
+        if count > 0 {
+            ui.label(
+                egui::RichText::new(format!("· {count}"))
+                    .color(rd::EMBER_600)
+                    .strong(),
+            );
+        }
 
         if count > 0 || sel_count > 0 {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -256,10 +273,13 @@ fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<S
                 }
 
                 if !path_str.is_empty() {
+                    // Full path rendered as technical (mono + rune-blue)
+                    // per the design system — this is file-identity data.
                     ui.label(
                         egui::RichText::new(format!("  {path_str}"))
                             .small()
-                            .color(egui::Color32::from_gray(130)),
+                            .monospace()
+                            .color(rd::RUNE_400),
                     );
                 }
             });

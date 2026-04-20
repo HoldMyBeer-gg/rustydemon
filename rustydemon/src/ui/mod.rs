@@ -1,6 +1,7 @@
 mod menu;
 pub(crate) mod preview;
 mod results;
+pub(crate) mod theme;
 mod tree;
 
 use crate::app::CascExplorerApp;
@@ -9,39 +10,46 @@ use rustydemon_lib::SearchResult;
 
 /// Draw the entire application UI for one frame.
 pub fn draw(ctx: &Context, app: &mut CascExplorerApp) {
-    ctx.set_visuals(egui::Visuals::dark());
-
     menu::draw_menu(ctx, app);
     draw_status_bar(ctx, app);
     draw_panels(ctx, app);
 }
 
 fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {
-    egui::CentralPanel::default().show(ctx, |ui| {
-        // Toolbar row.
-        ui.horizontal(|ui| {
-            toolbar(ui, app);
-            // Zoom buttons pinned to the far right.
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .button("A+")
-                    .on_hover_text("Increase font size")
-                    .clicked()
-                {
-                    let z = (ctx.zoom_factor() + 0.1).min(3.0);
-                    ctx.set_zoom_factor(z);
-                }
-                if ui
-                    .button("A-")
-                    .on_hover_text("Decrease font size")
-                    .clicked()
-                {
-                    let z = (ctx.zoom_factor() - 0.1).max(0.5);
-                    ctx.set_zoom_factor(z);
-                }
+    let central_frame = egui::Frame::central_panel(&ctx.style()).fill(theme::rd::BG_APP);
+    egui::CentralPanel::default()
+        .frame(central_frame)
+        .show(ctx, |ui| {
+            // Forge-glow vignette: a warm radial in the top-left + a cool
+            // one in the bottom-right, painted under the toolbar so it
+            // reads as "something is hot off-screen", not a full gradient
+            // wash.  Matches `body.rd-forge-bg` in the design system.
+            paint_forge_glow(ui);
+
+            // Toolbar row.
+            ui.horizontal(|ui| {
+                toolbar(ui, app);
+                // Zoom buttons pinned to the far right.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button("A+")
+                        .on_hover_text("Increase font size")
+                        .clicked()
+                    {
+                        let z = (ctx.zoom_factor() + 0.1).min(3.0);
+                        ctx.set_zoom_factor(z);
+                    }
+                    if ui
+                        .button("A-")
+                        .on_hover_text("Decrease font size")
+                        .clicked()
+                    {
+                        let z = (ctx.zoom_factor() - 0.1).max(0.5);
+                        ctx.set_zoom_factor(z);
+                    }
+                });
             });
-        });
-        ui.separator();
+            ui.separator();
 
         // Collect tree click before split so borrows don't overlap.
         let mut tree_click: Option<tree::TreeClick> = None;
@@ -116,7 +124,12 @@ fn toolbar(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         app.run_search();
     }
 
-    if ui.button("Search").clicked() {
+    // Primary action — ember fill, forge-colored text.
+    let search_btn = egui::Button::new(
+        egui::RichText::new("Search").color(theme::rd::FG_ON_EMBER).strong(),
+    )
+    .fill(theme::rd::EMBER_500);
+    if ui.add(search_btn).clicked() {
         app.run_search();
     }
 
@@ -135,7 +148,56 @@ fn draw_status_bar(ctx: &Context, app: &CascExplorerApp) {
             if app.loading {
                 ui.spinner();
             }
-            ui.label(&app.status);
+            // Split the status string into an ember-tinted leading verb
+            // (if any) and the rest in muted body color, so live states
+            // ("Opening…", "Loading…", "Searching…") read as hot while
+            // idle status stays calm.
+            let (accent, rest) = split_status_accent(&app.status);
+            if let Some(a) = accent {
+                ui.label(
+                    egui::RichText::new(a)
+                        .color(theme::rd::EMBER_600)
+                        .strong(),
+                );
+            }
+            ui.label(egui::RichText::new(rest).color(theme::rd::FG_SECONDARY));
         });
     });
+}
+
+/// Split a status string into an optional hot prefix (one of a short
+/// allowlist of live-action verbs) and the rest, for two-tone rendering.
+fn split_status_accent(status: &str) -> (Option<&str>, &str) {
+    for prefix in [
+        "Opening", "Loading", "Searching", "Deep searching", "Exporting", "Playing",
+    ] {
+        if let Some(rest) = status.strip_prefix(prefix) {
+            return (Some(prefix), rest);
+        }
+    }
+    (None, status)
+}
+
+/// Paint the forge-glow vignette beneath all panels — warm ember in
+/// the top-left, cool rune in the bottom-right, both at very low alpha
+/// so nothing competes with actual UI content.
+fn paint_forge_glow(ui: &egui::Ui) {
+    let rect = ui.ctx().screen_rect();
+    let painter = ui.ctx().layer_painter(egui::LayerId::background());
+
+    // Warm ember — top-left quadrant.
+    let c1 = rect.min + egui::vec2(rect.width() * 0.15, -rect.height() * 0.10);
+    painter.circle_filled(
+        c1,
+        rect.height() * 0.70,
+        egui::Color32::from_rgba_premultiplied(0x1c, 0x0b, 0x02, 0x14),
+    );
+
+    // Cool rune — bottom-right quadrant.
+    let c2 = rect.min + egui::vec2(rect.width() * 0.90, rect.height() * 1.10);
+    painter.circle_filled(
+        c2,
+        rect.height() * 0.65,
+        egui::Color32::from_rgba_premultiplied(0x04, 0x0a, 0x14, 0x14),
+    );
 }
