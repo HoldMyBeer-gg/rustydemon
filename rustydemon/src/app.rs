@@ -175,6 +175,11 @@ pub struct CascExplorerApp {
     // ── 3D viewport spike ─────────────────────────────────────────────────────
     pub viewport3d_open: bool,
 
+    // ── Accessibility ─────────────────────────────────────────────────────────
+    /// Swap Inter / JetBrains Mono for OpenDyslexic per the design
+    /// system's a11y opt-in. Toggled from View → Dyslexia-friendly type.
+    pub dyslexia_friendly: bool,
+
     // ── Deferred actions ──────────────────────────────────────────────────────
     /// A viewer-override change requested on the previous frame.  Applied
     /// at the top of the next `update` so the old `PreviewOutput`'s GPU
@@ -237,6 +242,7 @@ impl CascExplorerApp {
             cancel: Arc::new(AtomicBool::new(false)),
             loading: false,
             viewport3d_open: false,
+            dyslexia_friendly: false,
             pending_preview_override: None,
             audio_player: None,
             pending_audio_action: None,
