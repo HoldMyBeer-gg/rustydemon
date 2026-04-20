@@ -53,14 +53,12 @@ fn draw_folder_contents(
     };
 
     // Collect subfolders and files.
-    // Only sort/collect what we can display to avoid sorting 100k+ entries.
     let mut sub_names: Vec<String> = folder.folders.keys().cloned().collect();
     sub_names.sort_unstable();
 
     let total_files = folder.files.len();
     const MAX_FILES: usize = 2000;
     let mut files: Vec<rustydemon_lib::CascFile> = if total_files > MAX_FILES {
-        // Take an arbitrary subset rather than sorting everything.
         folder.files.values().take(MAX_FILES).cloned().collect()
     } else {
         folder.files.values().cloned().collect()
@@ -70,11 +68,11 @@ fn draw_folder_contents(
     let total = sub_names.len() + total_files;
     let sel_count = app.multi_selected.len();
 
-    // Header with export buttons.  The folder path is rune-blue
-    // (technical data per the design system) and the item count is
-    // muted, so the two scan separately.
+    theme::panel_header(ui, "Folder", Some(&format!("{total} hits")));
+
+    // Folder path + export controls on a second row.
     ui.horizontal(|ui| {
-        ui.label(theme::engraved("Folder"));
+        ui.add_space(4.0);
         ui.label(
             egui::RichText::new(if folder_path.is_empty() {
                 "/"
@@ -84,7 +82,6 @@ fn draw_folder_contents(
             .monospace()
             .color(rd::RUNE_400),
         );
-        ui.label(egui::RichText::new(format!("· {total} items")).color(rd::FG_MUTED));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if sel_count > 0 && ui.button(format!("Export {sel_count} Selected")).clicked() {
                 app.export_selected();
@@ -102,27 +99,27 @@ fn draw_folder_contents(
             }
         });
     });
-    ui.separator();
+    ui.add_space(2.0);
 
     let mut clicked: Option<SearchResult> = None;
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         let ctrl_held = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
 
-        // Show subfolders first (single click to navigate).
+        // Subfolders (single click navigates).
         for name in &sub_names {
             let child_path = if folder_path.is_empty() {
                 name.clone()
             } else {
                 format!("{folder_path}/{name}")
             };
-            let label = format!("📁  {name}");
-            if ui.selectable_label(false, &label).clicked() {
+            let resp = draw_file_row(ui, name, "(folder)", "📁", false);
+            if resp.clicked() {
                 app.browsed_folder = Some(child_path);
             }
         }
 
-        // Show files.
+        // Files.
         let truncated = total_files > files.len();
         for file in &files {
             let is_multi = app.multi_selected.contains(&file.hash);
@@ -133,33 +130,38 @@ fn draw_folder_contents(
                 .unwrap_or(false);
 
             let icon = file_icon(&file.name);
-            let label_text = format!("{icon}  {}", file.name);
+            let meta = format!(
+                "FDID {} · {} · —",
+                file.file_data_id
+                    .map(|x| x.to_string())
+                    .unwrap_or_else(|| "—".into()),
+                &format!("{:016x}", file.hash)[..12],
+            );
 
-            ui.push_id(file.hash, |ui| {
-                let resp = ui.selectable_label(is_multi || is_preview, &label_text);
+            let resp = ui.push_id(file.hash, |ui| {
+                draw_file_row(ui, &file.name, &meta, icon, is_multi || is_preview)
+            });
+            let resp = resp.inner;
 
-                if resp.clicked() {
-                    if ctrl_held {
-                        // Ctrl+click toggles multi-selection.
-                        if is_multi {
-                            app.multi_selected.remove(&file.hash);
-                        } else {
-                            app.multi_selected.insert(file.hash);
-                        }
+            if resp.clicked() {
+                if ctrl_held {
+                    if is_multi {
+                        app.multi_selected.remove(&file.hash);
                     } else {
-                        // Normal click: select for preview, clear multi-select.
-                        app.multi_selected.clear();
                         app.multi_selected.insert(file.hash);
+                    }
+                } else {
+                    app.multi_selected.clear();
+                    app.multi_selected.insert(file.hash);
 
-                        if let Some(h) = app.handler.as_ref() {
-                            let results = h.search_by_hash(file.hash);
-                            if let Some(first) = results.into_iter().next() {
-                                clicked = Some(first);
-                            }
+                    if let Some(h) = app.handler.as_ref() {
+                        let results = h.search_by_hash(file.hash);
+                        if let Some(first) = results.into_iter().next() {
+                            clicked = Some(first);
                         }
                     }
                 }
-            });
+            }
         }
 
         if truncated {
@@ -182,17 +184,10 @@ fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<S
     let count = app.search_results.len();
     let sel_count = app.multi_selected.len();
 
-    ui.horizontal(|ui| {
-        ui.label(theme::engraved("Search Results"));
-        if count > 0 {
-            ui.label(
-                egui::RichText::new(format!("· {count}"))
-                    .color(rd::EMBER_600)
-                    .strong(),
-            );
-        }
+    theme::panel_header(ui, "Search Results", Some(&format!("{count} hits")));
 
-        if count > 0 || sel_count > 0 {
+    if count > 0 || sel_count > 0 {
+        ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if sel_count > 0 {
                     if ui.button(format!("Export {sel_count} Selected")).clicked() {
@@ -208,9 +203,9 @@ fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<S
                     }
                 }
             });
-        }
-    });
-    ui.separator();
+        });
+        ui.add_space(2.0);
+    }
 
     if app.search_results.is_empty() {
         if app.handler.is_some() {
@@ -241,52 +236,100 @@ fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<S
                 .unwrap_or("(unknown)")
                 .rsplit(['/', '\\'])
                 .next()
-                .unwrap_or("(unknown)");
+                .unwrap_or("(unknown)")
+                .to_string();
 
-            let path_str = result.filename.as_deref().unwrap_or("");
+            let icon = file_icon(&display_name);
+            let meta = format!(
+                "FDID {} · {} · —",
+                result
+                    .file_data_id
+                    .map(|x| x.to_string())
+                    .unwrap_or_else(|| "—".into()),
+                &format!("{:016x}", result.hash)[..12],
+            );
 
-            ui.push_id(result.hash, |ui| {
-                let mut label_clicked = false;
-                egui::Frame::none()
-                    .inner_margin(egui::Margin::symmetric(4.0, 2.0))
-                    .show(ui, |ui| {
-                        ui.set_min_width(ui.available_width());
-                        label_clicked = ui
-                            .selectable_label(is_multi || is_preview, display_name)
-                            .clicked();
-                    });
-
-                if label_clicked {
-                    if ctrl_held {
-                        if is_multi {
-                            app.multi_selected.remove(&result.hash);
-                        } else {
-                            app.multi_selected.insert(result.hash);
-                        }
-                    } else {
-                        app.multi_selected.clear();
-                        app.multi_selected.insert(result.hash);
-                        clicked = Some(result.clone());
-                    }
-                }
-
-                if !path_str.is_empty() {
-                    // Full path rendered as technical (mono + rune-blue)
-                    // per the design system — this is file-identity data.
-                    ui.label(
-                        egui::RichText::new(format!("  {path_str}"))
-                            .small()
-                            .monospace()
-                            .color(rd::RUNE_400),
-                    );
-                }
+            let resp = ui.push_id(result.hash, |ui| {
+                draw_file_row(ui, &display_name, &meta, icon, is_multi || is_preview)
             });
+            let resp = resp.inner;
 
-            ui.separator();
+            if resp.clicked() {
+                if ctrl_held {
+                    if is_multi {
+                        app.multi_selected.remove(&result.hash);
+                    } else {
+                        app.multi_selected.insert(result.hash);
+                    }
+                } else {
+                    app.multi_selected.clear();
+                    app.multi_selected.insert(result.hash);
+                    clicked = Some(result.clone());
+                }
+            }
         }
     });
 
     clicked
+}
+
+/// Two-line file row: bold filename + mono metadata line.
+/// Selection paints the ember fill + 3px left stripe per the design system.
+fn draw_file_row(
+    ui: &mut egui::Ui,
+    name: &str,
+    meta: &str,
+    icon: &str,
+    is_sel: bool,
+) -> egui::Response {
+    let row_h = 40.0;
+    let (rect, resp) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), row_h),
+        egui::Sense::click(),
+    );
+    let painter = ui.painter();
+
+    if is_sel {
+        painter.rect_filled(rect, 0.0, theme::selected_row_fill());
+        theme::row_accent_stripe(ui, rect);
+    } else if resp.hovered() {
+        painter.rect_filled(
+            rect,
+            0.0,
+            egui::Color32::from_rgba_premultiplied(29, 142, 232, 20),
+        );
+    }
+    // Bottom hairline.
+    painter.hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(29, 50, 71, 120)),
+    );
+
+    let x_icon = rect.left() + 12.0;
+    let x_text = x_icon + 22.0;
+    painter.text(
+        egui::pos2(x_icon, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        icon,
+        egui::FontId::proportional(14.0),
+        rd::RUNE_400,
+    );
+    painter.text(
+        egui::pos2(x_text, rect.top() + 10.0),
+        egui::Align2::LEFT_TOP,
+        name,
+        egui::FontId::proportional(13.0),
+        rd::FG_PRIMARY,
+    );
+    painter.text(
+        egui::pos2(x_text, rect.top() + 24.0),
+        egui::Align2::LEFT_TOP,
+        meta,
+        egui::FontId::monospace(10.5),
+        rd::FG_MUTED,
+    );
+    resp
 }
 
 fn file_icon(name: &str) -> &'static str {

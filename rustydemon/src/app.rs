@@ -243,6 +243,12 @@ impl CascExplorerApp {
         }
     }
 
+    /// Display label for the currently-open game (e.g. "FENRIS"), or
+    /// `None` when no archive is open.
+    pub fn game_label(&self) -> Option<String> {
+        self.handler.as_ref().map(|_| self.product.to_uppercase())
+    }
+
     /// Access the audio player, initialising it on first use.  Returns
     /// `None` if the machine has no working audio device.
     pub fn audio_player_mut(&mut self) -> Option<&mut crate::audio::AudioPlayer> {
