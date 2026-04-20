@@ -151,13 +151,15 @@ fn tree_row(
     // without browsing; everything to the right browses on click.
     let caret_w = if caret.is_some() { indent + 18.0 } else { 0.0 };
     let caret_rect = egui::Rect::from_min_size(rect.min, egui::vec2(caret_w, rect.height()));
-    let body_rect = egui::Rect::from_min_max(
-        egui::pos2(rect.left() + caret_w, rect.top()),
-        rect.max,
-    );
+    let body_rect =
+        egui::Rect::from_min_max(egui::pos2(rect.left() + caret_w, rect.top()), rect.max);
 
-    let caret_id = ui.id().with(("caret", rect.min.x.to_bits(), rect.min.y.to_bits()));
-    let body_id = ui.id().with(("body", rect.min.x.to_bits(), rect.min.y.to_bits()));
+    let caret_id = ui
+        .id()
+        .with(("caret", rect.min.x.to_bits(), rect.min.y.to_bits()));
+    let body_id = ui
+        .id()
+        .with(("body", rect.min.x.to_bits(), rect.min.y.to_bits()));
     let caret_resp = if caret.is_some() {
         Some(ui.interact(caret_rect, caret_id, egui::Sense::click()))
     } else {
