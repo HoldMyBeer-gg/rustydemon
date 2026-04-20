@@ -145,7 +145,14 @@ fn toolbar(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
 }
 
 fn draw_status_bar(ctx: &Context, app: &CascExplorerApp) {
-    egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+    egui::TopBottomPanel::bottom("status_bar")
+        .frame(
+            egui::Frame::none()
+                .fill(theme::rd::FROST_150)
+                .stroke(egui::Stroke::new(1.0, theme::rd::BORDER_SUBTLE))
+                .inner_margin(egui::Margin::symmetric(12.0, 4.0)),
+        )
+        .show(ctx, |ui| {
         ui.horizontal(|ui| {
             if app.loading {
                 ui.spinner();

@@ -4,7 +4,14 @@ use crate::app::{detect_game_installs, CascExplorerApp};
 use egui::Context;
 
 pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
-    egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+    egui::TopBottomPanel::top("menu_bar")
+        .frame(
+            egui::Frame::none()
+                .fill(crate::ui::theme::rd::FROST_150)
+                .stroke(egui::Stroke::new(1.0, crate::ui::theme::rd::BORDER_SUBTLE))
+                .inner_margin(egui::Margin::symmetric(12.0, 4.0)),
+        )
+        .show(ctx, |ui| {
         egui::menu::bar(ui, |ui| {
             // ── File ──────────────────────────────────────────────────────────
             ui.menu_button("File", |ui| {

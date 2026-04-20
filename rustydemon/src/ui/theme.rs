@@ -25,6 +25,7 @@ pub mod rd {
     pub const FROST_000: Color32 = Color32::from_rgb(0x05, 0x08, 0x0c);
     pub const FROST_050: Color32 = Color32::from_rgb(0x0a, 0x0e, 0x14);
     pub const FROST_100: Color32 = Color32::from_rgb(0x10, 0x16, 0x1f);
+    pub const FROST_150: Color32 = Color32::from_rgb(0x13, 0x1a, 0x24);
     pub const FROST_200: Color32 = Color32::from_rgb(0x16, 0x1d, 0x28);
     pub const FROST_300: Color32 = Color32::from_rgb(0x1d, 0x26, 0x33);
     pub const FROST_400: Color32 = Color32::from_rgb(0x2a, 0x35, 0x42);
@@ -189,4 +190,65 @@ pub fn engraved(text: &str) -> egui::RichText {
         .color(rd::FROST_700)
         .size(13.0)
         .strong()
+}
+
+// ── v2 additions: panel chrome, row frames, meta grid helpers ────────────
+
+/// Label for section masthead context — right-aligned metadata pill
+/// ("Diablo IV", "482 hits") that sits next to `engraved()`.
+/// Rune-blue on a translucent rune background.
+#[allow(dead_code)]
+pub fn masthead_pill(text: &str) -> egui::RichText {
+    egui::RichText::new(text).small().color(rd::RUNE_400)
+}
+
+/// Draw a panel-header row: left-aligned engraved label,
+/// right-aligned optional pill. Ends with a horizontal separator.
+pub fn panel_header(ui: &mut egui::Ui, label: &str, pill: Option<&str>) {
+    ui.horizontal(|ui| {
+        ui.add_space(4.0);
+        ui.label(engraved(label));
+        if let Some(p) = pill {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(4.0);
+                egui::Frame::none()
+                    .fill(egui::Color32::from_rgba_premultiplied(29, 142, 232, 40))
+                    .stroke(egui::Stroke::new(1.0, rd::RUNE_400))
+                    .rounding(egui::Rounding::same(2.0))
+                    .inner_margin(egui::Margin::symmetric(8.0, 2.0))
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(p.to_uppercase())
+                                .small()
+                                .color(rd::FG_PRIMARY),
+                        );
+                    });
+            });
+        }
+    });
+    ui.add_space(2.0);
+    ui.separator();
+}
+
+/// Ember-tinted row background for the currently-selected file.
+/// Use as the Frame fill inside a selectable row. Left border accent
+/// is painted separately via `row_accent_stripe()`.
+pub fn selected_row_fill() -> egui::Color32 {
+    egui::Color32::from_rgba_premultiplied(0xd8, 0x5a, 0x12, 0x40)
+}
+
+/// Paint a 3px ember stripe on the left edge of `rect` — the
+/// "inset 3px 0 0 ember" from the CSS mock.
+pub fn row_accent_stripe(ui: &egui::Ui, rect: egui::Rect) {
+    let stripe = egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height()));
+    ui.painter().rect_filled(stripe, 0.0, rd::EMBER_500);
+}
+
+/// Small rune-blue metadata line ("FDID 1280334 · a1b2c3… · 12.4 KiB").
+#[allow(dead_code)]
+pub fn filepath_line(text: &str) -> egui::RichText {
+    egui::RichText::new(text)
+        .monospace()
+        .size(10.5)
+        .color(rd::FG_MUTED)
 }
