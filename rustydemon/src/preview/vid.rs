@@ -7,7 +7,9 @@
 use std::sync::Arc;
 
 use super::{ExportAction, PreviewOutput, PreviewPlugin};
-use crate::vid_preview::{VidPreview as VidHeader, MOVI_HEADER_BYTES};
+use crate::vid_preview::{
+    looks_like_child_stub, VidPreview as VidHeader, CHILD_STUB_BYTES, MOVI_HEADER_BYTES,
+};
 
 pub struct VidPreview;
 
@@ -20,7 +22,7 @@ impl PreviewPlugin for VidPreview {
         // Accept by extension OR by magic — some Movie files are
         // referenced under FDIDs without a canonical extension.
         let ext_match = filename.to_ascii_lowercase().ends_with(".vid");
-        ext_match || VidHeader::parse(data).is_some()
+        ext_match || VidHeader::parse(data).is_some() || looks_like_child_stub(data)
     }
 
     fn build(
@@ -32,11 +34,35 @@ impl PreviewPlugin for VidPreview {
     ) -> PreviewOutput {
         let mut out = PreviewOutput::new();
 
+        if looks_like_child_stub(data) {
+            out.text = Some(format!(
+                "D4 Movie redirection stub ({CHILD_STUB_BYTES} bytes, magic 0xDEADBEEF)\n\n\
+                 This is not the actual movie. D4 stores `.vid` SNOs as small\n\
+                 redirection records in `base/child/Movie/` and `base/meta/Movie/`\n\
+                 (the two are byte-identical), and there are NO `base/payload/Movie/`\n\
+                 entries — the real BK2 stream lives in a separate layer that the\n\
+                 engine resolves at runtime via these stubs.\n\n\
+                 Fetching the real movie from a stub isn't implemented (we don't\n\
+                 yet know how the stub fields map to the streaming archive). See\n\
+                 `research/d4/movie-stubs.md` for the layout we've reverse-engineered\n\
+                 so far.\n\n\
+                 (Separately, if you see 'index entry not found for ekey static\n\
+                 container' errors on other .vid SNOs, those are stubs whose own\n\
+                 data file isn't on disk — usually a partial install.)"
+            ));
+            return out;
+        }
+
         let Some(vid) = VidHeader::parse(data) else {
-            out.text = Some(
-                ".vid file did not start with the expected MOVI magic — cannot decode header."
-                    .into(),
-            );
+            out.text = Some(format!(
+                ".vid did not start with MOVI ({MOVI_HEADER_BYTES}-byte header) or\n\
+                 the DEADBEEF child-reference stub. Cannot identify this format.\n\
+                 First 4 bytes: {:02X} {:02X} {:02X} {:02X}",
+                data.first().copied().unwrap_or(0),
+                data.get(1).copied().unwrap_or(0),
+                data.get(2).copied().unwrap_or(0),
+                data.get(3).copied().unwrap_or(0),
+            ));
             return out;
         };
 
