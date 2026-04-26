@@ -437,6 +437,26 @@ impl CascExplorerApp {
     pub fn open_game_dir(&mut self, path: std::path::PathBuf) {
         self.cancel_bg();
 
+        // Drop the previous game's handler and any per-game state right
+        // away so the UI can't keep serving stale data (or chewing memory
+        // for two archives at once) while the new bg thread is loading.
+        // Searches and selections become no-ops until the new handler
+        // arrives in the `Opened` branch.
+        self.handler = None;
+        self.search_results.clear();
+        self.selected = None;
+        self.browsed_folder = None;
+        self.multi_selected.clear();
+        self.expanded.clear();
+        self.expansion_dirty = true;
+        self.pcx_palette = None;
+        self.pcx_palette_name = None;
+        self.pending_preview_override = None;
+        self.pending_audio_action = None;
+        if let Some(Some(player)) = self.audio_player.as_mut() {
+            player.stop();
+        }
+
         // Detect products (fast, stays on UI thread).
         let products = CascConfig::detect_products(&path);
         self.detected_products = products.clone();
