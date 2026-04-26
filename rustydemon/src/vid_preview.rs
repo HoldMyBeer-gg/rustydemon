@@ -18,6 +18,20 @@ pub const MOVI_MAGIC: u32 = 0x4956_4F4D;
 /// Size of the fixed header preceding the BK2 payload.
 pub const MOVI_HEADER_BYTES: usize = 128;
 
+/// Magic for a "child reference" stub: `0xDEADBEEF` little-endian.  D4 stores
+/// many `.vid` SNOs as 52-byte redirection records that point at the real BK2
+/// payload in a parent / sibling container — the stub itself is not playable.
+pub const CHILD_STUB_MAGIC: u32 = 0xDEAD_BEEF;
+/// Observed size of a D4 child-reference stub.
+pub const CHILD_STUB_BYTES: usize = 52;
+
+/// Detect the 52-byte child-reference stub.
+pub fn looks_like_child_stub(data: &[u8]) -> bool {
+    data.len() == CHILD_STUB_BYTES
+        && data.len() >= 4
+        && u32::from_le_bytes([data[0], data[1], data[2], data[3]]) == CHILD_STUB_MAGIC
+}
+
 /// Parsed `.vid` metadata.
 #[derive(Debug, Clone)]
 pub struct VidPreview {
