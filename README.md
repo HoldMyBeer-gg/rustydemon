@@ -12,36 +12,32 @@ archives, written entirely in Rust.
 
 > **For personal and educational use only.**
 
-> **If you want actual screenshots then take one and link it in an issue. The native GUI is better but I'm not showcasing copyrighted art.**
-
 [![CI](https://github.com/HoldMyBeer-gg/rustydemon/actions/workflows/ci.yml/badge.svg)](https://github.com/HoldMyBeer-gg/rustydemon/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2021-blue?logo=rust)](https://doc.rust-lang.org/edition-guide/rust-2021/index.html)
 [![License](https://img.shields.io/badge/license-AGPL--3.0%20%2B%20Commons%20Clause-green)](./LICENSE)
-[![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Steam%20Deck-lightgrey)](#platform-screenshots)
+[![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Steam%20Deck-lightgrey)](#preview-plugins)
 [![Steam D4](https://img.shields.io/badge/Steam%20Diablo%20IV-supported-red?logo=steam)](#steam-d4-support)
 
 ---
 
 ## UI Preview
 
-![UI mockup -3-panel dark-theme explorer](docs/screenshots/ui-mockup.png)
+![rustydemon previewing a WoW M2 model](screenshots/wow_m2.png)
 
-*Three-panel layout: archive tree (left) · search results (centre) · file details and texture preview (right)*
+*Three-panel layout: archive tree (left) · search results (centre) · file details with live 3D preview (right). Shown here previewing a WoW M2 character model.*
 
 ---
 
-## Platform Screenshots
+## Preview Plugins
 
-| Windows | macOS |
-|---------|-------|
-| ![Windows](docs/screenshots/windows.png) | ![macOS](docs/screenshots/macos.png) |
+| About modal | D4 `.tex` texture |
+|-------------|-------------------|
+| ![About modal](screenshots/about.png) | ![D4 texture preview](screenshots/d4_tex.png) |
 
-| Linux | Handheld (Steam Deck, ROG Ally, etc.) |
-|-------|---------------------------------------|
-| ![Linux](docs/screenshots/linux.png) | ![Handheld Gaming System](docs/screenshots/steamdeck.png) |
-
-> PRs with real screenshots welcome - build instructions are below.
+| D4 `.pow` skill data | WoW `.m2` model |
+|----------------------|-----------------|
+| ![D4 power preview](screenshots/d4_pow.png) | ![WoW M2 model preview](screenshots/wow_m2.png) |
 
 ---
 
@@ -270,8 +266,7 @@ rustydemon/
 3. `cargo fmt --all` and `cargo clippy --workspace -- -D warnings` must be clean
 4. Open a PR - CI runs fmt, clippy, tests, and a RustSec security audit automatically
 
-Platform screenshots, listfile improvements, and new deep-search plug-ins are
-especially welcome.
+Listfile improvements and new deep-search plug-ins are especially welcome.
 
 ---
 
