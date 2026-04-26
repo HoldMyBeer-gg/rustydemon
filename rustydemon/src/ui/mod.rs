@@ -1,3 +1,4 @@
+mod about;
 mod menu;
 pub(crate) mod preview;
 mod results;
@@ -13,6 +14,7 @@ pub fn draw(ctx: &Context, app: &mut CascExplorerApp) {
     menu::draw_menu(ctx, app);
     draw_status_bar(ctx, app);
     draw_panels(ctx, app);
+    about::draw(ctx, &mut app.about_open);
 }
 
 fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {

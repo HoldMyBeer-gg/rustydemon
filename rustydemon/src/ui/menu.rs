@@ -185,11 +185,7 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                 ui.menu_button("Help", |ui| {
                     if ui.button("About").clicked() {
                         ui.close_menu();
-                        app.status = format!(
-                            "rustydemon v{}  — CASC explorer  |  rustydemon-lib v{}",
-                            env!("CARGO_PKG_VERSION"),
-                            env!("CARGO_PKG_VERSION"),
-                        );
+                        app.about_open = true;
                     }
                 });
             });
