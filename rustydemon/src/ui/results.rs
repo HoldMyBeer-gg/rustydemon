@@ -5,8 +5,12 @@ use rustydemon_lib::SearchResult;
 /// Draw the center panel — shows either search results or browsed folder contents.
 /// Returns the clicked [`SearchResult`], if any.
 pub fn draw_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<SearchResult> {
-    // Handle Ctrl+A to select all visible files.
-    if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::A)) {
+    // Handle Ctrl+A to select all visible files — but only if no text
+    // widget is focused, so typing Ctrl+A in the search box still does
+    // "select all text" inside that field instead of double-firing into
+    // a select-all-results.
+    let typing = ui.ctx().wants_keyboard_input();
+    if !typing && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::A)) {
         if let Some(folder_path) = &app.browsed_folder {
             if let Some(handler) = app.handler.as_ref() {
                 if let Some(root) = handler.root_folder.as_ref() {
