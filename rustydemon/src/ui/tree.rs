@@ -17,6 +17,29 @@ pub fn draw_tree(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<TreeCli
         return None;
     }
 
+    // Handler is open, but the root manifest didn't ship with file paths
+    // (MFST WoW, etc.) and no listfile has been applied yet — guide the
+    // user to the next step instead of leaving the panel mute.
+    let needs_listfile = app
+        .handler
+        .as_ref()
+        .map(|h| h.root_folder.is_none())
+        .unwrap_or(false);
+    if needs_listfile {
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("Archive opened, but no file paths are loaded.")
+                .color(rd::FG_MUTED),
+        );
+        ui.add_space(2.0);
+        ui.label(
+            egui::RichText::new("Use File → Load Listfile… to populate the tree.")
+                .color(rd::FG_MUTED)
+                .small(),
+        );
+        return None;
+    }
+
     apply_expansion_commands(ui, app);
     let mut click: Option<TreeClick> = None;
 
