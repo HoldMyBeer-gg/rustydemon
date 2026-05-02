@@ -98,6 +98,12 @@ pub struct CascHandler {
 
     /// Whether to validate MD5 hashes during BLTE decoding.
     pub validate_hashes: bool,
+
+    /// D4-only: parsed `Texture-Base-Global.dat` descriptor index. Populated
+    /// best-effort at archive open; absent for non-D4 installs or builds
+    /// where the file is missing/encrypted.
+    pub(crate) texture_base_index:
+        Option<std::sync::Arc<crate::root::d4_texture::TextureBaseIndex>>,
 }
 
 impl CascHandler {
@@ -312,7 +318,7 @@ impl CascHandler {
             handler
         };
 
-        Ok(CascHandler {
+        let mut handler = CascHandler {
             config,
             encoding: Some(encoding),
             local_index: Some(local_index),
@@ -325,7 +331,10 @@ impl CascHandler {
             filenames: HashMap::new(),
             data_files: Mutex::new(HashMap::new()),
             validate_hashes: false,
-        })
+            texture_base_index: None,
+        };
+        handler.try_load_texture_base_index();
+        Ok(handler)
     }
 
     /// Open a local static-container install (Steam Diablo IV / Overwatch).
@@ -354,7 +363,7 @@ impl CascHandler {
 
         let tvfs = TvfsRootHandler::load(&vfs_ekey, &vfs_list, &opener)?;
 
-        Ok(CascHandler {
+        let mut handler = CascHandler {
             config,
             encoding: None,
             local_index: None,
@@ -367,7 +376,66 @@ impl CascHandler {
             filenames: HashMap::new(),
             data_files: Mutex::new(HashMap::new()),
             validate_hashes: false,
-        })
+            texture_base_index: None,
+        };
+        handler.try_load_texture_base_index();
+        Ok(handler)
+    }
+
+    // ── D4 texture descriptor index ────────────────────────────────────────────
+
+    /// Best-effort load of `base/Texture-Base-Global.dat`, the consolidated
+    /// texture descriptor table that ships with D4 (Steam and Battle.net both).
+    /// Failures are silent — the texture preview just falls back to brute-force.
+    fn try_load_texture_base_index(&mut self) {
+        if self.root.type_name() != "TVFS" {
+            return; // Only D4 / OW2-class TVFS roots have this file.
+        }
+        // Same case-insensitivity dance as the CoreTOC loader: D4 ships
+        // lowercase paths, but be generous in case other TVFS games differ.
+        let candidates = [
+            "base/Texture-Base-Global.dat",
+            "Base/Texture-Base-Global.dat",
+        ];
+        let bytes = candidates
+            .iter()
+            .find_map(|p| self.open_file_by_name(p).ok());
+        let Some(bytes) = bytes else { return };
+        match crate::root::d4_texture::TextureBaseIndex::parse(&bytes) {
+            Ok(idx) => {
+                self.texture_base_index = Some(std::sync::Arc::new(idx));
+            }
+            Err(e) => {
+                eprintln!("Texture-Base-Global.dat: parse failed ({e}); skipping");
+            }
+        }
+    }
+
+    /// Look up a D4 texture descriptor by its SNO ID.
+    pub fn texture_info_by_sno(
+        &self,
+        sno_id: i32,
+    ) -> Option<crate::root::d4_texture::TextureDescriptor> {
+        self.texture_base_index.as_ref()?.get(sno_id).copied()
+    }
+
+    /// Look up a D4 texture descriptor by the Jenkins96 hash of its display
+    /// path. Resolves the SNO ID via the TVFS handler first, then reads the
+    /// descriptor out of `Texture-Base-Global.dat`.
+    pub fn texture_info_for_hash(
+        &self,
+        hash: u64,
+    ) -> Option<crate::root::d4_texture::TextureDescriptor> {
+        let sno = self.root.sno_id_for_hash(hash)?;
+        self.texture_info_by_sno(sno)
+    }
+
+    /// Convenience: look up a D4 texture descriptor by display path.
+    pub fn texture_info_for_path(
+        &self,
+        path: &str,
+    ) -> Option<crate::root::d4_texture::TextureDescriptor> {
+        self.texture_info_for_hash(crate::jenkins96::jenkins96(path))
     }
 
     // ── Configuration ──────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 pub mod d4;
+pub mod d4_texture;
 pub mod install;
 pub mod mndx;
 pub mod s1;
@@ -77,6 +78,15 @@ pub trait RootHandler: Send + Sync {
     /// Short human-readable name of the root format for diagnostics.
     fn type_name(&self) -> &'static str {
         "Unknown"
+    }
+
+    /// Recover the original D4 SNO ID for a Jenkins96 path hash, if known.
+    ///
+    /// TVFS-based handlers populate this during the SNO name remap so the
+    /// texture preview can look up `Texture-Base-Global.dat` descriptors by
+    /// the displayed file's SNO. Other handlers return `None`.
+    fn sno_id_for_hash(&self, _hash: u64) -> Option<i32> {
+        None
     }
 }
 

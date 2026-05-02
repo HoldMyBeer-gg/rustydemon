@@ -138,6 +138,10 @@ pub struct ExportAction {
 pub struct SiblingFetcher<'a> {
     pub by_name: &'a dyn Fn(&str) -> Option<Vec<u8>>,
     pub by_fdid: &'a dyn Fn(u32) -> Option<Vec<u8>>,
+    /// D4 texture descriptor lookup by display path. Returns `None` for
+    /// non-D4 archives or when the descriptor table couldn't be loaded.
+    pub texture_info:
+        &'a dyn Fn(&str) -> Option<rustydemon_lib::root::d4_texture::TextureDescriptor>,
 }
 
 /// Plug-in interface for format-specific preview panels.

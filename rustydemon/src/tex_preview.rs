@@ -1,8 +1,13 @@
 //! D4 .tex texture preview — attempts to decode raw BC-compressed data.
 //!
 //! D4 .tex files contain raw block-compressed pixel data without a header.
-//! We guess the dimensions from the file size and try multiple BC formats
-//! until we get a plausible decode.
+//! When the texture descriptor is available (via `Texture-Base-Global.dat`)
+//! we decode at exact dimensions and format. Otherwise we fall back to
+//! brute-forcing power-of-2 dimensions and BC formats — a heuristic that
+//! only works for `payload/` files with pow2 dims ≥ 64; everything else
+//! (NPOT, small textures, paylow/paymed mip streams) needs the descriptor.
+
+use rustydemon_lib::root::d4_texture::BlockFormat;
 
 /// Attempt to decode a .tex file into RGBA pixels.
 ///
@@ -66,6 +71,46 @@ pub fn decode_tex(data: &[u8], filename: &str) -> Option<(Vec<u8>, u32, u32, &'s
     }
 
     None
+}
+
+/// Decode raw BC bytes at known dimensions and format. This is the fast,
+/// non-guessy path used when we have a `Texture-Base-Global.dat` descriptor
+/// for the texture's SNO ID. Returns `(rgba_pixels, w, h, format_label)`.
+pub fn decode_tex_known(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    fmt: BlockFormat,
+) -> Option<(Vec<u8>, u32, u32, &'static str)> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let bw = width.div_ceil(4) as usize;
+    let bh = height.div_ceil(4) as usize;
+    let needed = bw.checked_mul(bh)?.checked_mul(fmt.bytes_per_block())?;
+    if data.len() < needed {
+        return None;
+    }
+    type DecodeFn = fn(&[u8], usize, usize, &mut [u32]) -> Result<(), &'static str>;
+    let decode_fn: DecodeFn = match fmt {
+        BlockFormat::Bc1 => texture2ddecoder::decode_bc1,
+        BlockFormat::Bc3 => texture2ddecoder::decode_bc3,
+        BlockFormat::Bc4 => texture2ddecoder::decode_bc4,
+        BlockFormat::Bc5 => texture2ddecoder::decode_bc5,
+        BlockFormat::Bc7 => texture2ddecoder::decode_bc7,
+        // BC2 / BC6H aren't in texture2ddecoder; caller should fall back.
+        BlockFormat::Bc2 | BlockFormat::Bc6h => return None,
+    };
+    let pixel_count = (width as usize).checked_mul(height as usize)?;
+    let mut rgba_u32 = vec![0u32; pixel_count];
+    decode_fn(
+        &data[..needed],
+        width as usize,
+        height as usize,
+        &mut rgba_u32,
+    )
+    .ok()?;
+    Some((u32_to_rgba(&rgba_u32), width, height, fmt.label()))
 }
 
 /// Return all plausible power-of-2 dimension pairs for a given pixel count.
