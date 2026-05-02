@@ -426,9 +426,11 @@ pub fn apply_preview_override(
     let handler_ref = app.handler.as_ref();
     let by_name = |path: &str| -> Option<Vec<u8>> { handler_ref?.open_file_by_name(path).ok() };
     let by_fdid = |id: u32| -> Option<Vec<u8>> { handler_ref?.open_file_by_fdid(id).ok() };
+    let texture_info = |path: &str| handler_ref?.texture_info_for_path(path);
     let siblings = crate::preview::SiblingFetcher {
         by_name: &by_name,
         by_fdid: &by_fdid,
+        texture_info: &texture_info,
     };
 
     let new_preview = match new_override {
@@ -492,9 +494,11 @@ fn reload_current_pcx(app: &mut CascExplorerApp, ctx: &egui::Context) {
         // multi-file plugins.
         let no_name = |_: &str| -> Option<Vec<u8>> { None };
         let no_fdid = |_: u32| -> Option<Vec<u8>> { None };
+        let no_tex_info = |_: &str| None;
         let siblings = crate::preview::SiblingFetcher {
             by_name: &no_name,
             by_fdid: &no_fdid,
+            texture_info: &no_tex_info,
         };
         sel.preview = crate::preview::run(sel.result.filename.as_deref(), &data, ctx, &siblings);
     }

@@ -379,9 +379,11 @@ impl CascExplorerApp {
                         let by_fdid = |id: u32| -> Option<Vec<u8>> {
                             handler_ref?.open_file_by_fdid(id).ok()
                         };
+                        let texture_info = |path: &str| handler_ref?.texture_info_for_path(path);
                         let siblings = crate::preview::SiblingFetcher {
                             by_name: &by_name,
                             by_fdid: &by_fdid,
+                            texture_info: &texture_info,
                         };
                         sel.preview =
                             crate::preview::run(result.filename.as_deref(), &data, ctx, &siblings);

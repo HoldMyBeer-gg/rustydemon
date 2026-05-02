@@ -140,6 +140,10 @@ pub struct TvfsRootHandler {
     entries: HashMap<u64, Vec<RootEntry>>,
     /// Hash → original file path (for tree building / display).
     pub(crate) file_paths: HashMap<u64, String>,
+    /// Path-hash → original D4 SNO ID, populated during the SNO name remap.
+    /// Lets the texture preview reach the `Texture-Base-Global.dat` descriptor
+    /// without re-parsing the displayed name back through CoreTOC.
+    pub(crate) sno_ids: HashMap<u64, i32>,
 }
 
 impl TvfsRootHandler {
@@ -165,6 +169,7 @@ impl TvfsRootHandler {
         let mut handler = TvfsRootHandler {
             entries: HashMap::new(),
             file_paths: HashMap::new(),
+            sno_ids: HashMap::new(),
         };
 
         // Decode and parse the primary VFS root.
@@ -320,6 +325,11 @@ impl TvfsRootHandler {
                 self.file_paths.insert(new_hash, new_path);
                 // Remove old path so tree only shows renamed version.
                 self.file_paths.remove(old_hash);
+
+                // Record both hashes → SNO ID so the texture preview can
+                // retrieve descriptors regardless of which hash form is asked.
+                self.sno_ids.insert(new_hash, sno_id);
+                self.sno_ids.insert(*old_hash, sno_id);
             }
         }
     }
@@ -544,6 +554,10 @@ impl RootHandler for TvfsRootHandler {
 
     fn type_name(&self) -> &'static str {
         "TVFS"
+    }
+
+    fn sno_id_for_hash(&self, hash: u64) -> Option<i32> {
+        self.sno_ids.get(&hash).copied()
     }
 }
 
