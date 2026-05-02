@@ -3,11 +3,11 @@
 A fast, cross-platform explorer for CASC (Content-Addressable Storage Container)
 archives, written entirely in Rust.
 
-> **Rusty Demon is the first tool of any kind, proprietary or open source,
-> that can read the Steam-distribution CASC static container format used by
-> Diablo IV.** Neither CascLib nor the original TACTLib implementation handles
-> the full Steam D4 layout (key-layout flags, zlib VFS roots, meta.dat /
-> payload.dat distinction); rustydemon does. See
+> **Rusty Demon adds first-class support for the Steam distribution of
+> Diablo IV's CASC archives** alongside the existing Battle.net format. The
+> Steam build's key-layout flag bits, zlib-wrapped VFS roots, and split
+> meta.dat / payload.dat scheme are a layout the established Battle.net-era
+> libraries don't yet cover — rustydemon handles them natively. See
 > [Steam D4 Support](#steam-d4-support) below.
 
 > **For personal and educational use only.**
@@ -66,7 +66,7 @@ archives, written entirely in Rust.
   [CLI](#cli) below.
 - **Auto product detection** - reads `.build.info` so you never need to know internal product codes (`fenris`, `wow`, etc.)
 - **Cross-platform** - Windows · macOS · Linux · Steam Deck (touch-ready via egui)
-- **Steam Diablo IV support** - first-ever reader for the Steam-distribution
+- **Steam Diablo IV support** - native reader for the Steam-distribution
   static container format (no `.build.info`, no encoding file, location
   encoded directly in each EKey)
 - **Diablo II: Resurrected support** - reads D2R 3.1.2's TVFS-based layout,
@@ -78,10 +78,11 @@ archives, written entirely in Rust.
 
 ## Steam D4 Support
 
-Rusty Demon is, to the best of our knowledge, the **first publicly-available
-tool**, free, paid, or otherwise, that can open the Steam distribution of
-Diablo IV's CASC archives. The Steam build ships with a fundamentally
-different storage layout than the Battle.net client:
+Rusty Demon opens the Steam distribution of Diablo IV's CASC archives out
+of the box. The Steam build ships with a fundamentally different storage
+layout than the Battle.net client, and we wrote a dedicated backend for it
+because the existing CASC libraries (which predate the Steam release) focus
+on the Battle.net format:
 
 | | Battle.net D4 | Steam D4 |
 |---|---|---|
@@ -97,14 +98,15 @@ Point **File → Open Game Directory…** at either
 `C:\Program Files (x86)\Diablo IV` (Battle.net) or
 `…/steamapps/common/Diablo IV` (Steam) and it just works.
 
-> Neither [CascLib](https://github.com/ladislav-zezula/CascLib) nor the
-> [TACTLib](https://github.com/overtools/TACTLib) `StaticContainerHandler`
-> implements the full Steam D4 format: TACTLib's handler hard-codes a single
-> `data.{chunk}.{archive}` path layout used only by Overwatch, ignores the 4th
-> (flags) value in `key-layout-*`, and doesn't handle the zlib-compressed VFS
-> root. Rustydemon's `static_container` module in `rustydemon-lib` is a
-> clean-room implementation that verified all of these against a real Steam
-> installation.
+> [CascLib](https://github.com/ladislav-zezula/CascLib) and
+> [TACTLib](https://github.com/overtools/TACTLib) were our primary references
+> for the CASC ecosystem, and TACTLib's static-container handler in particular
+> guided rustydemon's understanding of the `key-layout-*` bit-extraction
+> scheme used by Overwatch. The Steam D4 build extends that scheme with a
+> few additional pieces — the 4th flag value in each `key-layout-*`, a
+> zlib-wrapped VFS root, and a split `meta.dat` / `payload.dat` path layout —
+> which rustydemon's `static_container` module in `rustydemon-lib` adds on
+> top, verified against a real Steam install.
 
 ---
 
