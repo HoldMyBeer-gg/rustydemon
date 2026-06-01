@@ -1,0 +1,122 @@
+name: Bug report
+description: Something in rustydemon isn't working the way you expected.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a report. The more of the fields
+        below you can fill in, the faster we can reproduce and fix the issue.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you see, and what did you expect to see instead?
+      placeholder: |
+        Steps:
+        1. Opened ...
+        2. Clicked ...
+        3. Expected ... but got ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux (SteamOS / Steam Deck)
+        - Linux (other distro)
+        - Windows
+        - macOS
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version / distro details
+      placeholder: "e.g. SteamOS 3.6.21, Ubuntu 24.04, Windows 11 24H2, macOS 15.1"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: game
+    attributes:
+      label: Which game's archives are you opening?
+      options:
+        - Diablo IV
+        - Overwatch 2
+        - World of Warcraft (retail)
+        - World of Warcraft (classic / wrath / cata / etc.)
+        - StarCraft II
+        - StarCraft I
+        - StarCraft I Remastered
+        - Heroes of the Storm
+        - Diablo II Resurrected
+        - Other / unrecognised root (INSTALL-manifest fallback)
+        - N/A — bug is not game-specific
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-source
+    attributes:
+      label: Where did the game come from?
+      options:
+        - Battle.net
+        - Steam
+        - Standalone / manual install
+        - Other / not sure
+        - N/A
+    validations:
+      required: true
+
+  - type: input
+    id: install-path
+    attributes:
+      label: Install path you pointed rustydemon at
+      description: The folder you opened in rustydemon (omit if you'd rather not share it).
+      placeholder: "/run/media/deck/sdcard/Games/Diablo IV"
+    validations:
+      required: false
+
+  - type: input
+    id: rustydemon-version
+    attributes:
+      label: rustydemon version
+      description: Shown in the title bar, or `rustydemon --version` from the CLI.
+      placeholder: "e.g. 0.4.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build-source
+    attributes:
+      label: Where did you get rustydemon?
+      options:
+        - GitHub Releases (signed binary)
+        - Built from source (cargo)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error message / logs / screenshots
+      description: Paste any error text from rustydemon's status bar or terminal. Drag-and-drop screenshots directly into this field.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Anything you've already tried, anything that seems related, anything weird about the install.
+    validations:
+      required: false
