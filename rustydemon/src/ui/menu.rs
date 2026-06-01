@@ -3,7 +3,22 @@ use std::sync::Arc;
 use crate::app::{detect_game_installs, CascExplorerApp};
 use egui::Context;
 
+/// Ctrl+O on Linux/Windows, ⌘+O on macOS — egui's `COMMAND` modifier maps
+/// to whichever the host platform uses.
+const OPEN_SHORTCUT: egui::KeyboardShortcut =
+    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
+
 pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
+    // Global Ctrl/⌘+O: pop the same folder picker as File → Open Game Directory.
+    // Guarded against text-field focus so typing the letter in the search bar
+    // doesn't trigger a dialog.
+    let typing = ctx.wants_keyboard_input();
+    if !typing && ctx.input_mut(|i| i.consume_shortcut(&OPEN_SHORTCUT)) {
+        if let Some(path) = rfd::FileDialog::new().pick_folder() {
+            app.open_game_dir(path);
+        }
+    }
+
     egui::TopBottomPanel::top("menu_bar")
         .frame(
             egui::Frame::none()
@@ -28,7 +43,9 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                         });
                     }
 
-                    if ui.button("Open Game Directory…").clicked() {
+                    let open_btn = egui::Button::new("Open Game Directory…")
+                        .shortcut_text(ctx.format_shortcut(&OPEN_SHORTCUT));
+                    if ui.add(open_btn).clicked() {
                         ui.close_menu();
                         if let Some(path) = rfd::FileDialog::new().pick_folder() {
                             app.open_game_dir(path);
