@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a new viewer, format, game, or quality-of-life improvement.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like rustydemon to do?
+      description: One or two sentences describing the feature.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is this useful?
+      description: What does it unlock for you? Is there a workflow that's currently painful?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Roughly what kind of change is this?
+      options:
+        - New viewer / file format support
+        - New game support
+        - UI / UX improvement
+        - CLI / scripting
+        - Performance
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: refs
+    attributes:
+      label: References / format docs / prior art
+      description: Links to format docs, screenshots from other tools, anything that would help implement it.
+    validations:
+      required: false
