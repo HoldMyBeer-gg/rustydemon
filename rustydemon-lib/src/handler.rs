@@ -3,7 +3,7 @@ use std::{
     fs,
     io::{Cursor, Read, Seek, SeekFrom},
     path::PathBuf,
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 
 use crate::{
@@ -73,7 +73,9 @@ pub struct CascHandler {
     /// Local index files (`*.idx`) — absent for static-container installations.
     local_index: Option<LocalIndexHandler>,
     /// Static container backend — present only for Steam D4/OW-style builds.
-    static_container: Option<StaticContainer>,
+    /// Wrapped in `Arc` so `PreparedLoad` can clone-and-ship a handle to a
+    /// background thread for batch extraction.
+    static_container: Option<Arc<StaticContainer>>,
     /// Optional CDN fallback fetcher.  Only present when the `cdn` feature
     /// is compiled in and the install's `.build.info` carries CDN host
     /// info.  Used to load D2R 3.1.2+ loose metadata blobs that aren't in
@@ -347,7 +349,10 @@ impl CascHandler {
         // Static containers store chunk directories (`000/`, `001/`, …)
         // directly under `<base>/Data/`, one level higher than the
         // traditional `<base>/Data/data/` layout.
-        let container = StaticContainer::from_config(config.static_container_path(), &config)?;
+        let container = Arc::new(StaticContainer::from_config(
+            config.static_container_path(),
+            &config,
+        )?);
 
         // ── VFS root ───────────────────────────────────────────────────────
         // Static containers use a TVFS-only layout: there is no `root` field,
@@ -701,8 +706,10 @@ impl CascHandler {
     /// thread via [`PreparedLoad::execute`].  This keeps the heavy file I/O
     /// and BLTE decompression off the UI thread.
     ///
-    /// Only works for traditional CASC (`.idx`-based).  For static containers
-    /// use [`CascHandler::open_by_ckey`] directly.
+    /// Works for both traditional `.idx` CASC and static-container installs
+    /// (Steam D4 / OW2): when the handler is backed by a static container,
+    /// the prepared load carries an `Arc` clone of that container and reads
+    /// through it on execute.
     pub fn prepare_load(&self, ckey: &Md5Hash) -> Result<PreparedLoad, CascError> {
         let ekey = match &self.encoding {
             Some(enc) => enc
@@ -710,6 +717,23 @@ impl CascHandler {
                 .ok_or_else(|| CascError::EncodingNotFound(ckey.to_hex()))?,
             None => *ckey,
         };
+
+        // Static-container backend: bypass the `.idx` machinery entirely.
+        // The container Arc clone is cheap and gives the worker thread a
+        // self-contained handle for `open_by_ekey`.
+        if let Some(container) = &self.static_container {
+            return Ok(PreparedLoad {
+                storage_dir: None,
+                archive_index: 0,
+                offset: 0,
+                size: 0,
+                ekey,
+                validate_hashes: self.validate_hashes,
+                static_container: Some(Arc::clone(container)),
+                #[cfg(feature = "cdn")]
+                cdn: None,
+            });
+        }
 
         let local_index = self
             .local_index
@@ -751,6 +775,7 @@ impl CascHandler {
             size,
             ekey,
             validate_hashes: self.validate_hashes,
+            static_container: None,
             #[cfg(feature = "cdn")]
             cdn: self.cdn.clone(),
         })
@@ -777,6 +802,10 @@ pub struct PreparedLoad {
     size: u32,
     ekey: Md5Hash,
     validate_hashes: bool,
+    /// Static-container backend, when the source install is Steam D4 / OW2.
+    /// When `Some`, `execute_ref` reads through the container and ignores
+    /// the `.idx`-style storage fields above.
+    static_container: Option<Arc<StaticContainer>>,
     #[cfg(feature = "cdn")]
     cdn: Option<std::sync::Arc<crate::cdn::CdnFetcher>>,
 }
@@ -797,6 +826,13 @@ impl PreparedLoad {
     /// GUI's background loader gets the same D2R 3.1.2 fallback the
     /// synchronous API does.
     pub fn execute_ref(&self) -> Result<Vec<u8>, CascError> {
+        // Static-container backend short-circuits: the container knows how
+        // to resolve the EKey to a chunk file and decode the blob
+        // (BLTE or raw zlib, autodetected).
+        if let Some(container) = &self.static_container {
+            return container.open_by_ekey(&self.ekey);
+        }
+
         // Attempt 1: local read + BLTE decode, skipped entirely when
         // there was no local index entry.
         let local_attempt: Result<Vec<u8>, CascError> = match self.storage_dir.as_ref() {
