@@ -175,8 +175,9 @@ pub struct CascExplorerApp {
     // ── 3D viewport spike ─────────────────────────────────────────────────────
     pub viewport3d_open: bool,
 
-    // ── About modal ───────────────────────────────────────────────────────────
+    // ── About window ──────────────────────────────────────────────────────────
     pub about_open: bool,
+    pub about_logo: Option<egui::TextureHandle>,
 
     // ── Accessibility ─────────────────────────────────────────────────────────
     /// Swap Inter / JetBrains Mono for OpenDyslexic per the design
@@ -246,6 +247,7 @@ impl CascExplorerApp {
             loading: false,
             viewport3d_open: false,
             about_open: false,
+            about_logo: None,
             dyslexia_friendly: false,
             pending_preview_override: None,
             audio_player: None,
