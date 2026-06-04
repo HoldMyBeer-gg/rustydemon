@@ -14,7 +14,7 @@ pub fn draw(ctx: &Context, app: &mut CascExplorerApp) {
     menu::draw_menu(ctx, app);
     draw_status_bar(ctx, app);
     draw_panels(ctx, app);
-    about::draw(ctx, &mut app.about_open);
+    about::show_window(ctx, &mut app.about_open, &mut app.about_logo);
 }
 
 fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {

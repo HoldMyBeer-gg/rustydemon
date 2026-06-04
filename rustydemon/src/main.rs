@@ -1,3 +1,9 @@
+// On Windows, the MSVC linker defaults to the "console" subsystem, which
+// makes the OS allocate a console window on launch (the stray command
+// window). Switch to the GUI subsystem for release builds. Debug builds
+// keep the console so stderr / eprintln diagnostics stay visible.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod app;
 mod audio;
 mod deep_search;

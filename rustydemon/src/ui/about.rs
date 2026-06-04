@@ -1,183 +1,248 @@
-//! About modal — the Frost theme showpiece.
+//! About window — a real native child viewport (NOT an inner egui::Window).
 //!
-//! Gradient header (mesh-painted), Cinzel title, ember-glow sponsor button.
+//! Opened from Help → About. Uses `ctx.show_viewport_immediate`, so it's
+//! a true OS-level window with its own title bar, taskbar entry, and close
+//! button — not a floating panel inside the main window.
+//!
+//! Wiring (see patch notes):
+//!   • add `pub about_open: bool` and `pub about_logo: Option<egui::TextureHandle>`
+//!     to `CascExplorerApp` (init both to false / None)
+//!   • add `mod about;` to `src/ui/mod.rs`
+//!   • Help → About: set `app.about_open = true;` (replace the status-text line)
+//!   • in `ui::draw`, after the panels, call:
+//!         about::show_window(ctx, &mut app.about_open, &mut app.about_logo);
 
-use egui::{
-    vec2, Align, Align2, Color32, Context, FontFamily, FontId, Layout, Mesh, OpenUrl, Rounding,
-    Sense, Shape, Stroke, Ui, Vec2, Window,
-};
+use crate::ui::theme::rd;
 
-const REPO: &str = "https://github.com/HoldMyBeer-gg/rustydemon";
-const SPONSORS: &str = "https://github.com/sponsors/jabberwock";
-const ISSUES: &str = "https://github.com/HoldMyBeer-gg/rustydemon/issues";
+const TAGLINE: &str = "The most modern, efficient cross-platform CASC explorer — \
+view models, inspect in-game stat powers, find hidden gems.";
 
-const HEADER_H: f32 = 110.0;
-const HEADER_TOP: Color32 = Color32::from_rgb(38, 68, 96);
-const HEADER_BOT: Color32 = Color32::from_rgb(10, 14, 22);
-const EMBER: Color32 = Color32::from_rgb(217, 104, 50);
-const FROST: Color32 = Color32::from_rgb(79, 195, 247);
+const REPO_URL: &str = "https://github.com/HoldMyBeer-gg/rustydemon";
+const SPONSOR_URL: &str = "https://github.com/sponsors/jabberwock";
+const BUG_URL: &str = "https://github.com/HoldMyBeer-gg/rustydemon/issues/new/choose";
+const AUTHOR_URL: &str = "https://github.com/jabberwock";
 
-pub fn draw(ctx: &Context, open: &mut bool) {
+/// Show the About window if `open`. Mutates `open` to false when the
+/// user closes the OS window or clicks Close. `logo` caches the decoded
+/// logo texture across frames (lazy-loaded on first open).
+pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui::TextureHandle>) {
     if !*open {
         return;
     }
 
-    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-        *open = false;
-        return;
-    }
-
-    let mut keep_open = true;
-    Window::new("about_window")
-        .title_bar(false)
-        .collapsible(false)
-        .resizable(false)
-        .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-        .default_width(460.0)
-        .show(ctx, |ui| {
-            ui.set_width(440.0);
-
-            gradient_header(ui);
-
-            ui.add_space(12.0);
-            ui.vertical_centered(|ui| {
-                ui.label(format!("version {}", env!("CARGO_PKG_VERSION")));
-                ui.add_space(6.0);
-                ui.label("A CASC archive explorer for Blizzard games.");
-                ui.label("WoW · StarCraft · Diablo · Overwatch · Heroes");
-            });
-
-            ui.add_space(20.0);
-
-            ui.horizontal(|ui| {
-                ui.add_space(8.0);
-                if glow_button(ui, "♥  Support", EMBER).clicked() {
-                    ctx.open_url(OpenUrl::new_tab(SPONSORS));
-                }
-                ui.add_space(6.0);
-                if glow_button(ui, "Report a Bug", FROST).clicked() {
-                    ctx.open_url(OpenUrl::new_tab(ISSUES));
-                }
-                ui.add_space(6.0);
-                if glow_button(ui, "View Source", FROST).clicked() {
-                    ctx.open_url(OpenUrl::new_tab(REPO));
-                }
-            });
-
-            ui.add_space(12.0);
-
-            ui.allocate_ui_with_layout(
-                vec2(ui.available_width(), 24.0),
-                Layout::right_to_left(Align::Center),
-                |ui| {
-                    if ui.small_button("Close").clicked() {
-                        keep_open = false;
-                    }
-                },
+    // Lazily decode the bundled icon into a texture (once).
+    if logo.is_none() {
+        if let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!("../../icon.png")) {
+            let image = egui::ColorImage::from_rgba_unmultiplied(
+                [icon.width as usize, icon.height as usize],
+                &icon.rgba,
             );
+            *logo = Some(ctx.load_texture("rd_about_logo", image, egui::TextureOptions::LINEAR));
+        }
+    }
+    let logo = logo.clone();
 
-            ui.add_space(4.0);
-        });
+    let viewport_id = egui::ViewportId::from_hash_of("rd_about_window");
+    let builder = egui::ViewportBuilder::default()
+        .with_title("About RustyDemon")
+        .with_inner_size([400.0, 600.0])
+        .with_min_inner_size([360.0, 420.0])
+        .with_resizable(true);
 
-    if !keep_open {
-        *open = false;
+    ctx.show_viewport_immediate(viewport_id, builder, move |ctx, _class| {
+        // Footer pinned to the bottom; credits ScrollArea fills the rest.
+        egui::TopBottomPanel::bottom("about_footer")
+            .frame(
+                egui::Frame::none()
+                    .fill(rd::FROST_050)
+                    .inner_margin(egui::Margin::symmetric(20.0, 12.0)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("© 2026 jabberwock · AGPL-3.0 + Commons Clause")
+                            .size(10.5)
+                            .color(rd::FROST_600),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Close").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        if ui.button("Copy Version").clicked() {
+                            let v = env!("CARGO_PKG_VERSION");
+                            ctx.copy_text(format!(
+                                "RustyDemon v{v} · rustydemon-lib {v} · {}",
+                                std::env::consts::OS
+                            ));
+                        }
+                    });
+                });
+            });
+
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::none()
+                    .fill(rd::FROST_100)
+                    .inner_margin(egui::Margin::symmetric(28.0, 24.0)),
+            )
+            .show(ctx, |ui| {
+                // ── Hero ──────────────────────────────────────────────
+                ui.vertical_centered(|ui| {
+                    if let Some(tex) = &logo {
+                        ui.add(egui::Image::new((tex.id(), egui::vec2(88.0, 88.0))));
+                    }
+                    ui.add_space(12.0);
+                    ui.label(
+                        egui::RichText::new("RUSTY  DEMON")
+                            .size(28.0)
+                            .strong()
+                            .color(rd::FROST_900),
+                    );
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new(TAGLINE).size(12.5).color(rd::FROST_700));
+                    ui.add_space(12.0);
+
+                    // Version pill.
+                    egui::Frame::none()
+                        .stroke(egui::Stroke::new(1.0, rd::FROST_400))
+                        .rounding(egui::Rounding::same(999.0))
+                        .inner_margin(egui::Margin::symmetric(12.0, 3.0))
+                        .show(ui, |ui| {
+                            let v = env!("CARGO_PKG_VERSION");
+                            ui.label(
+                                egui::RichText::new(format!("● v{v} · lib {v}"))
+                                    .monospace()
+                                    .size(11.0)
+                                    .color(rd::RUNE_400),
+                            );
+                        });
+
+                    ui.add_space(14.0);
+                    ui.horizontal(|ui| {
+                        // Center the "Created by jabberwock" row.
+                        ui.add_space((ui.available_width() - 150.0).max(0.0) / 2.0);
+                        ui.label(egui::RichText::new("Created by").color(rd::FROST_700));
+                        ui.hyperlink_to(
+                            egui::RichText::new("jabberwock")
+                                .color(rd::RUNE_400)
+                                .strong(),
+                            AUTHOR_URL,
+                        );
+                    });
+                });
+
+                ui.add_space(18.0);
+
+                // ── Link cards ────────────────────────────────────────
+                ui.columns(3, |cols| {
+                    link_card(&mut cols[0], "Repository", REPO_URL, false);
+                    link_card(&mut cols[1], "Sponsor", SPONSOR_URL, true);
+                    link_card(&mut cols[2], "Report a Bug", BUG_URL, false);
+                });
+
+                ui.add_space(20.0);
+                ui.label(
+                    egui::RichText::new("A C K N O W L E D G E M E N T S   &   L I C E N S E")
+                        .size(10.0)
+                        .strong()
+                        .color(rd::FROST_600),
+                );
+                ui.add_space(6.0);
+
+                // ── Scrollable credits / license ──────────────────────
+                egui::Frame::none()
+                    .fill(rd::FROST_200)
+                    .stroke(egui::Stroke::new(1.0, rd::FROST_400))
+                    .rounding(egui::Rounding::same(5.0))
+                    .inner_margin(egui::Margin::same(12.0))
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                credits_body(ui);
+                            });
+                    });
+            });
+
+        // Honour the OS close button.
+        if ctx.input(|i| i.viewport().close_requested()) {
+            *open = false;
+        }
+    });
+
+    // If the immediate viewport set close_requested, `*open` is already
+    // false; nothing else to do.
+}
+
+/// One link card in the 3-column row. `warm` gives the ember treatment
+/// (used for Sponsor — the single warm accent).
+fn link_card(ui: &mut egui::Ui, label: &str, url: &str, warm: bool) {
+    let accent = if warm { rd::EMBER_600 } else { rd::RUNE_400 };
+    let resp = egui::Frame::none()
+        .fill(egui::Color32::from_rgba_premultiplied(255, 255, 255, 5))
+        .stroke(egui::Stroke::new(1.0, rd::FROST_400))
+        .rounding(egui::Rounding::same(5.0))
+        .inner_margin(egui::Margin::symmetric(6.0, 11.0))
+        .show(ui, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.label(egui::RichText::new(label).size(11.5).color(accent).strong());
+            });
+        })
+        .response
+        .interact(egui::Sense::click());
+
+    if resp.hovered() {
+        ui.painter().rect_stroke(
+            resp.rect,
+            egui::Rounding::same(5.0),
+            egui::Stroke::new(1.0, accent),
+        );
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked() {
+        ui.ctx().open_url(egui::OpenUrl::same_tab(url));
     }
 }
 
-/// Vertical gradient band with a Cinzel-rendered title centered on it.
-fn gradient_header(ui: &mut Ui) {
-    let (_, rect) = ui.allocate_space(vec2(ui.available_width(), HEADER_H));
-
-    let mut mesh = Mesh::default();
-    mesh.colored_vertex(rect.left_top(), HEADER_TOP);
-    mesh.colored_vertex(rect.right_top(), HEADER_TOP);
-    mesh.colored_vertex(rect.left_bottom(), HEADER_BOT);
-    mesh.colored_vertex(rect.right_bottom(), HEADER_BOT);
-    mesh.add_triangle(0, 1, 2);
-    mesh.add_triangle(1, 2, 3);
-
-    let painter = ui.painter_at(rect);
-    painter.add(Shape::mesh(mesh));
-
-    painter.line_segment(
-        [rect.left_bottom(), rect.right_bottom()],
-        Stroke::new(1.0, FROST.gamma_multiply(0.6)),
-    );
-
-    let title_font = FontId::new(36.0, FontFamily::Name("display".into()));
-    painter.text(
-        rect.center() + vec2(0.0, -6.0),
-        Align2::CENTER_CENTER,
-        "RUSTYDEMON",
-        title_font,
-        Color32::from_gray(235),
-    );
-
-    painter.text(
-        rect.center() + vec2(0.0, 24.0),
-        Align2::CENTER_CENTER,
-        "CASC archive explorer",
-        FontId::proportional(12.0),
-        Color32::from_gray(170),
-    );
-}
-
-/// Button with a custom-painted background that glows in the given accent
-/// color on hover/press. Replaces the default egui button so we can tint
-/// per-button rather than globally.
-fn glow_button(ui: &mut Ui, label: &str, accent: Color32) -> egui::Response {
-    let font = FontId::proportional(14.0);
-    let galley =
-        ui.painter()
-            .layout_no_wrap(label.to_owned(), font.clone(), Color32::from_gray(220));
-    let padding = vec2(14.0, 8.0);
-    let desired = galley.size() + padding * 2.0;
-    let (rect, response) = ui.allocate_exact_size(desired, Sense::click());
-
-    let hovered = response.hovered();
-    let pressed = response.is_pointer_button_down_on();
-
-    let rounding = Rounding::same(8.0);
-    let painter = ui.painter();
-
-    let (fill, stroke_color, stroke_w) = if pressed {
-        (accent.gamma_multiply(0.55), accent, 1.5)
-    } else if hovered {
-        (accent.gamma_multiply(0.35), accent, 1.5)
-    } else {
-        (
-            Color32::from_rgb(30, 38, 52),
-            Color32::from_rgb(70, 90, 120),
-            1.0,
-        )
+fn credits_body(ui: &mut egui::Ui) {
+    let head = |ui: &mut egui::Ui, t: &str| {
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(t)
+                .size(11.0)
+                .strong()
+                .color(rd::RUNE_400),
+        );
+        ui.add_space(2.0);
+    };
+    let body = |ui: &mut egui::Ui, t: &str| {
+        ui.label(egui::RichText::new(t).size(11.5).color(rd::FROST_800));
     };
 
-    painter.rect_filled(rect, rounding, fill);
-    painter.rect_stroke(rect, rounding, Stroke::new(stroke_w, stroke_color));
-
-    painter.line_segment(
-        [
-            rect.left_top() + vec2(8.0, 1.0),
-            rect.right_top() + vec2(-8.0, 1.0),
-        ],
-        Stroke::new(
-            1.0,
-            if hovered {
-                accent.gamma_multiply(0.8)
-            } else {
-                Color32::from_gray(90)
-            },
-        ),
+    head(ui, "LICENSE");
+    body(
+        ui,
+        "Source licensed under AGPL-3.0 with the Commons Clause — free to read, \
+build, and use for personal and educational purposes. Commercial distribution \
+is reserved to the maintainers under a separate proprietary license.",
     );
 
-    let text_color = if hovered {
-        Color32::WHITE
-    } else {
-        Color32::from_gray(220)
-    };
-    let text_galley = painter.layout_no_wrap(label.to_owned(), font, text_color);
-    let text_pos = rect.center() - text_galley.size() / 2.0;
-    painter.galley(text_pos, text_galley, text_color);
+    head(ui, "BUILT ON THE CASC COMMUNITY");
+    for line in [
+        "• CascLib by Ladislav Zezula — C reference for BLTE, encoding, root manifests, MNDX/MARR.",
+        "• CASC Explorer by the WoW-Tools team — original .NET GUI; RustyDemon's UI takes cues from it.",
+        "• TACTLib by the Overtools team — TVFS and static-container reference.",
+        "• SereniaBLPLib by Xalcon — BLP parsing & DXT decompression (rustydemon-blp2).",
+        "• wowdev.wiki & the datamining community — documenting CASC/TACT and the listfiles.",
+    ] {
+        body(ui, line);
+        ui.add_space(3.0);
+    }
 
-    response
+    head(ui, "FONTS");
+    body(
+        ui,
+        "Cinzel Decorative, Inter, and JetBrains Mono (SIL OFL). \
+OpenDyslexic bundled as an accessibility alternate.",
+    );
 }
