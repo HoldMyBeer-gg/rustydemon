@@ -1,5 +1,17 @@
-# Builds and publishes platform installers on release tags.
-# Triggered by pushing a version tag: git tag v0.1.0 && git push --tags
+# Builds platform installers and attaches them to a GitHub Release.
+#
+# Triggered by pushing a version tag (git tag v0.1.0 && git push --tags),
+# or manually via the Actions tab / `gh workflow run release.yml` to test
+# the packaging without cutting a release (the publish job is skipped
+# unless the run is for a tag).
+#
+# Artifacts:
+#   Linux   -> bare-binary tar.gz
+#   macOS   -> universal RustyDemon.app inside a .dmg  (scripts/macos-bundle.sh)
+#   Windows -> .msi installer  (rustydemon/wix/main.wxs via cargo-wix)
+#
+# Installers are currently unsigned. Apple Dev ID notarization and Windows
+# Authenticode signing are separate follow-ups.
 
 name: Release
 
@@ -7,82 +19,88 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch: {}
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact: rustydemon
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            artifact: rustydemon
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact: rustydemon
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: rustydemon.exe
-
-    runs-on: ${{ matrix.os }}
-
+  linux:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
-
-      # Linux deps for egui/eframe
+          targets: x86_64-unknown-linux-gnu
       - name: Install Linux dependencies
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev \
             libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
-
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} -p rustydemon
-
-      # Package the binary
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+      - name: Build
+        run: cargo build --release --target x86_64-unknown-linux-gnu -p rustydemon
+      - name: Package
         run: |
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/rustydemon dist/
-          cd dist && tar czf ../rustydemon-${{ github.ref_name }}-${{ matrix.target }}.tar.gz rustydemon
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/rustydemon.exe dist/
-          cd dist && 7z a ../rustydemon-${{ github.ref_name }}-${{ matrix.target }}.zip rustydemon.exe
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+          cp target/x86_64-unknown-linux-gnu/release/rustydemon dist/
+          tar -C dist -czf "rustydemon-${VERSION}-x86_64-unknown-linux-gnu.tar.gz" rustydemon
+      - uses: actions/upload-artifact@v4
         with:
-          name: rustydemon-${{ matrix.target }}
-          path: rustydemon-${{ github.ref_name }}-*
+          name: linux
+          path: rustydemon-*.tar.gz
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - name: Build universal .app + .dmg
+        run: ./scripts/macos-bundle.sh --universal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: target/macos/RustyDemon-*.dmg
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Install WiX Toolset
+        run: choco install wixtoolset --no-progress -y
+      - name: Install cargo-wix
+        run: cargo install cargo-wix
+      - name: Build MSI
+        run: cargo wix -p rustydemon --nocapture
+      - name: Collect MSI
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"(.*)"').Matches[0].Groups[1].Value
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target\wix\*.msi "dist\rustydemon-$v-x86_64-pc-windows-msvc.msi"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist\*.msi
 
   release:
-    needs: build
+    needs: [linux, macos, windows]
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            rustydemon-*
+            *.tar.gz
+            *.dmg
+            *.msi
