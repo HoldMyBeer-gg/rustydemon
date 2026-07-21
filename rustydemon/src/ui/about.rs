@@ -104,7 +104,7 @@ pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui:
 
                     // Version pill.
                     egui::Frame::none()
-                        .stroke(egui::Stroke::new(1.0, rd::FROST_400))
+                        .stroke(egui::Stroke::new(1.0_f32, rd::FROST_400))
                         .rounding(egui::Rounding::same(999.0))
                         .inner_margin(egui::Margin::symmetric(12.0, 3.0))
                         .show(ui, |ui| {
@@ -152,7 +152,7 @@ pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui:
                 // ── Scrollable credits / license ──────────────────────
                 egui::Frame::none()
                     .fill(rd::FROST_200)
-                    .stroke(egui::Stroke::new(1.0, rd::FROST_400))
+                    .stroke(egui::Stroke::new(1.0_f32, rd::FROST_400))
                     .rounding(egui::Rounding::same(5.0))
                     .inner_margin(egui::Margin::same(12.0))
                     .show(ui, |ui| {
@@ -180,7 +180,7 @@ fn link_card(ui: &mut egui::Ui, label: &str, url: &str, warm: bool) {
     let accent = if warm { rd::EMBER_600 } else { rd::RUNE_400 };
     let resp = egui::Frame::none()
         .fill(egui::Color32::from_rgba_premultiplied(255, 255, 255, 5))
-        .stroke(egui::Stroke::new(1.0, rd::FROST_400))
+        .stroke(egui::Stroke::new(1.0_f32, rd::FROST_400))
         .rounding(egui::Rounding::same(5.0))
         .inner_margin(egui::Margin::symmetric(6.0, 11.0))
         .show(ui, |ui| {
@@ -195,7 +195,7 @@ fn link_card(ui: &mut egui::Ui, label: &str, url: &str, warm: bool) {
         ui.painter().rect_stroke(
             resp.rect,
             egui::Rounding::same(5.0),
-            egui::Stroke::new(1.0, accent),
+            egui::Stroke::new(1.0_f32, accent),
         );
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }

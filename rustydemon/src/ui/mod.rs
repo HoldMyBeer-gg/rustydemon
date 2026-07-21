@@ -151,7 +151,7 @@ fn draw_status_bar(ctx: &Context, app: &CascExplorerApp) {
         .frame(
             egui::Frame::none()
                 .fill(theme::rd::FROST_150)
-                .stroke(egui::Stroke::new(1.0, theme::rd::BORDER_SUBTLE))
+                .stroke(egui::Stroke::new(1.0_f32, theme::rd::BORDER_SUBTLE))
                 .inner_margin(egui::Margin::symmetric(12.0, 4.0)),
         )
         .show(ctx, |ui| {
