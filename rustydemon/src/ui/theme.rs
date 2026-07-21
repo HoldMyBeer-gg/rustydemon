@@ -158,7 +158,7 @@ pub fn apply(ctx: &Context) {
     // Forge-colored selection, never OS blue.  Premultiplied so the
     // fill reads as a warm tint rather than an opaque slab over text.
     visuals.selection.bg_fill = Color32::from_rgba_premultiplied(0x6e, 0x2e, 0x09, 0x80);
-    visuals.selection.stroke = Stroke::new(1.0, rd::EMBER_600);
+    visuals.selection.stroke = Stroke::new(1.0_f32, rd::EMBER_600);
 
     // Radii: 4px for controls, 6px for windows/menus.  The design
     // system reserves 10px+ for major panels — egui panels ignore
@@ -169,47 +169,47 @@ pub fn apply(ctx: &Context) {
     // Non-interactive surfaces (separators, labels, frames).
     visuals.widgets.noninteractive.bg_fill = rd::BG_PANEL;
     visuals.widgets.noninteractive.weak_bg_fill = rd::BG_PANEL;
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, rd::BORDER_SUBTLE);
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, rd::FG_SECONDARY);
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, rd::BORDER_SUBTLE);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, rd::FG_SECONDARY);
     visuals.widgets.noninteractive.rounding = r_sm;
     visuals.widgets.noninteractive.expansion = 0.0;
 
     // Inactive / default interactive (buttons at rest).
     visuals.widgets.inactive.bg_fill = rd::BG_RAISED;
     visuals.widgets.inactive.weak_bg_fill = rd::BG_RAISED;
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, rd::BORDER_DEFAULT);
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, rd::FG_PRIMARY);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, rd::BORDER_DEFAULT);
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, rd::FG_PRIMARY);
     visuals.widgets.inactive.rounding = r_sm;
     visuals.widgets.inactive.expansion = 0.0;
 
     // Hover: ember border takes over — the glow IS the affordance.
     visuals.widgets.hovered.bg_fill = rd::BG_HOVER;
     visuals.widgets.hovered.weak_bg_fill = rd::BG_HOVER;
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.5, rd::EMBER_600);
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, rd::FG_PRIMARY);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.5_f32, rd::EMBER_600);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, rd::FG_PRIMARY);
     visuals.widgets.hovered.rounding = r_sm;
     visuals.widgets.hovered.expansion = 1.0;
 
     // Active / pressed: ember fill + near-black text.
     visuals.widgets.active.bg_fill = rd::EMBER_500;
     visuals.widgets.active.weak_bg_fill = rd::EMBER_500;
-    visuals.widgets.active.bg_stroke = Stroke::new(1.0, rd::EMBER_600);
-    visuals.widgets.active.fg_stroke = Stroke::new(1.5, rd::FG_ON_EMBER);
+    visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, rd::EMBER_600);
+    visuals.widgets.active.fg_stroke = Stroke::new(1.5_f32, rd::FG_ON_EMBER);
     visuals.widgets.active.rounding = r_sm;
     visuals.widgets.active.expansion = 0.0;
 
     // Open (combobox, collapsing header unfolded).
     visuals.widgets.open.bg_fill = rd::BG_HOVER;
     visuals.widgets.open.weak_bg_fill = rd::BG_HOVER;
-    visuals.widgets.open.bg_stroke = Stroke::new(1.0, rd::BORDER_STRONG);
-    visuals.widgets.open.fg_stroke = Stroke::new(1.0, rd::FG_PRIMARY);
+    visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, rd::BORDER_STRONG);
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, rd::FG_PRIMARY);
     visuals.widgets.open.rounding = r_sm;
     visuals.widgets.open.expansion = 0.0;
 
     // Windows, menus, popovers.
     visuals.window_rounding = r_md;
     visuals.menu_rounding = r_sm;
-    visuals.window_stroke = Stroke::new(1.0, rd::BORDER_DEFAULT);
+    visuals.window_stroke = Stroke::new(1.0_f32, rd::BORDER_DEFAULT);
     visuals.window_shadow.color = Color32::from_rgba_premultiplied(0, 0, 0, 160);
     visuals.popup_shadow.color = Color32::from_rgba_premultiplied(0, 0, 0, 160);
 
@@ -283,7 +283,7 @@ pub fn panel_header(ui: &mut egui::Ui, label: &str, pill: Option<&str>) {
                 ui.add_space(4.0);
                 egui::Frame::none()
                     .fill(egui::Color32::from_rgba_premultiplied(29, 142, 232, 40))
-                    .stroke(egui::Stroke::new(1.0, rd::RUNE_400))
+                    .stroke(egui::Stroke::new(1.0_f32, rd::RUNE_400))
                     .rounding(egui::Rounding::same(2.0))
                     .inner_margin(egui::Margin::symmetric(8.0, 2.0))
                     .show(ui, |ui| {
@@ -346,7 +346,7 @@ pub fn section_label(ui: &mut egui::Ui, text: &str) {
     ui.painter().hline(
         rect.x_range(),
         rect.center().y,
-        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(29, 50, 71, 153)),
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_premultiplied(29, 50, 71, 153)),
     );
     ui.add_space(4.0);
 }

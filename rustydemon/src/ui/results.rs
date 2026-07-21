@@ -307,7 +307,7 @@ fn draw_file_row(
     painter.hline(
         rect.x_range(),
         rect.bottom() - 0.5,
-        egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(29, 50, 71, 120)),
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_premultiplied(29, 50, 71, 120)),
     );
 
     let x_icon = rect.left() + 12.0;
