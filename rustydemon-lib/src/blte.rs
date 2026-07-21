@@ -8,7 +8,7 @@ use crate::{error::CascError, key_service, salsa20::Salsa20, types::Md5Hash};
 // Safety limits to prevent decompression bombs.
 const MAX_BLTE_BYTES: usize = 512 * 1024 * 1024; // 512 MiB
 
-const BLTE_MAGIC: u32 = 0x4554_4C42; // 'BLTE' LE
+pub(crate) const BLTE_MAGIC: u32 = 0x4554_4C42; // 'BLTE' LE
 
 /// Decode a BLTE-encoded byte slice into raw file data.
 ///
@@ -295,6 +295,46 @@ mod tests {
         out.push(b'N');
         out.extend_from_slice(payload);
         out
+    }
+
+    /// Headerless BLTE holding a single Salsa20-encrypted ('E') block.
+    ///
+    /// `key_name_bytes` are written in the on-disk order used by D4's
+    /// `EncryptedNameDict-0x<ID>.dat` filenames; `decode` reads them back as a
+    /// little-endian u64, so the resulting key ID is byte-swapped relative to
+    /// the filename hex.  See `research/d4/kmt-memory-scanning.md`.
+    fn make_blte_encrypted(key_name_bytes: [u8; 8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&BLTE_MAGIC.to_le_bytes());
+        out.extend_from_slice(&[0u8; 4]); // headerSize = 0
+        out.push(b'E');
+        out.push(8); // key name size
+        out.extend_from_slice(&key_name_bytes);
+        out.push(4); // IV size
+        out.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]); // IV
+        out.push(b'S'); // Salsa20
+        out.extend_from_slice(b"ciphertext-we-cannot-read");
+        out
+    }
+
+    /// Regression guard for issue #2.  An encrypted block whose key we don't
+    /// hold must surface as `MissingKey` — never as a storage/IO error, which
+    /// is what triggers the (useless) CDN refetch in `CascHandler::open_by_ekey`.
+    #[test]
+    fn encrypted_block_without_key_returns_missing_key() {
+        // Filename hex 0a5015374c0f9fc7 → BLTE lookup ID C79F0F4C3715500A.
+        let blte = make_blte_encrypted([0x0A, 0x50, 0x15, 0x37, 0x4C, 0x0F, 0x9F, 0xC7]);
+
+        match decode(&blte, &Md5Hash::default(), false) {
+            Err(CascError::MissingKey(id)) => {
+                assert_eq!(id, 0xC79F_0F4C_3715_500A, "key name must be read as LE u64");
+                // The message must name the key and not imply a network fault.
+                let msg = CascError::MissingKey(id).to_string();
+                assert!(msg.contains("C79F0F4C3715500A"), "got: {msg}");
+                assert!(!msg.to_lowercase().contains("cdn"), "got: {msg}");
+            }
+            other => panic!("expected MissingKey, got {other:?}"),
+        }
     }
 
     fn make_blte_z(payload: &[u8]) -> Vec<u8> {

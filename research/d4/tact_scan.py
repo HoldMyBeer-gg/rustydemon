@@ -142,6 +142,10 @@ ALL_KEY_PATS = set(PATTERNS.keys())
 
 # ── Scanning ─────────────────────────────────────────────────────────────────
 CHUNK = 4 * 1024 * 1024   # 4 MiB per read
+# Longest entry we match is the inline layout: name(8) + name(8) + value(16) = 32 bytes.
+# Read CHUNK+OVERLAP but advance by CHUNK, so an entry straddling a chunk boundary
+# is still fully visible in the earlier chunk.
+OVERLAP = 32
 
 def is_heap_ptr(v: int) -> bool:
     """True if a u64 looks like a Windows heap/user-space pointer."""
@@ -152,8 +156,15 @@ def is_heap_ptr(v: int) -> bool:
     return (v >> 48) in (0x0000, 0x0001, 0x0002, 0x0003, 0x0004, 0x0005,
                           0x0006, 0x0007)
 
-def looks_like_key(b: bytes) -> bool:
-    """True if 16 bytes look like a TACT key: non-zero, high entropy, not a pointer pair."""
+def looks_like_key(b: bytes, reject_name_halves: bool = True) -> bool:
+    """True if 16 bytes look like a TACT key: non-zero, high entropy, not a pointer pair.
+
+    reject_name_halves guards the *pointer* layout, where a bad deref can land on
+    another bucket and hand back [something][key_name] instead of a real value.
+    The inline layout reads the value directly out of a bucket we already matched,
+    so that guard doesn't apply there — and would false-reject a genuine key whose
+    second half happens to collide with a name pattern.
+    """
     if len(b) < 16:
         return False
     if all(x == 0 for x in b):
@@ -167,15 +178,14 @@ def looks_like_key(b: bytes) -> bool:
     hi2 = struct.unpack_from("<Q", b, 8)[0]
     if is_heap_ptr(hi1) or is_heap_ptr(hi2):
         return False
-    # Reject if the second 8-byte half is a known key name pattern
-    # (hash table slot stores [something][key_name], not a real key value)
-    if b[8:16] in ALL_KEY_PATS:
+    if reject_name_halves and b[8:16] in ALL_KEY_PATS:
         return False
     return True
 
 def scan(pid):
     handle = open_process(pid)
     found  = {}   # key_name_hex → key_value_hex
+    layout_hits = {"inline": 0, "pointer": 0}
 
     print(f"Scanning PID {pid}...", file=sys.stderr)
     regions = list(enum_readable_regions(handle))
@@ -184,10 +194,11 @@ def scan(pid):
     for base, size in regions:
         offset = 0
         while offset < size:
-            chunk_size = min(CHUNK, size - offset)
+            # Read with overlap, advance without it (see OVERLAP).
+            chunk_size = min(CHUNK + OVERLAP, size - offset)
             data = read_mem(handle, base + offset, chunk_size)
             if data is None:
-                offset += chunk_size
+                offset += CHUNK
                 continue
 
             for pat, name_hex in PATTERNS.items():
@@ -198,23 +209,41 @@ def scan(pid):
                     idx = data.find(pat, pos)
                     if idx < 0:
                         break
-                    # PTR KMT layout: [key_name(8)][null_or_ptr(8)][value_ptr(8)]
-                    # The actual 16-byte value is pointed to by the u64 at +16.
+
+                    val_hex = None
+
+                    # Layout A — live game, value stored INLINE:
+                    #   [key_name(8)][key_name(8)][key_value(16)]
+                    # The duplicated name at +8 is what confirms the bucket.
+                    if idx + 32 <= len(data) and data[idx + 8:idx + 16] == pat:
+                        cand = data[idx + 16:idx + 32]
+                        if looks_like_key(cand, reject_name_halves=False):
+                            val_hex = cand.hex().upper()
+                            layout_hits["inline"] += 1
+
+                    # Layout B — PTR builds, value behind a pointer:
+                    #   [key_name(8)][null_or_ptr(8)][value_ptr(8)]
                     # Do NOT deref +8 — that's a hash-chain pointer, not the value.
-                    if idx + 24 <= len(data):
+                    if val_hex is None and idx + 24 <= len(data):
                         raw_ptr = struct.unpack_from("<Q", data, idx + 16)[0]
                         if 0x10000 < raw_ptr < 0x7FFFFFFFFFFF:
                             deref = read_mem(handle, raw_ptr, 16)
                             if deref and looks_like_key(deref):
                                 val_hex = deref.hex().upper()
-                                if name_hex.lower() not in found:
-                                    found[name_hex.lower()] = val_hex
-                                    print(f"  FOUND {name_hex} {val_hex}", file=sys.stderr)
+                                layout_hits["pointer"] += 1
+
+                    if val_hex is not None and name_hex.lower() not in found:
+                        found[name_hex.lower()] = val_hex
+                        print(f"  FOUND {name_hex} {val_hex}", file=sys.stderr)
+                        break   # this key is done; stop scanning for it in this chunk
+
                     pos = idx + 1
 
-            offset += chunk_size
+            offset += CHUNK
 
     k32.CloseHandle(handle)
+    print(f"  layout hits: inline={layout_hits['inline']} "
+          f"pointer={layout_hits['pointer']}", file=sys.stderr)
     return found
 
 if __name__ == "__main__":
@@ -231,6 +260,9 @@ if __name__ == "__main__":
     with open(out_file, "w") as f:
         f.write("\n".join(lines) + "\n")
 
-    print(f"\n--- {len(found)} key(s) written to {out_file} ---", file=sys.stderr)
+    total = len(PATTERNS)
+    pct   = (100.0 * len(found) / total) if total else 0.0
+    print(f"\n--- {len(found)}/{total} key(s) recovered ({pct:.1f}%) "
+          f"written to {out_file} ---", file=sys.stderr)
     for line in lines:
         print(line)

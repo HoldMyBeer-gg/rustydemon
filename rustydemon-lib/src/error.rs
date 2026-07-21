@@ -20,7 +20,10 @@ pub enum CascError {
     IndexNotFound(String),
 
     /// The BLTE block is encrypted and we don't have the key.
-    #[error("missing decryption key {0:016X}")]
+    ///
+    /// The file itself is present and intact — only the key is absent, so this
+    /// is never a storage or network problem.
+    #[error("file is encrypted: missing TACT key {0:016X}")]
     MissingKey(u64),
 
     /// Anything that goes wrong while decoding a BLTE stream.

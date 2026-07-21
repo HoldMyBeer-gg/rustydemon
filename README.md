@@ -249,6 +249,43 @@ needed there. For WoW, pass either `--listfile` or `--fdid`.
 
 ---
 
+## Encrypted Files & TACT Keys
+
+Some files in Blizzard archives are encrypted. If one fails to open you'll see:
+
+```
+file is encrypted: missing TACT key C79F0F4C3715500A
+```
+
+The file is present and intact — only the decryption key is missing. Rusty Demon
+ships the public key set (Overwatch, WoW), but Blizzard streams keys for some
+titles at runtime and rotates them, so newer content may need keys you supply
+yourself.
+
+Drop them in a plain text file, one key per line, in the standard
+[wowdev format](https://github.com/wowdev/TACTKeys):
+
+```
+# KEYNAME (16 hex) KEYVALUE (32 hex)
+C79F0F4C3715500A 000102030405060708090A0B0C0D0E0F
+```
+
+Rusty Demon loads this file automatically at startup from:
+
+| Platform | Path |
+| --- | --- |
+| Linux | `$XDG_CONFIG_HOME/rustydemon/tact.keys`, else `~/.config/rustydemon/tact.keys` |
+| macOS | `~/Library/Application Support/rustydemon/tact.keys` |
+| Windows | `%APPDATA%\rustydemon\tact.keys` |
+
+Set `RUSTYDEMON_TACT_KEYS=/path/to/file` to override the location entirely.
+
+You can also load a key file at any time via **File → Load TACT Keys…** in the
+GUI, or `--tact-keys <FILE>` on the CLI. Keys loaded this way apply to the
+already-open archive immediately — no need to reopen it.
+
+---
+
 ## Workspace Layout
 
 ```
