@@ -3787,7 +3787,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rustydemon"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "bytemuck",
  "eframe",
@@ -3811,7 +3811,7 @@ dependencies = [
 
 [[package]]
 name = "rustydemon-blp2"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "image",
  "thiserror 2.0.18",
@@ -3819,7 +3819,7 @@ dependencies = [
 
 [[package]]
 name = "rustydemon-cli"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -3841,14 +3841,14 @@ dependencies = [
 
 [[package]]
 name = "rustydemon-gr2"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "rustydemon-lib"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "bitflags 2.11.0",
  "flate2",
