@@ -225,6 +225,14 @@ impl CascExplorerApp {
         // ember selection, forge radii).  Persists across frames, so one
         // call at startup is enough.
         crate::ui::theme::apply(&cc.egui_ctx);
+
+        // Per-user TACT keys, if the file exists.  Best-effort: absence is the
+        // normal case and never blocks startup.  Surfaced in the status bar
+        // because stderr is invisible in the packaged Windows/macOS builds.
+        let key_status = rustydemon_lib::key_service::load_user_keys()
+            .map(|(path, n)| format!(" Loaded {n} TACT key(s) from {}.", path.display()))
+            .unwrap_or_default();
+
         Self {
             handler: None,
             product: String::new(),
@@ -241,7 +249,7 @@ impl CascExplorerApp {
             searchers: registry(),
             pcx_palette: None,
             pcx_palette_name: None,
-            status: "No archive open. Use File → Open Game Directory.".into(),
+            status: format!("No archive open. Use File → Open Game Directory.{key_status}"),
             bg_rx: None,
             cancel: Arc::new(AtomicBool::new(false)),
             loading: false,
@@ -502,6 +510,28 @@ impl CascExplorerApp {
                 }
             }
         });
+    }
+
+    /// Load TACT decryption keys from a user-supplied key file.
+    ///
+    /// Keys land in the shared runtime table, so they apply to the already-open
+    /// archive immediately — encrypted files that previously failed with
+    /// "missing TACT key" will open on the next click without reopening.
+    pub fn load_tact_keys(&mut self, path: std::path::PathBuf) {
+        match rustydemon_lib::key_service::load_keys_from_file(&path) {
+            Ok(0) => {
+                self.status = format!(
+                    "No keys found in {} — expected 'KEYNAME KEYVALUE' lines.",
+                    path.display()
+                );
+            }
+            Ok(n) => {
+                self.status = format!("Loaded {n} TACT key(s) from {}.", path.display());
+            }
+            Err(e) => {
+                self.status = format!("Failed to read {}: {e}", path.display());
+            }
+        }
     }
 
     pub fn load_listfile(&mut self, path: std::path::PathBuf) {

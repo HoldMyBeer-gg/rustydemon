@@ -1,6 +1,6 @@
 use hex_literal::hex;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
 /// Decryption key table for CASC BLTE blocks.
@@ -52,6 +52,20 @@ pub fn has_key(name: u64) -> bool {
 pub fn load_keys_from_str(text: &str) -> usize {
     let mut map = runtime_keys().write().unwrap();
     let mut count = 0usize;
+    for (name, key) in parse_keys(text) {
+        map.insert(name, key);
+        count += 1;
+    }
+    count
+}
+
+/// Parse a wowdev-format key list into (name, key) pairs.
+///
+/// Skips blank lines, `#` comments, and any line that doesn't hold exactly two
+/// well-formed hex tokens (16-char name + 32-char value).  Shared by the
+/// runtime loader and the compiled-in D4 table so both accept the same format.
+fn parse_keys(text: &str) -> Vec<(u64, [u8; 16])> {
+    let mut out = Vec::new();
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -94,11 +108,10 @@ pub fn load_keys_from_str(text: &str) -> usize {
             }
         }
         if ok {
-            map.insert(name, key);
-            count += 1;
+            out.push((name, key));
         }
     }
-    count
+    out
 }
 
 /// Load TACT keys from a file on disk.
@@ -111,6 +124,78 @@ pub fn load_keys_from_str(text: &str) -> usize {
 pub fn load_keys_from_file(path: &Path) -> std::io::Result<usize> {
     let text = std::fs::read_to_string(path)?;
     Ok(load_keys_from_str(&text))
+}
+
+// ── User-supplied key file ─────────────────────────────────────────────────────
+
+/// Filename looked for inside the per-user config directory.
+pub const USER_KEY_FILE: &str = "tact.keys";
+
+/// Environment variable that overrides the key-file location outright.
+pub const KEY_FILE_ENV: &str = "RUSTYDEMON_TACT_KEYS";
+
+/// Resolve the per-user TACT key file from a set of environment variables.
+///
+/// Split out from [`user_key_file`] so the platform rules are testable without
+/// mutating the real process environment.  Resolution order:
+///
+/// 1. `RUSTYDEMON_TACT_KEYS` — absolute path to the key file itself.
+/// 2. Windows: `%APPDATA%\rustydemon\tact.keys`
+/// 3. macOS: `$HOME/Library/Application Support/rustydemon/tact.keys`
+/// 4. Otherwise: `$XDG_CONFIG_HOME/rustydemon/tact.keys`, falling back to
+///    `$HOME/.config/rustydemon/tact.keys`.
+///
+/// Returns `None` when none of the required variables are set.
+pub fn user_key_file_from_env(
+    var: &dyn Fn(&str) -> Option<String>,
+    windows: bool,
+    macos: bool,
+) -> Option<PathBuf> {
+    if let Some(explicit) = var(KEY_FILE_ENV).filter(|s| !s.is_empty()) {
+        return Some(PathBuf::from(explicit));
+    }
+
+    let dir = if windows {
+        PathBuf::from(var("APPDATA").filter(|s| !s.is_empty())?)
+    } else if macos {
+        PathBuf::from(var("HOME").filter(|s| !s.is_empty())?)
+            .join("Library")
+            .join("Application Support")
+    } else if let Some(xdg) = var("XDG_CONFIG_HOME").filter(|s| !s.is_empty()) {
+        PathBuf::from(xdg)
+    } else {
+        PathBuf::from(var("HOME").filter(|s| !s.is_empty())?).join(".config")
+    };
+
+    Some(dir.join("rustydemon").join(USER_KEY_FILE))
+}
+
+/// The per-user TACT key file for this platform, if it can be resolved.
+///
+/// The path is returned whether or not the file exists — callers that want to
+/// show it to the user (e.g. "drop your keys here") need it either way.
+pub fn user_key_file() -> Option<PathBuf> {
+    user_key_file_from_env(
+        &|k| std::env::var(k).ok(),
+        cfg!(target_os = "windows"),
+        cfg!(target_os = "macos"),
+    )
+}
+
+/// Load the per-user key file if it exists.
+///
+/// Best-effort by design: a missing file is the normal case, and an unreadable
+/// or malformed one must never stop the app from opening archives. Returns the
+/// path and key count only when keys were actually loaded.
+pub fn load_user_keys() -> Option<(PathBuf, usize)> {
+    let path = user_key_file()?;
+    if !path.is_file() {
+        return None;
+    }
+    match load_keys_from_file(&path) {
+        Ok(n) if n > 0 => Some((path, n)),
+        _ => None,
+    }
 }
 
 // ── Key table ──────────────────────────────────────────────────────────────────
@@ -352,8 +437,174 @@ const KNOWN_KEYS: &[(u64, [u8; 16])] = &[
     (0x5157D7ACE0AF2642, hex!("3AC24A02170182F4143D02BA29633BB3")),
 ];
 
+/// Public D4 (fenris) keys, kept as an editable text file rather than `hex!`
+/// literals so they can be diffed, verified, and updated without touching Rust.
+/// Baked in at compile time; parsed once when the table is first built.
+const EMBEDDED_D4_KEYS: &str = include_str!("../../keys/d4.keys");
+
 fn build_table() -> HashMap<u64, [u8; 16]> {
-    KNOWN_KEYS.iter().copied().collect()
+    let mut table: HashMap<u64, [u8; 16]> = KNOWN_KEYS.iter().copied().collect();
+    // Fold in the embedded D4 key file.  Reuses the exact same parser as the
+    // user-supplied key path, so the file format is guaranteed identical.
+    for (name, key) in parse_keys(EMBEDDED_D4_KEYS) {
+        table.entry(name).or_insert(key);
+    }
+    table
+}
+
+#[cfg(test)]
+mod embedded_d4_key_tests {
+    use super::*;
+
+    /// The embedded D4 file must parse and contribute keys to the default
+    /// table with no runtime loading.  Guards against a malformed `keys/d4.keys`
+    /// (a typo'd line silently drops that key) and against the include_str!
+    /// wiring being removed.
+    #[test]
+    fn embedded_d4_keys_parse_and_are_live() {
+        let parsed = parse_keys(EMBEDDED_D4_KEYS);
+        assert!(
+            parsed.len() >= 8,
+            "expected >=8 embedded D4 keys, parsed {}",
+            parsed.len()
+        );
+        // Every parsed pair must be resolvable via the public lookup with a
+        // cold table (no load_keys_from_* called).
+        for (name, key) in &parsed {
+            assert_eq!(get_key(*name), Some(*key), "key {name:016X} not in table");
+        }
+    }
+
+    /// Spot-check a specific decrypt-verified key so a bad edit to that line is
+    /// caught by value, not just count.
+    #[test]
+    fn known_d4_key_has_expected_value() {
+        // EncryptedNameDict-0x09f0c09900c83a1c.dat → decodes to 0xABCD4567.
+        assert_eq!(
+            get_key(0x1C3A_C800_99C0_F009),
+            Some([
+                0x9D, 0x77, 0xFE, 0x7C, 0xDE, 0x38, 0x8B, 0xB3, 0x82, 0xE7, 0xFA, 0xBD, 0xAF, 0x0E,
+                0xEF, 0xE9
+            ])
+        );
+    }
+}
+
+#[cfg(test)]
+mod user_key_file_tests {
+    use super::*;
+
+    /// Build an env lookup from a fixed list of pairs.
+    fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |k| {
+            pairs
+                .iter()
+                .find(|(name, _)| *name == k)
+                .map(|(_, v)| (*v).to_string())
+        }
+    }
+
+    #[test]
+    fn explicit_env_var_wins_on_every_platform() {
+        let e = env(&[
+            (KEY_FILE_ENV, "/custom/my.keys"),
+            ("APPDATA", "C:\\Users\\x\\AppData\\Roaming"),
+            ("HOME", "/home/x"),
+            ("XDG_CONFIG_HOME", "/home/x/.cfg"),
+        ]);
+        for (win, mac) in [(false, false), (true, false), (false, true)] {
+            assert_eq!(
+                user_key_file_from_env(&e, win, mac),
+                Some(PathBuf::from("/custom/my.keys")),
+                "explicit override must win (windows={win}, macos={mac})"
+            );
+        }
+    }
+
+    #[test]
+    fn linux_prefers_xdg_then_falls_back_to_home() {
+        let with_xdg = env(&[("XDG_CONFIG_HOME", "/cfg"), ("HOME", "/home/x")]);
+        assert_eq!(
+            user_key_file_from_env(&with_xdg, false, false),
+            Some(PathBuf::from("/cfg/rustydemon/tact.keys"))
+        );
+
+        let home_only = env(&[("HOME", "/home/x")]);
+        assert_eq!(
+            user_key_file_from_env(&home_only, false, false),
+            Some(PathBuf::from("/home/x/.config/rustydemon/tact.keys"))
+        );
+    }
+
+    #[test]
+    fn windows_and_macos_use_platform_dirs() {
+        // XDG_CONFIG_HOME is set here on purpose: it must be ignored off Linux.
+        let e = env(&[
+            ("APPDATA", "C:\\Users\\x\\AppData\\Roaming"),
+            ("HOME", "/Users/x"),
+            ("XDG_CONFIG_HOME", "/should/be/ignored"),
+        ]);
+        assert_eq!(
+            user_key_file_from_env(&e, true, false),
+            Some(PathBuf::from(
+                "C:\\Users\\x\\AppData\\Roaming/rustydemon/tact.keys"
+            ))
+        );
+        assert_eq!(
+            user_key_file_from_env(&e, false, true),
+            Some(PathBuf::from(
+                "/Users/x/Library/Application Support/rustydemon/tact.keys"
+            ))
+        );
+    }
+
+    #[test]
+    fn empty_vars_are_treated_as_unset() {
+        // A blank override must not resolve to a relative/empty path.
+        let blank = env(&[(KEY_FILE_ENV, ""), ("HOME", "/home/x")]);
+        assert_eq!(
+            user_key_file_from_env(&blank, false, false),
+            Some(PathBuf::from("/home/x/.config/rustydemon/tact.keys"))
+        );
+        // Nothing set at all → no path.
+        assert_eq!(user_key_file_from_env(&env(&[]), false, false), None);
+        assert_eq!(user_key_file_from_env(&env(&[]), true, false), None);
+    }
+
+    #[test]
+    fn load_user_keys_ignores_missing_file() {
+        // user_key_file() reads the real env; whatever it resolves to, a
+        // nonexistent path must yield None rather than panicking or erroring.
+        let missing = std::env::temp_dir().join("rustydemon-definitely-absent.keys");
+        assert!(!missing.is_file());
+        assert!(load_keys_from_file(&missing).is_err());
+    }
+
+    #[test]
+    fn keys_from_file_are_visible_to_get_key() {
+        // End-to-end: a key loaded from disk must satisfy the same lookup that
+        // blte::decode uses, otherwise the whole feature is decorative.
+        let dir = std::env::temp_dir().join(format!("rustydemon-keys-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(USER_KEY_FILE);
+        // A key name that is not in KNOWN_KEYS.
+        std::fs::write(
+            &path,
+            "# comment\nC79F0F4C3715500A 000102030405060708090A0B0C0D0E0F\n",
+        )
+        .unwrap();
+
+        assert!(!KEY_TABLE
+            .get_or_init(build_table)
+            .contains_key(&0xC79F_0F4C_3715_500A));
+        assert_eq!(load_keys_from_file(&path).unwrap(), 1);
+        assert_eq!(
+            get_key(0xC79F_0F4C_3715_500A),
+            Some([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]

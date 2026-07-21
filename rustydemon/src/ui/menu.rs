@@ -77,6 +77,29 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                         }
                     }
 
+                    // Always enabled: keys apply to the shared runtime table,
+                    // so they can be loaded before or after opening an archive.
+                    let keys_btn = ui.button("Load TACT Keys…").on_hover_text(
+                        rustydemon_lib::key_service::user_key_file()
+                            .map(|p| {
+                                format!(
+                                    "Decryption keys for encrypted files.\n\
+                                     Loaded automatically at startup from:\n{}",
+                                    p.display()
+                                )
+                            })
+                            .unwrap_or_else(|| "Decryption keys for encrypted files.".into()),
+                    );
+                    if keys_btn.clicked() {
+                        ui.close_menu();
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("TACT keys", &["keys", "txt"])
+                            .pick_file()
+                        {
+                            app.load_tact_keys(path);
+                        }
+                    }
+
                     ui.separator();
 
                     let sel_count = app.multi_selected.len();

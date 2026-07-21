@@ -663,6 +663,11 @@ impl CascHandler {
 
         match local_attempt {
             Ok(bytes) => Ok(bytes),
+            // The block was on disk and structurally intact — we just don't hold
+            // its decryption key.  The CDN serves the same ciphertext, so a
+            // refetch cannot help; falling back would only bury the real
+            // diagnostic behind an unrelated 404.
+            Err(err @ CascError::MissingKey(_)) => Err(err),
             Err(local_err) => {
                 #[cfg(feature = "cdn")]
                 {
@@ -843,6 +848,9 @@ impl PreparedLoad {
 
         match local_attempt {
             Ok(bytes) => Ok(bytes),
+            // See `CascHandler::open_by_ekey` — a missing key is not a storage
+            // failure, so the CDN fallback has nothing to offer.
+            Err(err @ CascError::MissingKey(_)) => Err(err),
             Err(local_err) => {
                 #[cfg(feature = "cdn")]
                 {
@@ -916,4 +924,139 @@ pub(crate) fn read_data_block(
     file.read_exact(&mut buf)?;
 
     Ok(buf)
+}
+
+#[cfg(all(test, feature = "cdn"))]
+mod missing_key_tests {
+    //! Regression guards for issue #2.
+    //!
+    //! A missing TACT key must never trigger the CDN fallback: the block is
+    //! already on disk and intact, and the CDN serves the same ciphertext.
+    //! Falling back turns an actionable "missing key XYZ" into a confusing
+    //! 404 and misdirects users to a network problem they don't have.
+    //!
+    //! These are gated on `cdn` because without it the fallback is compiled
+    //! out and there is nothing to regress.  CI's `cargo test --workspace`
+    //! does run them — both `rustydemon` and `rustydemon-cli` depend on the
+    //! lib with `features = ["cdn"]`, so feature unification enables it.
+    //! A bare `cargo test -p rustydemon-lib` skips them; use
+    //! `--features cdn` when testing the lib in isolation.
+
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// A CDN fetcher pointed at a closed port: any attempt to use it fails
+    /// fast with connection-refused (no network, no timeout wait).  If the
+    /// fallback is ever reached, the error text changes and the test fails.
+    fn unreachable_cdn(cache_dir: PathBuf) -> Arc<crate::cdn::CdnFetcher> {
+        Arc::new(
+            crate::cdn::CdnFetcher::new(vec!["127.0.0.1:1".into()], "tpr/test".into(), cache_dir)
+                .expect("fetcher construction should succeed"),
+        )
+    }
+
+    /// Headerless BLTE wrapping one Salsa20 ('E') block whose key we don't have.
+    /// Byte order mirrors `blte::tests::make_blte_encrypted`.
+    fn encrypted_blte(key_name_bytes: [u8; 8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&crate::blte::BLTE_MAGIC.to_le_bytes());
+        out.extend_from_slice(&[0u8; 4]); // headerSize = 0
+        out.push(b'E');
+        out.push(8); // key name size
+        out.extend_from_slice(&key_name_bytes);
+        out.push(4); // IV size
+        out.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        out.push(b'S'); // Salsa20
+        out.extend_from_slice(b"ciphertext-we-cannot-read");
+        out
+    }
+
+    fn scratch_dir(tag: &str) -> PathBuf {
+        static N: AtomicU32 = AtomicU32::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "rustydemon-test-{}-{}-{}",
+            tag,
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).expect("create scratch dir");
+        dir
+    }
+
+    /// Write `data.000` containing a single block: 30-byte archive header
+    /// followed by `blte`.  Returns the block's `size` field (header + payload).
+    fn write_data_archive(dir: &std::path::Path, blte: &[u8]) -> u32 {
+        let mut file = vec![0u8; DATA_HEADER_BYTES as usize];
+        file.extend_from_slice(blte);
+        fs::write(dir.join("data.000"), &file).expect("write data.000");
+        file.len() as u32
+    }
+
+    #[test]
+    fn prepared_load_missing_key_does_not_fall_back_to_cdn() {
+        let dir = scratch_dir("preparedload");
+        // Filename hex 0a5015374c0f9fc7 → BLTE lookup ID C79F0F4C3715500A
+        // (the key from the original bug report).
+        let blte = encrypted_blte([0x0A, 0x50, 0x15, 0x37, 0x4C, 0x0F, 0x9F, 0xC7]);
+        let size = write_data_archive(&dir, &blte);
+
+        let load = PreparedLoad {
+            storage_dir: Some(dir.clone()),
+            archive_index: 0,
+            offset: 0,
+            size,
+            ekey: Md5Hash::default(),
+            validate_hashes: false,
+            static_container: None,
+            cdn: Some(unreachable_cdn(scratch_dir("preparedload-cache"))),
+        };
+
+        let err = load.execute().expect_err("encrypted block must not decode");
+
+        // The decisive assertion: MissingKey, not a Config error describing a
+        // failed CDN round-trip.  Before the fix this was
+        // `Config("read … failed locally (…) and via CDN (…)")`.
+        match &err {
+            CascError::MissingKey(id) => assert_eq!(*id, 0xC79F_0F4C_3715_500A),
+            other => panic!("expected MissingKey, got {other:?}"),
+        }
+        let msg = err.to_string();
+        assert!(
+            !msg.to_lowercase().contains("cdn"),
+            "leaked CDN detail: {msg}"
+        );
+        assert!(!msg.contains("404"), "leaked HTTP detail: {msg}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The complement: a genuine *storage* failure must still reach the CDN.
+    /// This is what keeps the fix narrow — we only short-circuit MissingKey,
+    /// so corrupt/absent local data can still be repaired by a refetch.
+    #[test]
+    fn absent_local_block_still_attempts_cdn() {
+        let dir = scratch_dir("nolocal");
+        // No data.000 written at all → read_data_block fails on File::open.
+        let load = PreparedLoad {
+            storage_dir: Some(dir.clone()),
+            archive_index: 0,
+            offset: 0,
+            size: 64,
+            ekey: Md5Hash::default(),
+            validate_hashes: false,
+            static_container: None,
+            cdn: Some(unreachable_cdn(scratch_dir("nolocal-cache"))),
+        };
+
+        let err = load
+            .execute()
+            .expect_err("no local data and no reachable CDN");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("and via CDN"),
+            "storage failures must still try the CDN, got: {msg}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

@@ -162,6 +162,10 @@ fn main() -> Result<()> {
 
 fn run_export(args: &ExportArgs) -> Result<()> {
     // ── Load runtime TACT keys ────────────────────────────────────────────
+    // Per-user key file first, so an explicit --tact-keys can override it.
+    if let Some((path, n)) = rustydemon_lib::key_service::load_user_keys() {
+        eprintln!("  tact-keys: loaded {n} key(s) from {}", path.display());
+    }
     if let Some(key_path) = &args.tact_keys {
         let n = rustydemon_lib::key_service::load_keys_from_file(key_path)
             .with_context(|| format!("loading TACT keys from {}", key_path.display()))?;
