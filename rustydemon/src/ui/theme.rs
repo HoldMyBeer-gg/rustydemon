@@ -346,7 +346,10 @@ pub fn section_label(ui: &mut egui::Ui, text: &str) {
     ui.painter().hline(
         rect.x_range(),
         rect.center().y,
-        egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_premultiplied(29, 50, 71, 153)),
+        egui::Stroke::new(
+            1.0_f32,
+            egui::Color32::from_rgba_premultiplied(29, 50, 71, 153),
+        ),
     );
     ui.add_space(4.0);
 }

@@ -23,7 +23,10 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
         .frame(
             egui::Frame::none()
                 .fill(crate::ui::theme::rd::FROST_150)
-                .stroke(egui::Stroke::new(1.0_f32, crate::ui::theme::rd::BORDER_SUBTLE))
+                .stroke(egui::Stroke::new(
+                    1.0_f32,
+                    crate::ui::theme::rd::BORDER_SUBTLE,
+                ))
                 .inner_margin(egui::Margin::symmetric(12.0, 4.0)),
         )
         .show(ctx, |ui| {
