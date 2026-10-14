@@ -266,7 +266,7 @@ pub fn encode_obj(mesh: &Mesh3dCpu) -> Vec<u8> {
         let _ = writeln!(s, "vt {:.6} {:.6}", uv[0], 1.0 - uv[1]);
     }
     let has_uvs = !mesh.uvs.is_empty();
-    for tri in mesh.indices.chunks_exact(3) {
+    for tri in mesh.indices.as_chunks::<3>().0 {
         let (a, b, c) = (tri[0] + 1, tri[1] + 1, tri[2] + 1);
         if has_uvs {
             let _ = writeln!(s, "f {a}/{a} {b}/{b} {c}/{c}");
@@ -339,7 +339,7 @@ pub fn encode_obj_with_materials(
         let start = batch.start_index as usize;
         let end = start + batch.index_count as usize;
         let tri_indices = &mesh.indices[start..end];
-        for tri in tri_indices.chunks_exact(3) {
+        for tri in tri_indices.as_chunks::<3>().0 {
             let (a, b, c) = (tri[0] + 1, tri[1] + 1, tri[2] + 1);
             if has_uvs {
                 let _ = writeln!(s, "f {a}/{a} {b}/{b} {c}/{c}");

@@ -508,7 +508,7 @@ fn palette_alpha(data: &[u8], index: usize, alpha_start: usize, alpha_size: u8) 
 /// RGBA order that [`BlpFile::get_pixels`] always returns.
 fn bgra_to_rgba(src: &[u8]) -> Vec<u8> {
     let mut out = src.to_vec();
-    for chunk in out.chunks_exact_mut(4) {
+    for chunk in out.as_chunks_mut::<4>().0 {
         chunk.swap(0, 2);
     }
     out

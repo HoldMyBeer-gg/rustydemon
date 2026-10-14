@@ -230,7 +230,7 @@ fn dxt1_4x4_red() {
     let (pixels, w, h) = blp.get_pixels(0).unwrap();
 
     assert_eq!((w, h), (4, 4));
-    for chunk in pixels.chunks_exact(4) {
+    for chunk in pixels.as_chunks::<4>().0 {
         // DXT1 round-trips through RGB565, so reconstruct the expected value.
         let r5: u8 = 255 >> 3; // 31
         let expected_r: u8 = (r5 << 3) | (r5 >> 2); // 255
@@ -252,7 +252,7 @@ fn dxt1_non_power_of_two_2x2() {
     assert_eq!((w, h), (2, 2));
     assert_eq!(pixels.len(), 2 * 2 * 4);
     // Blue channel should be non-zero for all 4 pixels.
-    for chunk in pixels.chunks_exact(4) {
+    for chunk in pixels.as_chunks::<4>().0 {
         assert!(chunk[2] > 0, "blue channel should be non-zero");
     }
 }
@@ -641,7 +641,7 @@ fn security_palette_data_exactly_n_pixels_no_alpha() {
     let blp = BlpFile::from_bytes(data).unwrap();
     let (pixels, _, _) = blp.get_pixels(0).unwrap();
     assert_eq!(pixels.len(), 16);
-    for chunk in pixels.chunks_exact(4) {
+    for chunk in pixels.as_chunks::<4>().0 {
         assert_eq!(chunk[3], 0xFF, "alpha must be opaque when alpha_size=0");
     }
 }

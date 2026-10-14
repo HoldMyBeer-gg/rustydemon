@@ -232,7 +232,7 @@ pub(crate) fn decode_mip0(
 /// proper tangent-space normal map by computing Z = sqrt(1 - X² - Y²)
 /// and writing it into B.  Alpha is forced to fully opaque.
 fn reconstruct_bc5_normal_z(rgba: &mut [u8]) {
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         let x = (px[0] as f32) / 127.5 - 1.0;
         let y = (px[1] as f32) / 127.5 - 1.0;
         let z2 = (1.0 - x * x - y * y).max(0.0);

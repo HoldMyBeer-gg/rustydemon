@@ -696,7 +696,7 @@ fn write_obj_file(path: &Path, meshes: &[ObjMesh<'_>]) -> Result<()> {
 
         let has_normals = !mesh.normals.is_empty();
         let has_uvs = !mesh.uvs.is_empty();
-        for tri in mesh.indices.chunks_exact(3) {
+        for tri in mesh.indices.as_chunks::<3>().0 {
             let (a, b, c) = (
                 tri[0] + v_offset + 1,
                 tri[1] + v_offset + 1,
