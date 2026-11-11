@@ -1,0 +1,113 @@
+{
+  "name": "launch-empty",
+  "covers": "The app starts with no archive, its window is findable by title, the toolbar and empty-state text are published to the accessibility tree, and the File menu opens with its items.",
+  "platforms": [
+    "linux",
+    "macos",
+    "windows"
+  ],
+  "verified": {
+    "linux": "2026-11-11"
+  },
+  "phases": [
+    {
+      "name": "window is up",
+      "learn": {
+        "file": {
+          "name": "File"
+        },
+        "search": {
+          "name": "Search"
+        }
+      },
+      "steps": [],
+      "checks": [
+        {
+          "present": {
+            "name": "Deep search"
+          }
+        },
+        {
+          "present": {
+            "name": "No archive open. Use File → Open Game Directory."
+          },
+          "only": [
+            "linux",
+            "windows"
+          ],
+          "note": "Status bar. On macOS static labels are not findable by name through the backend, so this is skipped there."
+        }
+      ]
+    },
+    {
+      "name": "file menu opens",
+      "learn": {
+        "file": {
+          "name": "File"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "file"
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "Quit",
+          "timeout": 5
+        }
+      ],
+      "checks": [
+        {
+          "present": {
+            "name": "Load Listfile…"
+          }
+        },
+        {
+          "present": {
+            "name": "Load TACT Keys…"
+          }
+        },
+        {
+          "present": {
+            "name": "Open Game Directory…"
+          },
+          "note": "The \"Open Game\" submenu only appears when installed games are detected, so it is not asserted."
+        }
+      ]
+    },
+    {
+      "name": "menu closes",
+      "note": "Clicking File again toggles the menu shut. An Escape key sent through the accessibility API does not reach egui on native Wayland, so the script does not rely on keys.",
+      "learn": {
+        "file": {
+          "name": "File"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "file"
+        },
+        {
+          "action": "sleep",
+          "seconds": 0.3
+        }
+      ],
+      "checks": [
+        {
+          "absent": {
+            "name": "Quit"
+          }
+        }
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "windows": 1
+    }
+  ],
+  "notes": "Linux run 2026-11-11 (SteamOS, KDE Wayland) passed with bad-ass-mcp f7e77aa plus a local change that names a window after its first frame when the AT-SPI application name is empty; without that change the runner cannot find the window on Linux (see README). macOS and Windows names are the same strings but have not been run yet."
+}
