@@ -7,6 +7,7 @@
 mod app;
 mod audio;
 mod deep_search;
+mod launch_args;
 pub mod pow_preview;
 mod preview;
 pub mod tex_preview;
@@ -20,17 +21,13 @@ use std::path::PathBuf;
 use app::CascExplorerApp;
 
 fn main() -> eframe::Result {
-    // Optional CLI argument: path to a game directory to open on launch.
-    // Supports `rustydemon /path/to/game` or `rustydemon .` for cwd.
-    let open_path: Option<PathBuf> =
-        std::env::args()
-            .nth(1)
-            .filter(|a| !a.starts_with('-'))
-            .map(|a| {
-                let p = PathBuf::from(&a);
-                // Resolve `.` and relative paths to absolute.
-                std::fs::canonicalize(&p).unwrap_or(p)
-            });
+    // `rustydemon [GAME_DIR] [--listfile FILE]`, both optional.  Relative
+    // paths (including `.`) are resolved against the current directory.
+    let args = launch_args::parse(std::env::args().skip(1));
+    let absolute = |p: PathBuf| std::fs::canonicalize(&p).unwrap_or(p);
+    let open_path = args.game_dir.map(absolute);
+    let listfile = args.listfile.map(absolute);
+    let problem = args.problem;
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -49,8 +46,17 @@ fn main() -> eframe::Result {
         native_options,
         Box::new(move |cc| {
             let mut app = CascExplorerApp::new(cc);
+            app.pending_listfile = listfile;
             if let Some(path) = open_path {
                 app.open_game_dir(path);
+            } else if let Some(listfile) = &app.pending_listfile {
+                app.status = format!(
+                    "Listfile {} will load when an archive is opened.",
+                    listfile.display()
+                );
+            }
+            if let Some(problem) = problem {
+                app.status = problem;
             }
             Ok(Box::new(app))
         }),
