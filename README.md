@@ -186,6 +186,15 @@ With one, the full virtual path is resolved and the tree is populated.
 A maintained listfile can be downloaded from the
 [wowdev community listfile](https://github.com/wowdev/wow-listfile) project.
 
+The listfile covers every WoW product, so it names many files your build
+does not contain. Only entries present in the opened archive are shown.
+
+Both steps can be done from the command line, which skips the dialogs:
+
+```
+rustydemon "/path/to/World of Warcraft" --listfile /path/to/verified-listfile.csv
+```
+
 ### 3 -Search
 
 Type a filename fragment in the search bar and press **Enter** or click **Search**.

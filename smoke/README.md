@@ -5,24 +5,51 @@ tree with [bad-ass-mcp](https://github.com/HoldMyBeer-gg/bad-ass-mcp)'s BAM
 runner. They cover what unit tests can't: the window, menus and tree as a
 screen reader or automation tool sees them.
 
+## Scripts
+
+| script | needs a game install | covers |
+|---|---|---|
+| `launch-empty.json` | no | window title, toolbar, status bar text, File menu |
+| `wowf/ghost-entries.json` | WoW Forever + listfile | issue #3: folders the build does not ship stay out of the tree; real folders expand and browse |
+
+Each script's `verified` field lists the platforms it has actually passed
+on, with the date. A platform without an entry is written from the code,
+not from a run.
+
 ## Running
 
 Build first (`cargo build --release -p rustydemon`), then from the repo root:
 
 ```
 bad-ass-mcp run smoke/ --config bam.json
+bad-ass-mcp run smoke/wowf/ --config bam-wowf.json
 ```
 
-`bam.json` is not committed, because the binary path differs per machine:
+The configs are not committed, because paths differ per machine.
+
+`bam.json`:
 
 ```json
 {
   "window": "Rusty Demon",
-  "app": {
-    "linux": "/path/to/target/release/rustydemon",
-    "macos": "/path/to/target/release/rustydemon",
-    "windows": "C:\\path\\to\\target\\release\\rustydemon.exe"
-  },
+  "app": "/path/to/target/release/rustydemon",
+  "ready": { "name": "Search" },
+  "launch_timeout": 30
+}
+```
+
+`bam-wowf.json` is the same, with the game directory and listfile on the
+app's command line so no file dialog is needed:
+
+```json
+{
+  "window": "Rusty Demon",
+  "app": [
+    "/path/to/target/release/rustydemon",
+    "/path/to/World of Warcraft",
+    "--listfile",
+    "/path/to/verified-listfile.csv"
+  ],
   "ready": { "name": "Search" },
   "launch_timeout": 30
 }
@@ -33,30 +60,36 @@ rustydemon you already have open is left alone. Results and `report.html`
 land in `bam-results/`. The script format is documented in bad-ass-mcp's
 `docs/bam.md`.
 
-## Scripts
+### The `window` value differs per OS
 
-| script | needs a game install | covers |
+The runner matches `window` against whatever the platform backend calls the
+window, and that is not the same thing everywhere:
+
+| OS | matched against | use |
 |---|---|---|
-| `launch-empty.json` | no | window title, toolbar, status bar text, File menu |
+| Windows | window title | `"Rusty Demon"` |
+| macOS | process name | `"rustydemon"` |
+| Linux | AT-SPI application name, which egui leaves empty | nothing matches yet, see below |
 
 ## Conventions
 
 - Find elements by accessible **name**. Every row in the file browser and
   the folder/search list publishes its file name; folder carets are
   `Expand <name>` / `Collapse <name>`.
-- Don't rely on keys to drive the UI. A key sent through the accessibility
-  API does not reach egui on native Wayland, so scripts click instead.
-- `verified` records the platforms a script has actually passed on, with
-  the date. A platform without an entry is written from the code, not a run.
+- Don't use keys to drive the UI. A key sent through the accessibility API
+  does not reach egui on native Wayland, so scripts click instead.
+- Don't use `type` on the search box yet: on Windows egui ignores the
+  accessibility "set value" call.
+- Static labels (status bar, panel text) are not findable by name on macOS,
+  so gate those checks with `"only": ["linux", "windows"]`.
 
 ## Known limits
 
-- **Linux, window lookup.** The runner matches windows by AT-SPI application
-  name. egui does not set one, so rustydemon's is empty and
-  `"window": "Rusty Demon"` finds nothing until bad-ass-mcp falls back to
-  the frame's name, which does carry the title.
-- **Linux, file dialogs.** On KDE the open/save dialogs belong to
-  `xdg-desktop-portal-kde`, a process that exists before the app starts.
-  With `app` set the runner only drives the launched process, so flows that
-  load a listfile or pick an export folder can't be scripted yet. Those
-  flows are covered by `rustydemon-cli export` and by hand for now.
+- **Linux, window lookup.** rustydemon's AT-SPI application name is empty,
+  so the runner reports `no window matching 'Rusty Demon'` until
+  bad-ass-mcp falls back to the frame's name, which does carry the title.
+- **Native file dialogs.** Flows that pick a folder or file through a dialog
+  (Export, Load Listfile from the menu) are not scripted. On KDE the dialog
+  belongs to `xdg-desktop-portal-kde`, a process that exists before the app
+  starts, and the runner only drives the process it launched. `--listfile`
+  covers loading; export is checked with `rustydemon-cli export`.

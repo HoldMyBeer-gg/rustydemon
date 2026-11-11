@@ -1,0 +1,168 @@
+{
+  "name": "wowf-ghost-entries",
+  "covers": "Issue #3: with a WoW Forever archive and the community listfile, folders the build does not ship (interface/framexml, interface/gluexml, interface_vanilla and friends) are absent from the file browser, while real folders are present, expandable and browsable by name.",
+  "requires": "A World of Warcraft install with the WoW Forever product (wowf) and a current community listfile, both passed on the app's command line by the config. See smoke/README.md.",
+  "platforms": [
+    "linux",
+    "macos",
+    "windows"
+  ],
+  "verified": {
+    "linux": "2026-11-11"
+  },
+  "phases": [
+    {
+      "name": "archive and listfile load",
+      "note": "Opening the archive and building the tree takes 15 to 20 seconds on a Steam Deck.",
+      "learn": {},
+      "steps": [
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "Expand interface",
+          "timeout": 120
+        }
+      ],
+      "checks": [
+        {
+          "present": {
+            "name": "interface"
+          }
+        },
+        {
+          "absent": {
+            "name": "interface_vanilla"
+          }
+        },
+        {
+          "absent": {
+            "name": "interface_tbc"
+          }
+        },
+        {
+          "absent": {
+            "name": "interface_wrath"
+          }
+        },
+        {
+          "absent": {
+            "name": "interface_cata"
+          }
+        }
+      ]
+    },
+    {
+      "name": "interface has no FrameXML",
+      "learn": {
+        "expand_interface": {
+          "name": "Expand interface"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "expand_interface"
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "Expand addons",
+          "timeout": 10
+        }
+      ],
+      "checks": [
+        {
+          "present": {
+            "name": "Collapse interface"
+          }
+        },
+        {
+          "absent": {
+            "name": "framexml"
+          }
+        },
+        {
+          "absent": {
+            "name": "gluexml"
+          }
+        },
+        {
+          "present": {
+            "name": "glues"
+          },
+          "note": "Sorts after framexml, so its presence shows the list was not cut short."
+        },
+        {
+          "present": {
+            "name": "icons"
+          }
+        }
+      ]
+    },
+    {
+      "name": "addons expands",
+      "learn": {
+        "expand_addons": {
+          "name": "Expand addons"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "expand_addons"
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "blizzard_gamepad",
+          "timeout": 10
+        }
+      ],
+      "checks": [
+        {
+          "present": {
+            "name": "Collapse addons"
+          }
+        }
+      ]
+    },
+    {
+      "name": "folder browses",
+      "learn": {
+        "gamepad": {
+          "name": "blizzard_gamepad"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "gamepad"
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "Export Folder",
+          "timeout": 10
+        }
+      ],
+      "checks": [
+        {
+          "present": {
+            "name": "blizzard_gamepad.toc"
+          }
+        },
+        {
+          "present": {
+            "name": "Select All"
+          }
+        }
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "windows": 1
+    }
+  ],
+  "notes": "Linux run 2026-11-11 (SteamOS, KDE Wayland, wowf 1.60.1.70862) passed 3 of 3 in about 13 seconds, with the same local bad-ass-mcp change as launch-empty. Not run on macOS or Windows yet. Export itself is not scripted because it opens a native folder dialog; check it with rustydemon-cli export --path interface/addons/blizzard_gamepad."
+}
