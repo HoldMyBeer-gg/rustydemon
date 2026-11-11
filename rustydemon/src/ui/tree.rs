@@ -190,6 +190,24 @@ fn tree_row(
     };
     let body_resp = ui.interact(body_rect, body_id, egui::Sense::click());
 
+    // The row is painted by hand below, so egui knows nothing about it
+    // unless we describe it.  Without this the whole file browser is
+    // invisible to screen readers and UI automation.
+    body_resp.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::SelectableLabel,
+            true,
+            is_sel || is_browsed,
+            name,
+        )
+    });
+    if let (Some(resp), Some(open)) = (&caret_resp, caret) {
+        let verb = if open { "Collapse" } else { "Expand" };
+        resp.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{verb} {name}"))
+        });
+    }
+
     // Hover paints the *body* zone — caret hover is implicit feedback only.
     let resp = &body_resp;
 
@@ -286,5 +304,58 @@ fn file_icon(name: &str) -> &'static str {
         "🎬"
     } else {
         "📄"
+    }
+}
+
+#[cfg(test)]
+mod a11y_tests {
+    use super::*;
+
+    /// Names of every accessibility node one headless frame publishes.
+    fn published_names(add: impl FnMut(&mut egui::Ui)) -> Vec<String> {
+        let mut add = add;
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let out = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| add(ui));
+        });
+        out.platform_output
+            .accesskit_update
+            .expect("accesskit enabled")
+            .nodes
+            .iter()
+            .filter_map(|(_, n)| n.name().map(str::to_owned))
+            .collect()
+    }
+
+    /// Hand-painted rows must still describe themselves, or screen readers
+    /// and UI automation see an empty file browser.
+    #[test]
+    fn folder_row_is_published_with_its_name() {
+        let names = published_names(|ui| {
+            tree_row(ui, 1, Some(false), "📁", "interface", false, false);
+        });
+        assert!(names.iter().any(|n| n == "interface"), "{names:?}");
+    }
+
+    #[test]
+    fn folder_caret_says_what_it_will_do() {
+        let closed = published_names(|ui| {
+            tree_row(ui, 1, Some(false), "📁", "interface", false, false);
+        });
+        assert!(closed.iter().any(|n| n == "Expand interface"), "{closed:?}");
+
+        let open = published_names(|ui| {
+            tree_row(ui, 1, Some(true), "📁", "interface", false, false);
+        });
+        assert!(open.iter().any(|n| n == "Collapse interface"), "{open:?}");
+    }
+
+    #[test]
+    fn file_row_is_published_with_its_name() {
+        let names = published_names(|ui| {
+            tree_row(ui, 2, None, "📄", "bindings.xml", false, true);
+        });
+        assert!(names.iter().any(|n| n == "bindings.xml"), "{names:?}");
     }
 }
