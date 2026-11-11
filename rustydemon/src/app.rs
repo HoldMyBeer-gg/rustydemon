@@ -139,6 +139,9 @@ pub struct CascExplorerApp {
     pub expanded: HashSet<String>,
     /// Set to `true` when `expanded` changes so the tree re-applies the states.
     pub expansion_dirty: bool,
+    /// Listfile given on the command line (`--listfile`), applied once to
+    /// the next archive that opens.
+    pub pending_listfile: Option<std::path::PathBuf>,
 
     // ── Search / browsing ────────────────────────────────────────────────────
     pub search_text: String,
@@ -241,6 +244,7 @@ impl CascExplorerApp {
             detected_products: vec![],
             expanded: HashSet::new(),
             expansion_dirty: false,
+            pending_listfile: None,
             search_text: String::new(),
             search_results: vec![],
             deep_search_enabled: false,
@@ -340,6 +344,11 @@ impl CascExplorerApp {
                 self.expanded.clear();
                 self.bg_rx = None;
                 self.loading = false;
+                // `--listfile`: the archive is ready, so the tree can be
+                // built now without a trip through the file dialog.
+                if let Some(listfile) = self.pending_listfile.take() {
+                    self.load_listfile(listfile);
+                }
             }
             Ok(BgResult::OpenError(e)) => {
                 self.status = e;

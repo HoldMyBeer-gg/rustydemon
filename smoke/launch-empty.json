@@ -7,7 +7,9 @@
     "windows"
   ],
   "verified": {
-    "linux": "2026-11-11"
+    "linux": "2026-11-11",
+    "macos": "2026-11-11",
+    "windows": "2026-11-11"
   },
   "phases": [
     {
@@ -109,5 +111,5 @@
       "windows": 1
     }
   ],
-  "notes": "Linux run 2026-11-11 (SteamOS, KDE Wayland) passed with bad-ass-mcp f7e77aa plus a local change that names a window after its first frame when the AT-SPI application name is empty; without that change the runner cannot find the window on Linux (see README). macOS and Windows names are the same strings but have not been run yet."
+  "notes": "Passed on SteamOS (KDE Wayland), macOS 26 and Windows 11 on 2026-11-11. The config's `window` value differs per OS (see README). The Linux pass needed a local bad-ass-mcp change that names a window after its first frame when the AT-SPI application name is empty."
 }
