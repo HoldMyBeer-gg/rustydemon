@@ -34,7 +34,7 @@ fn main() -> eframe::Result {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Rusty Demon — CASC Explorer")
+            .with_title(app::APP_TITLE)
             .with_inner_size([1100.0, 700.0])
             .with_min_inner_size([800.0, 500.0])
             .with_icon(
@@ -45,7 +45,7 @@ fn main() -> eframe::Result {
     };
 
     eframe::run_native(
-        "Rusty Demon — CASC Explorer",
+        app::APP_TITLE,
         native_options,
         Box::new(move |cc| {
             let mut app = CascExplorerApp::new(cc);

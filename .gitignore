@@ -13,3 +13,7 @@ collab*.db*
 ssh.exe.stackdump
 CascLib/
 OWLib/
+
+# BAM smoke runs (machine-specific config and results)
+/bam.json
+/bam-results/

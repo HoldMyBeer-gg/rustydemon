@@ -107,6 +107,8 @@ enum BgResult {
     ExportComplete {
         ok: usize,
         fail: usize,
+        /// Requested files the archive couldn't resolve at all.
+        missing: usize,
         label: String,
     },
     /// A text search completed.
@@ -361,8 +363,13 @@ impl CascExplorerApp {
                 self.bg_rx = None;
                 self.loading = false;
             }
-            Ok(BgResult::ExportComplete { ok, fail, label }) => {
-                self.status = format!("Exported {ok} files from {label} ({fail} failed)");
+            Ok(BgResult::ExportComplete {
+                ok,
+                fail,
+                missing,
+                label,
+            }) => {
+                self.status = export_status(ok, fail, missing, &label);
                 self.bg_rx = None;
                 self.loading = false;
             }
@@ -700,9 +707,10 @@ impl CascExplorerApp {
         };
 
         // Prepare all work items on the UI thread (fast hash lookups).
+        let total = self.multi_selected.len();
         let items =
             self.prepare_export_items(handler, self.multi_selected.iter().copied().collect());
-        let total = items.len();
+        let missing = total - items.len();
 
         self.cancel_bg();
         self.status = format!("Exporting {total} files…");
@@ -718,6 +726,7 @@ impl CascExplorerApp {
                 let _ = tx.send(BgResult::ExportComplete {
                     ok,
                     fail,
+                    missing,
                     label: format!("{total} selected files"),
                 });
             }
@@ -762,6 +771,7 @@ impl CascExplorerApp {
         let total = hashes.len();
 
         let items = self.prepare_export_items(handler, hashes);
+        let missing = total - items.len();
 
         self.cancel_bg();
         self.status = format!("Exporting {total} files from {folder_path}…");
@@ -777,6 +787,7 @@ impl CascExplorerApp {
                 let _ = tx.send(BgResult::ExportComplete {
                     ok,
                     fail,
+                    missing,
                     label: folder_path,
                 });
             }
@@ -817,6 +828,7 @@ impl eframe::App for CascExplorerApp {
         if let Some(new_override) = self.pending_preview_override.take() {
             crate::ui::preview::apply_preview_override(self, new_override, ctx);
         }
+        publish_window_name(ctx);
         self.apply_pending_audio();
         self.poll_background(ctx);
         crate::ui::draw(ctx, self);
@@ -825,6 +837,31 @@ impl eframe::App for CascExplorerApp {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/// Window title, shared by the native window and the accessibility root.
+pub const APP_TITLE: &str = "Rusty Demon — CASC Explorer";
+
+/// Give the accessibility root node the window title.
+///
+/// egui creates the root as an unnamed `Window`, so without this the
+/// window has an empty accessible name and can't be found by title.
+pub fn publish_window_name(ctx: &egui::Context) {
+    ctx.accesskit_node_builder(egui::accesskit_root_id(), |node| {
+        node.set_name(APP_TITLE);
+    });
+}
+
+/// Status-bar summary for a finished batch export.
+///
+/// `missing` counts requested files the archive couldn't resolve (not in the
+/// root manifest, or no local data), which never reach the export thread.
+fn export_status(ok: usize, fail: usize, missing: usize, label: &str) -> String {
+    if missing == 0 {
+        format!("Exported {ok} files from {label} ({fail} failed)")
+    } else {
+        format!("Exported {ok} files from {label} ({fail} failed, {missing} not in this build)")
+    }
+}
 
 /// Execute a batch of prepared exports on a background thread.
 fn run_export(items: &[ExportItem], dest: &std::path::Path, cancel: &AtomicBool) -> (usize, usize) {
@@ -984,4 +1021,53 @@ pub fn detect_game_installs() -> Vec<(String, std::path::PathBuf)> {
     found.sort_by(|a, b| a.0.cmp(&b.0));
     found.dedup_by(|a, b| a.1 == b.1);
     found
+}
+
+#[cfg(test)]
+mod export_status_tests {
+    use super::export_status;
+
+    #[test]
+    fn plain_when_everything_resolved() {
+        assert_eq!(
+            export_status(5, 1, 0, "6 selected files"),
+            "Exported 5 files from 6 selected files (1 failed)"
+        );
+    }
+
+    /// Issue #3: 678 files selected, none present in the build.  The status
+    /// must say so instead of "Exported 0 files from 0 selected files".
+    #[test]
+    fn reports_files_missing_from_build() {
+        assert_eq!(
+            export_status(0, 0, 678, "678 selected files"),
+            "Exported 0 files from 678 selected files (0 failed, 678 not in this build)"
+        );
+    }
+}
+
+#[cfg(test)]
+mod window_name_tests {
+    use super::{publish_window_name, APP_TITLE};
+
+    /// The accessibility root must carry the window title, or automation
+    /// and screen readers can't find the window by name.
+    #[test]
+    fn root_node_carries_the_window_title() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let out = ctx.run(egui::RawInput::default(), |ctx| {
+            publish_window_name(ctx);
+        });
+        let update = out
+            .platform_output
+            .accesskit_update
+            .expect("accesskit enabled");
+        let root = update
+            .nodes
+            .iter()
+            .find(|(_, n)| n.role() == egui::accesskit::Role::Window)
+            .expect("root window node");
+        assert_eq!(root.1.name(), Some(APP_TITLE));
+    }
 }

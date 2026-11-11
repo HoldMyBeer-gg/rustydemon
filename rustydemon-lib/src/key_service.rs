@@ -587,19 +587,23 @@ mod user_key_file_tests {
         let dir = std::env::temp_dir().join(format!("rustydemon-keys-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(USER_KEY_FILE);
-        // A key name that is not in KNOWN_KEYS.
+        // A key name that is not in KNOWN_KEYS.  It must also be private to
+        // this test: loaded keys live in a process-global table, and the
+        // missing-key tests in `handler` and `blte` rely on
+        // C79F0F4C3715500A staying unknown.  Sharing that name made those
+        // tests fail whenever this one ran first.
         std::fs::write(
             &path,
-            "# comment\nC79F0F4C3715500A 000102030405060708090A0B0C0D0E0F\n",
+            "# comment\n7E57C0DE0000F11E 000102030405060708090A0B0C0D0E0F\n",
         )
         .unwrap();
 
         assert!(!KEY_TABLE
             .get_or_init(build_table)
-            .contains_key(&0xC79F_0F4C_3715_500A));
+            .contains_key(&0x7E57_C0DE_0000_F11E));
         assert_eq!(load_keys_from_file(&path).unwrap(), 1);
         assert_eq!(
-            get_key(0xC79F_0F4C_3715_500A),
+            get_key(0x7E57_C0DE_0000_F11E),
             Some([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
         );
 

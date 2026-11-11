@@ -24,6 +24,9 @@ const DATA_HEADER_BYTES: u64 = 30;
 
 /// Parse a listfile and build the filename map + folder tree off-thread.
 ///
+/// Entries with a FileDataID that `fdid_hashes` doesn't contain are dropped
+/// when `fdid_hashes` is non-empty: they aren't in this build.
+///
 /// Call [`CascHandler::fdid_hash_snapshot`] to obtain `fdid_hashes` before
 /// spawning the background thread, then pass the result to
 /// [`CascHandler::apply_listfile`] on the UI thread.
@@ -34,10 +37,19 @@ pub fn prepare_listfile(
     let mut filenames = HashMap::new();
     let mut entries: Vec<(u64, String, Option<u32>)> = Vec::new();
 
+    // A root that indexes by FileDataID is authoritative: a listfile line
+    // whose ID it doesn't know names a file this build doesn't ship (the
+    // community listfile covers every WoW product), so leave it out of the
+    // tree.  Roots without FileDataIDs can't be checked; fall back to the
+    // name hash for those, and for path-only lines.
+    let root_has_fdids = !fdid_hashes.is_empty();
+
     for (path, fdid) in parse_listfile(content) {
-        let hash = fdid
-            .and_then(|id| fdid_hashes.get(&id).copied())
-            .unwrap_or_else(|| jenkins96(&path));
+        let hash = match fdid.and_then(|id| fdid_hashes.get(&id).copied()) {
+            Some(h) => h,
+            None if fdid.is_some() && root_has_fdids => continue,
+            None => jenkins96(&path),
+        };
 
         filenames.insert(hash, path.clone());
         entries.push((hash, path, fdid));
@@ -507,19 +519,9 @@ impl CascHandler {
     /// The listfile may use either `path\npath\n…` or `fileDataId;path\n…`
     /// format.  Both formats can be mixed in the same file.
     pub fn load_listfile(&mut self, content: &str) {
-        let mut entries: Vec<(u64, String, Option<u32>)> = Vec::new();
-
-        for (path, fdid) in parse_listfile(content) {
-            let hash = self
-                .root
-                .hash_for_file_data_id(fdid.unwrap_or(0))
-                .unwrap_or_else(|| jenkins96(&path));
-
-            self.filenames.insert(hash, path.clone());
-            entries.push((hash, path, fdid));
-        }
-
-        self.root_folder = Some(build_tree(entries));
+        let (filenames, tree) = prepare_listfile(content, &self.root.fdid_hash_map());
+        self.filenames.extend(filenames);
+        self.root_folder = Some(tree);
     }
 
     /// Snapshot the FileDataId → hash mapping so a background thread can
@@ -1058,5 +1060,72 @@ mod missing_key_tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod listfile_tests {
+    use super::*;
+
+    fn names(tree: &CascFolder) -> Vec<String> {
+        let mut out = Vec::new();
+        fn walk(f: &CascFolder, out: &mut Vec<String>) {
+            for file in f.files.values() {
+                out.push(file.full_path.clone());
+            }
+            for sub in f.folders.values() {
+                walk(sub, out);
+            }
+        }
+        walk(tree, &mut out);
+        out.sort();
+        out
+    }
+
+    /// Issue #3: the community listfile names files from every WoW product.
+    /// Entries whose FileDataID is absent from this build's root must not
+    /// appear in the tree, or the user selects files that cannot be exported.
+    #[test]
+    fn skips_fdids_absent_from_root() {
+        let listfile = "\
+804067;interface/framexml/bankframe.lua
+6188214;interface/addons/blizzard_gamepad/blizzard_gamepad.toc
+";
+        let mut root = HashMap::new();
+        root.insert(6188214u32, 0xABCDu64);
+
+        let (filenames, tree) = prepare_listfile(listfile, &root);
+
+        assert_eq!(filenames.len(), 1);
+        assert_eq!(
+            filenames.get(&0xABCD).map(String::as_str),
+            Some("interface/addons/blizzard_gamepad/blizzard_gamepad.toc")
+        );
+        assert_eq!(
+            names(&tree),
+            vec!["interface/addons/blizzard_gamepad/blizzard_gamepad.toc"]
+        );
+    }
+
+    /// Roots without FileDataIDs (empty snapshot) can't verify anything, so
+    /// every entry is kept and resolved by name hash as before.
+    #[test]
+    fn keeps_everything_when_root_has_no_fdids() {
+        let listfile = "804067;interface/framexml/bankframe.lua\n";
+        let (filenames, tree) = prepare_listfile(listfile, &HashMap::new());
+
+        assert_eq!(filenames.len(), 1);
+        assert_eq!(names(&tree), vec!["interface/framexml/bankframe.lua"]);
+    }
+
+    /// Path-only lines carry no FileDataID to check; keep them.
+    #[test]
+    fn keeps_path_only_lines() {
+        let listfile = "world/maps/azeroth/azeroth.wdt\n";
+        let mut root = HashMap::new();
+        root.insert(1u32, 2u64);
+
+        let (filenames, _) = prepare_listfile(listfile, &root);
+        assert_eq!(filenames.len(), 1);
     }
 }

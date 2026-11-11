@@ -291,6 +291,10 @@ fn draw_file_row(
         egui::vec2(ui.available_width(), row_h),
         egui::Sense::click(),
     );
+    // Hand-painted row: describe it so it reaches the accessibility tree.
+    resp.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, is_sel, name)
+    });
     let painter = ui.painter();
 
     if is_sel {
@@ -357,5 +361,30 @@ fn file_icon(name: &str) -> &'static str {
         "🎬"
     } else {
         "📄"
+    }
+}
+
+#[cfg(test)]
+mod a11y_tests {
+    use super::*;
+
+    #[test]
+    fn file_row_is_published_with_its_name() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let out = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                draw_file_row(ui, "core.lua", "FDID 1 · abc · —", "📄", false);
+            });
+        });
+        let names: Vec<String> = out
+            .platform_output
+            .accesskit_update
+            .expect("accesskit enabled")
+            .nodes
+            .iter()
+            .filter_map(|(_, n)| n.name().map(str::to_owned))
+            .collect();
+        assert!(names.iter().any(|n| n == "core.lua"), "{names:?}");
     }
 }
