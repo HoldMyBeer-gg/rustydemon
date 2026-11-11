@@ -76,6 +76,13 @@ window, and that is not the same thing everywhere:
 - Find elements by accessible **name**. Every row in the file browser and
   the folder/search list publishes its file name; folder carets are
   `Expand <name>` / `Collapse <name>`.
+- Names can repeat once folders are expanded. WoW Forever has a nested
+  `interface/interface`, so after expanding the root `interface` there are
+  two rows with that name and `Expand interface` refers to the child. Check
+  for `Collapse <name>` after expanding, and avoid acting on a name that a
+  child folder may share.
+- Keep to the keys the runner knows. bad-ass-mcp 1.6 rejects a script with
+  an unknown key; put free-form remarks in `note`, `notes` or `covers`.
 - Don't use keys to drive the UI. A key sent through the accessibility API
   does not reach egui on native Wayland, so scripts click instead.
 - Don't use `type` on the search box yet: on Windows egui ignores the

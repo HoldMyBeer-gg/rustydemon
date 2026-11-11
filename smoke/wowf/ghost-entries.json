@@ -1,14 +1,14 @@
 {
   "name": "wowf-ghost-entries",
   "covers": "Issue #3: with a WoW Forever archive and the community listfile, folders the build does not ship (interface/framexml, interface/gluexml, interface_vanilla and friends) are absent from the file browser, while real folders are present, expandable and browsable by name.",
-  "requires": "A World of Warcraft install with the WoW Forever product (wowf) and a current community listfile, both passed on the app's command line by the config. See smoke/README.md.",
   "platforms": [
     "linux",
     "macos",
     "windows"
   ],
   "verified": {
-    "linux": "2026-11-11"
+    "linux": "2026-11-11",
+    "windows": "2026-11-11"
   },
   "phases": [
     {
@@ -164,5 +164,5 @@
       "windows": 1
     }
   ],
-  "notes": "Linux run 2026-11-11 (SteamOS, KDE Wayland, wowf 1.60.1.70862) passed 3 of 3 in about 13 seconds, with the same local bad-ass-mcp change as launch-empty. Not run on macOS or Windows yet. Export itself is not scripted because it opens a native folder dialog; check it with rustydemon-cli export --path interface/addons/blizzard_gamepad."
+  "notes": "Requires: a World of Warcraft install with the WoW Forever product (wowf) and a current community listfile, both passed on the app's command line by the config. See smoke/README.md. Linux run 2026-11-11 (SteamOS, KDE Wayland, wowf 1.60.1.70862) passed 3 of 3 in about 13 seconds, with the same local bad-ass-mcp change as launch-empty. Windows 11 run 2026-11-11 (wowf 1.60.1.70888) passed in 14.4 seconds. Not run on macOS (no game install there). Export itself is not scripted because it opens a native folder dialog; check it with rustydemon-cli export --path interface/addons/blizzard_gamepad."
 }
