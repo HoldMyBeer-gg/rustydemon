@@ -1,0 +1,163 @@
+{
+  "name": "sylvanas-spin",
+  "covers": "Open WoW from File > Open Game, glob-search *Sylvanas*.m2, select the model, and orbit the 3D preview with a right-to-left drag.",
+  "platforms": [
+    "windows"
+  ],
+  "verified": {
+    "windows": "2026-11-11"
+  },
+  "phases": [
+    {
+      "name": "open WoW from the menu",
+      "learn": {
+        "file": {
+          "name": "File"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "file"
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "Open Game",
+          "timeout": 5
+        }
+      ]
+    },
+    {
+      "name": "open game submenu",
+      "note": "egui opens submenus on hover; a UIA Invoke doesn't. A zero-length drag is a real pointer click.",
+      "learn": {
+        "open_game": {
+          "name": "Open Game"
+        }
+      },
+      "steps": [
+        {
+          "action": "drag",
+          "from_target": "open_game",
+          "dx": 0,
+          "dy": 0
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "World of Warcraft [Battle.net]",
+          "timeout": 5
+        }
+      ]
+    },
+    {
+      "name": "archive loads",
+      "learn": {
+        "wow": {
+          "name": "World of Warcraft [Battle.net]"
+        }
+      },
+      "steps": [
+        {
+          "action": "drag",
+          "from_target": "wow",
+          "dx": 0,
+          "dy": 0
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "Expand interface",
+          "timeout": 120
+        }
+      ]
+    },
+    {
+      "name": "glob search",
+      "learn": {
+        "query": {
+          "role": "textfield"
+        },
+        "search": {
+          "name": "Search"
+        }
+      },
+      "steps": [
+        {
+          "action": "type",
+          "target": "query",
+          "text": "*Sylvanas*.m2"
+        },
+        {
+          "action": "click",
+          "target": "search"
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "sylvanas.m2",
+          "timeout": 20
+        }
+      ],
+      "checks": [
+        {
+          "present": {
+            "name": "ladysylvanaswindrunner.m2"
+          }
+        }
+      ]
+    },
+    {
+      "name": "model preview",
+      "learn": {
+        "hit": {
+          "name": "sylvanas.m2"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "hit"
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "Export As OBJ",
+          "timeout": 20
+        },
+        {
+          "action": "sleep",
+          "seconds": 1.5
+        }
+      ]
+    },
+    {
+      "name": "spin the model",
+      "note": "Drag from the viewport's center leftward; it is found by its accessible name, so the window's position doesn't matter.",
+      "learn": {
+        "preview": {
+          "name": "3D preview: drag to rotate, Shift+drag to pan, scroll to zoom"
+        }
+      },
+      "steps": [
+        {
+          "action": "drag",
+          "from_target": "preview",
+          "dx": -160,
+          "dy": 0
+        },
+        {
+          "action": "sleep",
+          "seconds": 0.5
+        }
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "windows": 1
+    }
+  ],
+  "notes": "Requires a World of Warcraft install that File > Open Game detects, and a current community listfile passed with --listfile (it loads when the archive opens). Windows-only for now: the Open Game item is named after the detected install, and the submenu is opened with a zero-length drag because egui opens submenus on hover and an accessibility Invoke does not hover. Windows 11 run 2026-11-11 (wowf) passed in 11.4 seconds, 21.2 in demo mode."
+}
