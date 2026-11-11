@@ -12,6 +12,13 @@
 #
 # Installers are currently unsigned. Apple Dev ID notarization and Windows
 # Authenticode signing are separate follow-ups.
+#
+# Until then a release carries two things anyone can check for themselves:
+#   SHA256SUMS.txt        -> the checksum of every file in the release
+#   a build attestation   -> GitHub's signed statement that each file was
+#                            built by this workflow from the tagged commit.
+#                            Check one with:
+#                              gh attestation verify <file> --repo HoldMyBeer-gg/rustydemon
 
 name: Release
 
@@ -23,6 +30,9 @@ on:
 
 permissions:
   contents: write
+  # Both are needed to sign and store the build attestation.
+  id-token: write
+  attestations: write
 
 jobs:
   linux:
@@ -95,6 +105,15 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+      - name: Write checksums
+        run: sha256sum *.tar.gz *.dmg *.msi | tee SHA256SUMS.txt
+      - name: Attest that these files came from this workflow
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            *.tar.gz
+            *.dmg
+            *.msi
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -103,3 +122,4 @@ jobs:
             *.tar.gz
             *.dmg
             *.msi
+            SHA256SUMS.txt
