@@ -741,7 +741,10 @@ mod resolve_folder_case_tests {
         assert_eq!(resolve_folder_case(tmp.path(), "Data"), "Data");
     }
 
-    #[cfg(unix)]
+    // The two case-variant tests need a case-sensitive filesystem.  macOS
+    // volumes are case-insensitive by default, so "Data" already resolves
+    // to "data"/"DATA" there and the fast path answers first.
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn lowercase_fallback() {
         let tmp = tempdir();
@@ -749,7 +752,7 @@ mod resolve_folder_case_tests {
         assert_eq!(resolve_folder_case(tmp.path(), "Data"), "data");
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn uppercase_variant() {
         let tmp = tempdir();
@@ -765,13 +768,14 @@ mod resolve_folder_case_tests {
 
     /// Minimal temp-dir helper so we don't add a dev-dependency on `tempfile`.
     fn tempdir() -> TempDir {
+        // Process id + counter, not a timestamp: tests run in parallel and
+        // coarse clocks hand two of them the same directory.
+        static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let mut path = std::env::temp_dir();
         path.push(format!(
-            "rustydemon-case-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
+            "rustydemon-case-test-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&path).unwrap();
         TempDir { path }
