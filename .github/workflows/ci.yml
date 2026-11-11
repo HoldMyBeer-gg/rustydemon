@@ -29,10 +29,19 @@ jobs:
   # ── Clippy ──────────────────────────────────────────────────────────────────
   clippy:
     name: Clippy
-    # Pinned: the ubuntu-26.04 image behind ubuntu-latest could not resolve
-    # the Ubuntu package mirrors (2026-11-11), which left apt-get retrying
-    # for 30+ minutes.  The timeout turns any repeat into a quick failure.
-    runs-on: ubuntu-24.04
+    # Linux jobs run in Debian (the official Rust image on Debian 13), the
+    # base of the Linux desktops the app is tested on by hand.
+    #
+    # They install no system packages.  Nothing in the dependency tree
+    # links a system library at build time: file dialogs go through the XDG
+    # portal, not GTK; HTTP uses rustls, not OpenSSL; Wayland and xkbcommon
+    # are loaded at run time.  An apt-get step used to sit here, and on
+    # 2026-11-11 it hung every Linux job for 30+ minutes when GitHub's
+    # runners could not resolve the Ubuntu package mirrors.  If a future
+    # dependency does need a system library, this job fails at link time,
+    # which is the cue to add the package back.
+    runs-on: ubuntu-latest
+    container: rust:1-slim-trixie
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -40,12 +49,6 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Install Linux GUI deps
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libxkbcommon-dev libssl-dev
       - name: Clippy
         run: >
           cargo clippy
@@ -63,25 +66,28 @@ jobs:
   # this is the "builds and isn't broken" check for macOS and Windows, which
   # were previously only compiled at release time.
   test:
-    name: Tests (${{ matrix.os }})
+    name: Tests (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
-        # ubuntu is pinned for the same reason as the Clippy job above.
-        os: [ubuntu-24.04, macos-latest, windows-latest]
+        include:
+          # Linux runs in Debian with no system packages; see the Clippy
+          # job above for why.
+          - name: debian-13
+            os: ubuntu-latest
+            container: rust:1-slim-trixie
+          - name: macos-latest
+            os: macos-latest
+          - name: windows-latest
+            os: windows-latest
     runs-on: ${{ matrix.os }}
+    # Empty for macOS and Windows, which means "no container".
+    container: ${{ matrix.container }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install Linux GUI deps
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libxkbcommon-dev libssl-dev
       - run: cargo test --workspace
 
   # ── Security audit ──────────────────────────────────────────────────────────
