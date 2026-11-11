@@ -828,6 +828,7 @@ impl eframe::App for CascExplorerApp {
         if let Some(new_override) = self.pending_preview_override.take() {
             crate::ui::preview::apply_preview_override(self, new_override, ctx);
         }
+        publish_window_name(ctx);
         self.apply_pending_audio();
         self.poll_background(ctx);
         crate::ui::draw(ctx, self);
@@ -836,6 +837,19 @@ impl eframe::App for CascExplorerApp {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+/// Window title, shared by the native window and the accessibility root.
+pub const APP_TITLE: &str = "Rusty Demon — CASC Explorer";
+
+/// Give the accessibility root node the window title.
+///
+/// egui creates the root as an unnamed `Window`, so without this the
+/// window has an empty accessible name and can't be found by title.
+pub fn publish_window_name(ctx: &egui::Context) {
+    ctx.accesskit_node_builder(egui::accesskit_root_id(), |node| {
+        node.set_name(APP_TITLE);
+    });
+}
 
 /// Status-bar summary for a finished batch export.
 ///
@@ -1029,5 +1043,31 @@ mod export_status_tests {
             export_status(0, 0, 678, "678 selected files"),
             "Exported 0 files from 678 selected files (0 failed, 678 not in this build)"
         );
+    }
+}
+
+#[cfg(test)]
+mod window_name_tests {
+    use super::{publish_window_name, APP_TITLE};
+
+    /// The accessibility root must carry the window title, or automation
+    /// and screen readers can't find the window by name.
+    #[test]
+    fn root_node_carries_the_window_title() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let out = ctx.run(egui::RawInput::default(), |ctx| {
+            publish_window_name(ctx);
+        });
+        let update = out
+            .platform_output
+            .accesskit_update
+            .expect("accesskit enabled");
+        let root = update
+            .nodes
+            .iter()
+            .find(|(_, n)| n.role() == egui::accesskit::Role::Window)
+            .expect("root window node");
+        assert_eq!(root.1.name(), Some(APP_TITLE));
     }
 }
