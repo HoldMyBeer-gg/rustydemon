@@ -1,0 +1,60 @@
+# Maintainer: jabberwock <88205+jabberwock@users.noreply.github.com>
+
+pkgname=rustydemon-bin
+pkgver=0.5.0
+pkgrel=1
+pkgdesc="CASC archive explorer for Blizzard games (prebuilt binary)"
+arch=('x86_64')
+url="https://github.com/HoldMyBeer-gg/rustydemon"
+license=('LicenseRef-AGPL-3.0-or-later-with-Commons-Clause')
+depends=(
+  'glibc'
+  'gcc-libs'
+  'libxkbcommon'
+  'wayland'
+  'libx11'
+  'libxcursor'
+  'libxi'
+  'libxrandr'
+  'vulkan-icd-loader'
+  'xdg-desktop-portal'
+  'hicolor-icon-theme'
+)
+optdepends=(
+  'vulkan-driver: hardware rendering'
+  'xdg-desktop-portal-impl: file and folder dialogs'
+)
+provides=('rustydemon')
+conflicts=('rustydemon')
+options=('!strip' '!debug')
+
+_raw="https://raw.githubusercontent.com/HoldMyBeer-gg/rustydemon/v${pkgver}"
+source=(
+  "${url}/releases/download/v${pkgver}/rustydemon-${pkgver}-x86_64-unknown-linux-gnu.tar.gz"
+  "rustydemon-${pkgver}-LICENSE::${_raw}/LICENSE"
+  "rustydemon-${pkgver}-48.png::${_raw}/assets/icons/linux/icon_48.png"
+  "rustydemon-${pkgver}-128.png::${_raw}/assets/icons/linux/icon_128.png"
+  "rustydemon-${pkgver}-256.png::${_raw}/assets/icons/linux/icon_256.png"
+  "rustydemon-${pkgver}-512.png::${_raw}/assets/icons/linux/icon_512.png"
+  "rustydemon.desktop"
+)
+sha256sums=(
+  '915a10e73b84a087b81fcd53bcfbbf2fa27c3803d316bc5b127f5f77a3aa3bb7'
+  '483582ee577c488c632ce346929f3eb223912b02438e172f8c0ae6639bb60ac6'
+  '230d90c0d22d76902137078f21071156d290c75cd017598a221168222fd311ae'
+  'f048a73aebcf1f0315a7e72cf29810528938a9858872c99ae1d618738c4c2bde'
+  'a9af2adc3d5626a04e0f8d2e7052d19e7705dec0e7a4a207155aa240b5f68526'
+  '8204c7773ca91e8c59e5deb2659ce1a5daf8a91d78158d79f7d3934f2b2512e4'
+  '146350847108fa2b2b77f7897978308223fe485d4f771df0f5f35cbd0a8c0692'
+)
+
+package() {
+  install -Dm755 rustydemon "${pkgdir}/usr/bin/rustydemon"
+  install -Dm644 rustydemon.desktop "${pkgdir}/usr/share/applications/rustydemon.desktop"
+  install -Dm644 "rustydemon-${pkgver}-LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  local size
+  for size in 48 128 256 512; do
+    install -Dm644 "rustydemon-${pkgver}-${size}.png" \
+      "${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/rustydemon.png"
+  done
+}

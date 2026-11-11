@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Rusty Demon
+GenericName=CASC Archive Explorer
+Comment=Browse, preview and export files from Blizzard game archives
+Exec=rustydemon %f
+Icon=rustydemon
+Terminal=false
+Categories=Utility;
+Keywords=casc;blizzard;wow;diablo;starcraft;overwatch;archive;
+StartupNotify=true
