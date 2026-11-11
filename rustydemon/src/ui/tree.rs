@@ -2,6 +2,75 @@ use crate::app::CascExplorerApp;
 use crate::ui::theme::{self, rd};
 use rustydemon_lib::{CascFile, CascFolder};
 
+/// Most rows drawn per folder, for sub-folders and for files separately.
+///
+/// The tree draws every row of every open folder each frame, and some WoW
+/// folders hold tens of thousands of files, so each list is cut off here.
+/// Whatever is cut gets an [`overflow_row`] so the gap is never silent.
+const TREE_ROW_CAP: usize = 200;
+
+/// How many of `total` rows the cap leaves out.
+fn hidden_rows(total: usize) -> usize {
+    total.saturating_sub(TREE_ROW_CAP)
+}
+
+/// `12345` -> `"12,345"`.
+fn with_thousands(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Text for the row that stands in for `hidden` undrawn rows of `folder`.
+fn overflow_label(hidden: usize, noun: &str, folder: &str) -> String {
+    let (plural, pronoun) = if hidden == 1 {
+        ("", "it")
+    } else {
+        ("s", "them")
+    };
+    format!(
+        "… {} more {noun}{plural}. Click {folder} to browse {pronoun}",
+        with_thousands(hidden)
+    )
+}
+
+/// A muted, clickable row saying that `hidden` rows of `folder` were not
+/// drawn.  It carries its own accessible name so screen readers and UI
+/// automation can tell the list is incomplete.
+fn overflow_row(
+    ui: &mut egui::Ui,
+    depth: i32,
+    hidden: usize,
+    noun: &str,
+    folder: &str,
+) -> egui::Response {
+    let label = overflow_label(hidden, noun, folder);
+    let (rect, resp) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 20.0), egui::Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+    let color = if resp.hovered() {
+        rd::FG_PRIMARY
+    } else {
+        rd::FG_MUTED
+    };
+    // Lines up with the names of the rows above it (indent + caret + icon).
+    let x = rect.left() + 6.0 + depth as f32 * 12.0 + 30.0;
+    ui.painter().text(
+        egui::pos2(x, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        &label,
+        egui::FontId::proportional(12.0),
+        color,
+    );
+    resp
+}
+
 pub enum TreeClick {
     File(u64),
     Folder(String),
@@ -112,7 +181,7 @@ fn draw_folder_rows(
     }
 
     // Sub-folders.
-    for name in sub_names.iter().take(200) {
+    for name in sub_names.iter().take(TREE_ROW_CAP) {
         let child = if path.is_empty() {
             name.clone()
         } else {
@@ -123,9 +192,16 @@ fn draw_folder_rows(
         }
     }
 
+    let hidden_folders = hidden_rows(sub_names.len());
+    if hidden_folders > 0
+        && overflow_row(ui, depth + 1, hidden_folders, "folder", display_name).clicked()
+    {
+        click = Some(TreeClick::Folder(path.to_string()));
+    }
+
     // Files.
     let selected_hash = app.selected.as_ref().map(|s| s.result.hash);
-    for file in files.iter().take(200) {
+    for file in files.iter().take(TREE_ROW_CAP) {
         let is_sel = selected_hash == Some(file.hash);
         let row = tree_row(
             ui,
@@ -139,6 +215,11 @@ fn draw_folder_rows(
         if row.body.clicked() {
             click = Some(TreeClick::File(file.hash));
         }
+    }
+    let hidden_files = hidden_rows(files.len());
+    if hidden_files > 0 && overflow_row(ui, depth + 1, hidden_files, "file", display_name).clicked()
+    {
+        click = Some(TreeClick::Folder(path.to_string()));
     }
 
     click
@@ -357,5 +438,61 @@ mod a11y_tests {
             tree_row(ui, 2, None, "📄", "bindings.xml", false, true);
         });
         assert!(names.iter().any(|n| n == "bindings.xml"), "{names:?}");
+    }
+}
+
+#[cfg(test)]
+mod overflow_tests {
+    use super::*;
+
+    #[test]
+    fn nothing_is_hidden_at_or_under_the_cap() {
+        assert_eq!(hidden_rows(0), 0);
+        assert_eq!(hidden_rows(TREE_ROW_CAP), 0);
+    }
+
+    #[test]
+    fn rows_past_the_cap_are_counted() {
+        assert_eq!(hidden_rows(TREE_ROW_CAP + 1), 1);
+        assert_eq!(hidden_rows(79_465), 79_465 - TREE_ROW_CAP);
+    }
+
+    #[test]
+    fn label_says_how_many_and_what_to_do() {
+        assert_eq!(
+            overflow_label(79_265, "file", "bakednpctextures"),
+            "… 79,265 more files. Click bakednpctextures to browse them"
+        );
+        assert_eq!(
+            overflow_label(1, "folder", "spells"),
+            "… 1 more folder. Click spells to browse it"
+        );
+    }
+
+    /// The notice has to reach the accessibility tree, or automation and
+    /// screen readers still can't tell that rows were left out.
+    #[test]
+    fn overflow_row_is_published() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let out = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                overflow_row(ui, 2, 54_489, "file", "head");
+            });
+        });
+        let names: Vec<String> = out
+            .platform_output
+            .accesskit_update
+            .expect("accesskit enabled")
+            .nodes
+            .iter()
+            .filter_map(|(_, n)| n.name().map(str::to_owned))
+            .collect();
+        assert!(
+            names
+                .iter()
+                .any(|n| n == "… 54,489 more files. Click head to browse them"),
+            "{names:?}"
+        );
     }
 }
