@@ -131,6 +131,27 @@
                     </Directory>
                 </Directory>
             </Directory>
+
+            <!-- Start menu entry, so Windows search finds "Rusty Demon".
+                 A non-advertised shortcut needs a per-user registry KeyPath
+                 (ICE43/ICE57), so it lives in its own component. -->
+            <Directory Id='ProgramMenuFolder'>
+                <Component Id='StartMenuShortcut' Guid='7A1E3C52-6B0D-4E8F-9C21-3D5B8F0A4E67'>
+                    <Shortcut
+                        Id='AppStartMenuShortcut'
+                        Name='Rusty Demon'
+                        Description='CASC archive explorer for Blizzard games'
+                        Target='[Bin]rustydemon.exe'
+                        WorkingDirectory='Bin'/>
+                    <RegistryValue
+                        Root='HKCU'
+                        Key='Software\jabberwock\rustydemon'
+                        Name='StartMenuShortcut'
+                        Type='integer'
+                        Value='1'
+                        KeyPath='yes'/>
+                </Component>
+            </Directory>
         </Directory>
 
         <Feature
@@ -150,6 +171,7 @@
             <!--<ComponentRef Id='License'/>-->
 
             <ComponentRef Id='binary0'/>
+            <ComponentRef Id='StartMenuShortcut'/>
 
             <Feature
                 Id='Environment'
