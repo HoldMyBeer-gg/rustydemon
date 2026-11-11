@@ -1186,6 +1186,15 @@ pub fn paint_mesh(ui: &mut egui::Ui, mesh: Arc<Mesh3dCpu>) {
     let width = ui.available_width().max(64.0);
     let size = Vec2::new(width, 240.0);
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+    // A name in the accessibility tree, so screen readers announce the
+    // viewport and automation can find it to drag.
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Other,
+            true,
+            "3D preview: drag to rotate, Shift+drag to pan, scroll to zoom",
+        )
+    });
 
     let drag = response.drag_delta();
     let shift_held = ui.input(|i| i.modifiers.shift);

@@ -11,6 +11,7 @@ screen reader or automation tool sees them.
 |---|---|---|
 | `launch-empty.json` | no | window title, toolbar, status bar text, File menu |
 | `wowf/ghost-entries.json` | WoW Forever + listfile | issue #3: folders the build does not ship stay out of the tree; real folders expand and browse |
+| `wow-menu/sylvanas-spin.json` | detected WoW install + listfile | File → Open Game, glob search, M2 preview, orbiting the 3D viewport by drag (Windows) |
 
 Each script's `verified` field lists the platforms it has actually passed
 on, with the date. A platform without an entry is written from the code,
@@ -23,6 +24,7 @@ Build first (`cargo build --release -p rustydemon`), then from the repo root:
 ```
 bad-ass-mcp run smoke/ --config bam.json
 bad-ass-mcp run smoke/wowf/ --config bam-wowf.json
+bad-ass-mcp run smoke/wow-menu/ --config bam-wow-menu.json
 ```
 
 The configs are not committed, because paths differ per machine.
@@ -47,6 +49,23 @@ app's command line so no file dialog is needed:
   "app": [
     "/path/to/target/release/rustydemon",
     "/path/to/World of Warcraft",
+    "--listfile",
+    "/path/to/verified-listfile.csv"
+  ],
+  "ready": { "name": "Search" },
+  "launch_timeout": 30
+}
+```
+
+`bam-wow-menu.json` passes only the listfile, because the script opens
+the game itself from File → Open Game. The listfile waits and loads when
+the archive opens:
+
+```json
+{
+  "window": "Rusty Demon",
+  "app": [
+    "/path/to/target/release/rustydemon",
     "--listfile",
     "/path/to/verified-listfile.csv"
   ],
@@ -85,8 +104,10 @@ window, and that is not the same thing everywhere:
   an unknown key; put free-form remarks in `note`, `notes` or `covers`.
 - Don't use keys to drive the UI. A key sent through the accessibility API
   does not reach egui on native Wayland, so scripts click instead.
-- Don't use `type` on the search box yet: on Windows egui ignores the
-  accessibility "set value" call.
+- `type` on the search box works on Windows: egui ignores the
+  accessibility "set value" call, and bad-ass-mcp falls back to real key
+  presses once it reads the value back. On the way it tries a clipboard
+  paste, which currently leaves the typed text on the clipboard.
 - Static labels (status bar, panel text) are not findable by name on macOS,
   so gate those checks with `"only": ["linux", "windows"]`.
 
