@@ -112,6 +112,30 @@ Point **File → Open Game Directory…** at either
 
 ## Quick Start
 
+### Download
+
+Installers for Linux, macOS and Windows are on the
+[Releases page](https://github.com/HoldMyBeer-gg/rustydemon/releases).
+Or build from source, below.
+
+The installers are not code-signed yet, so macOS and Windows will warn the
+first time you open the app:
+
+- **macOS:** right-click the app and choose **Open**, then **Open** again.
+  On recent versions, try to open it once, then allow it under
+  **System Settings > Privacy & Security**.
+- **Windows:** on the SmartScreen prompt, choose **More info**, then
+  **Run anyway**.
+
+You do not have to take the download on trust. Each release lists a SHA-256
+checksum for every file in `SHA256SUMS.txt`, and carries a build attestation:
+GitHub's signed record that the file was built from this repository's tagged
+source by its release workflow. With the [GitHub CLI](https://cli.github.com/):
+
+```bash
+gh attestation verify <downloaded file> --repo HoldMyBeer-gg/rustydemon
+```
+
 ### Prerequisites
 
 | Platform | Requirement |
