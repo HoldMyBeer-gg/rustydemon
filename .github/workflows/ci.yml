@@ -103,9 +103,14 @@ jobs:
           # (memmap2) were fixed by bumping to patched versions in Cargo.lock.
           # The rest are transitive deps under eframe/winit that can't be
           # bumped without a major eframe upgrade:
-          #   0194/0195 quick-xml DoS — reached only via wayland-scanner and
-          #     zbus_xml, which parse trusted local Wayland/D-Bus XML, never
-          #     attacker-controlled network input, so the DoS vector is moot.
+          #   0194/0195 quick-xml DoS — still reached through zbus_xml 4.0
+          #     (quick-xml 0.30), which the accessibility stack pins:
+          #     egui 0.29 -> accesskit_unix 0.12 -> atspi-common 0.6 ->
+          #     zbus-lockstep 0.4 -> zbus_xml 4.  It parses trusted local
+          #     D-Bus interface XML, never input from a user or the network,
+          #     so the DoS has nothing to act on.  Goes away with an egui
+          #     upgrade.  The other path, wayland-scanner, is fixed: it is
+          #     on quick-xml 0.41.
           #   0105 core2, 0119 number_prefix, 0192 ttf-parser — unmaintained,
           #     no known vulnerability.
           ignore: RUSTSEC-2024-0436,RUSTSEC-2026-0194,RUSTSEC-2026-0195,RUSTSEC-2026-0105,RUSTSEC-2025-0119,RUSTSEC-2026-0192
