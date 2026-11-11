@@ -16,17 +16,14 @@ mod ui;
 pub mod vid_preview;
 mod viewport3d;
 
-use std::path::PathBuf;
-
 use app::CascExplorerApp;
 
 fn main() -> eframe::Result {
     // `rustydemon [GAME_DIR] [--listfile FILE]`, both optional.  Relative
     // paths (including `.`) are resolved against the current directory.
     let args = launch_args::parse(std::env::args().skip(1));
-    let absolute = |p: PathBuf| std::fs::canonicalize(&p).unwrap_or(p);
-    let open_path = args.game_dir.map(absolute);
-    let listfile = args.listfile.map(absolute);
+    let open_path = args.game_dir.map(launch_args::absolute);
+    let listfile = args.listfile.map(launch_args::absolute);
     let problem = args.problem;
 
     let native_options = eframe::NativeOptions {

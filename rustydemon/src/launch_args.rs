@@ -50,9 +50,49 @@ where
     out
 }
 
+/// Make a command-line path absolute for display and later use.
+///
+/// Uses [`std::path::absolute`] and not `canonicalize`: on Windows the
+/// latter returns verbatim `\\?\C:\...` paths, which end up in the status
+/// bar, and it fails for paths that do not exist.  Symlinks are left as
+/// the user typed them.
+pub fn absolute(path: PathBuf) -> PathBuf {
+    std::path::absolute(&path).unwrap_or(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn absolute_resolves_dot_to_the_current_directory() {
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(absolute(PathBuf::from(".")), cwd);
+    }
+
+    #[test]
+    fn absolute_leaves_absolute_paths_alone() {
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(absolute(cwd.clone()), cwd);
+    }
+
+    /// A path that does not exist yet must still come back absolute, so the
+    /// status bar never shows a bare relative name.
+    #[test]
+    fn absolute_handles_paths_that_do_not_exist() {
+        let got = absolute(PathBuf::from("no-such-dir/list.csv"));
+        assert!(got.is_absolute(), "{got:?}");
+        assert!(got.ends_with("no-such-dir/list.csv"), "{got:?}");
+    }
+
+    /// `std::fs::canonicalize` returns verbatim `\\?\C:\...` paths on
+    /// Windows, which then show up in the status bar.
+    #[cfg(windows)]
+    #[test]
+    fn absolute_has_no_verbatim_prefix_on_windows() {
+        let got = absolute(std::env::current_dir().unwrap());
+        assert!(!got.to_string_lossy().starts_with(r"\\?\"), "{got:?}");
+    }
 
     fn p(s: &str) -> Option<PathBuf> {
         Some(PathBuf::from(s))
