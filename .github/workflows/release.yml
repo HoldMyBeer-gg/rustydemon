@@ -26,7 +26,9 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
+    # Pinned to an image whose package mirrors resolve (see ci.yml).  An
+    # older base also keeps the glibc requirement of the release binary low.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
