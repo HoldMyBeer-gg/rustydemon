@@ -21,7 +21,7 @@ prohibit Licensor from licensing the Software under different terms with
 different licensees for a fee.
 
 "License" means the GNU Affero General Public License version 3.
-"Software" means AI IPC (collab / collab-server).
+"Software" means Rusty Demon (rustydemon, rustydemon-cli, rustydemon-lib, rustydemon-blp2 and rustydemon-gr2).
 "Licensor" means jabberwock.
 
 ---

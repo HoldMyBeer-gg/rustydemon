@@ -15,7 +15,7 @@ resolver = "2"
 version     = "0.5.1"
 authors     = ["jabberwock"]
 edition     = "2021"
-license     = "AGPL-3.0-or-later"
+license-file = "LICENSE"
 repository  = "https://github.com/HoldMyBeer-gg/rustydemon"
 
 # ── cargo-dist configuration ──────────────────────────────────────────────────
