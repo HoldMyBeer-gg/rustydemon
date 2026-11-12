@@ -2,10 +2,12 @@
   "name": "load-keys-dialog",
   "covers": "With no archive open, File > Load TACT Keys… opens the native file dialog, a key file is picked by typing its path, and the status bar reports how many keys were loaded. Needs no game install.",
   "platforms": [
-    "linux"
+    "linux",
+    "macos"
   ],
   "verified": {
-    "linux": "2026-11-12"
+    "linux": "2026-11-12",
+    "macos": "2026-11-12"
   },
   "setup": [
     {
@@ -47,22 +49,72 @@
         },
         {
           "action": "wait_for_window",
-          "pattern": "xdg-desktop-portal-kde",
+          "pattern": {
+            "linux": "xdg-desktop-portal-kde",
+            "macos": null
+          },
           "timeout": 10
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "role": "button",
+          "name": "Cancel",
+          "timeout": 10,
+          "only": [
+            "macos"
+          ]
         }
       ],
-      "note": "KDE's file dialog belongs to xdg-desktop-portal-kde; the config lists it under helpers."
+      "note": "KDE's file dialog belongs to xdg-desktop-portal-kde; the config lists it under helpers. On macOS the dialog is a sheet inside the main window (pattern null), so the phase waits for its Cancel button instead."
+    },
+    {
+      "name": "go to folder",
+      "only": [
+        "macos"
+      ],
+      "note": "The macOS Open sheet has no path field until Cmd+Shift+G opens the Go-to sheet, whose text field takes focus. A key combination is real input, so the runner raises the app first.",
+      "learn": {},
+      "steps": [
+        {
+          "action": "key",
+          "key": "Cmd+Shift+G"
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "role": "textfield",
+          "state": "focused",
+          "timeout": 5
+        }
+      ]
     },
     {
       "name": "pick the key file",
-      "window": "xdg-desktop-portal-kde",
+      "window": {
+        "linux": "xdg-desktop-portal-kde",
+        "macos": null
+      },
       "learn": {
         "filename": {
-          "role": "text",
+          "role": {
+            "linux": "text",
+            "macos": "textfield"
+          },
           "state": "focused"
         },
         "open": {
-          "name": "Open"
+          "name": "Open",
+          "only": [
+            "linux"
+          ]
+        },
+        "open_button": {
+          "role": "button",
+          "name": "Open",
+          "only": [
+            "macos"
+          ]
         }
       },
       "steps": [
@@ -72,11 +124,39 @@
           "text": "$SMOKE/smoke.keys"
         },
         {
+          "action": "key",
+          "key": "Return",
+          "only": [
+            "macos"
+          ]
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "role": "button",
+          "name": "Open",
+          "state": "enabled",
+          "timeout": 5,
+          "only": [
+            "macos"
+          ]
+        },
+        {
           "action": "click",
-          "target": "open"
+          "target": "open",
+          "only": [
+            "linux"
+          ]
+        },
+        {
+          "action": "click",
+          "target": "open_button",
+          "only": [
+            "macos"
+          ]
         }
       ],
-      "note": "The filename field has no name; it is the text field holding focus when the dialog opens."
+      "note": "The filename field has no name; it is the text field holding focus when the dialog opens. On macOS it is the Go-to sheet's field: Return selects the typed file in the panel, which enables Open (the sheet itself is also named Open, so the button is learned with role button)."
     },
     {
       "name": "keys are loaded",
@@ -101,11 +181,23 @@
   ],
   "checks": [
     {
-      "no_window": "xdg-desktop-portal-kde"
+      "no_window": "xdg-desktop-portal-kde",
+      "only": [
+        "linux"
+      ]
+    },
+    {
+      "absent": {
+        "role": "button",
+        "name": "Cancel"
+      },
+      "only": [
+        "macos"
+      ]
     },
     {
       "windows": 1
     }
   ],
-  "notes": "Needs no game install. On Linux the config needs helpers: [\"xdg-desktop-portal\"]; the app may run on native Wayland or XWayland, because the only typing goes into the dialog. The final no_window check needs a bad-ass-mcp that counts a helper's open dialogs (bad-ass-mcp PR #34); older versions fail it with 'unexpected window'. Linux run 2026-11-12 (SteamOS, KDE): passed on native Wayland and on XWayland. Values are for KDE's dialog only. The GTK portal, macOS and Windows dialogs differ (see the table in smoke/README.md) and are not in this script yet."
+  "notes": "Needs no game install. On Linux the config needs helpers: [\"xdg-desktop-portal\"]; the app may run on native Wayland or XWayland, because the only typing goes into the dialog. The final no_window check needs a bad-ass-mcp that counts a helper's open dialogs (bad-ass-mcp PR #34); older versions fail it with 'unexpected window'. Linux run 2026-11-12 (SteamOS, KDE): passed on native Wayland and on XWayland. Linux values are for KDE's dialog only; the GTK portal and Windows dialogs differ (see the table in smoke/README.md) and are not in this script yet. macOS run 2026-11-12 (macOS 26.6.2, bad-ass-mcp ed0374d): passed with the plain bam.json, no helpers. The Open sheet lives in the main window, so the dialog phases run there (window null); the path goes through Cmd+Shift+G's Go-to sheet and Return, which selects the file and enables Open. Keys are sent without a window id: on macOS a key posted to the app's process never reaches an Open panel. The final no_window check is Linux-only; on macOS the run checks the sheet's Cancel button is gone."
 }
