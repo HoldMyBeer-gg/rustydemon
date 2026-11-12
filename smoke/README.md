@@ -10,6 +10,7 @@ screen reader or automation tool sees them.
 | script | needs a game install | covers |
 |---|---|---|
 | `launch-empty.json` | no | window title, toolbar, status bar text, File menu |
+| `load-keys-dialog.json` | no | File → Load TACT Keys… through the native open dialog: type a path, open it, status bar reports the keys loaded |
 | `wowf/ghost-entries.json` | WoW Forever + listfile | issue #3: folders the build does not ship stay out of the tree; real folders expand and browse |
 | `wowf/end-to-end.json` | WoW Forever + listfile | the whole app in one pass: load, browse the tree, text preview, glob search, M2 model preview, texture preview, Export As PNG through the native save dialog, Help menu |
 | `wow-menu/sylvanas-spin.json` | detected WoW install + listfile | File → Open Game, glob search, M2 preview, orbiting the 3D viewport by drag (Windows) |
@@ -40,6 +41,9 @@ The configs are not committed, because paths differ per machine.
   "launch_timeout": 30
 }
 ```
+
+`load-keys-dialog.json` runs with `bam.json` too. On Linux add
+`"helpers": ["xdg-desktop-portal"]` so the run may drive the file dialog.
 
 `bam-wowf.json` is the same, with the game directory and listfile on the
 app's command line so no file dialog is needed:
