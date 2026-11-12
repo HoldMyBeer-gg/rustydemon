@@ -182,22 +182,29 @@ window, and that is not the same thing everywhere:
   | Windows | `Save As` | role `textfield`, name `File name:`, focused | `Save` |
 
   The pick-file dialog is scripted in `load-keys-dialog.json` on Linux
-  (KDE) and macOS, from File → Load TACT Keys…, which works with no archive
+  (KDE), macOS and Windows, from File → Load TACT Keys…, which works with no archive
   open. The folder pickers (Export Folder, Open Game Directory) and Load
   Listfile are not scripted yet; `--listfile` covers loading. What the
   pick-file dialog looks like per desktop (XFCE recorded by hand on
-  2026-11-12, the other two from script runs the same day):
+  2026-11-12, the others from script runs the same day):
 
   | OS | dialog | path field | buttons |
   |---|---|---|---|
   | Linux (KDE) | `xdg-desktop-portal-kde`; needs `"helpers": ["xdg-desktop-portal"]` | role `text`, focused | `Open`, `Cancel` |
   | Linux (XFCE, GTK portal) | listed as `xdg-desktop-portal-gtk`, no title; needs `"helpers": ["xdg-desktop-portal"]`, which matches the KDE portal too | hidden until Ctrl+L or a leading `/` is typed, then role `text`, focused | `Select` (disabled until a path is entered), `Cancel` |
   | macOS | a sheet named `Open` inside the main window, same process, no helpers; the phase's `window` is `null` there | none until Cmd+Shift+G, then role `textfield`, name `text field`, focused; Return selects the typed file in the panel | `Open` (disabled until a file is chosen; learn it with role `button`, the sheet shares the name), `Cancel` |
+  | Windows | the app's own top-level window titled `Open`, same process, no helpers | role `textfield`, name `File name:`, focused (a combobox and a label share the name) | `Open`: learn it with role `splitbutton`, because the window and the two comboboxes' dropdown arrows are also named `Open` (role `button`); `Cancel` |
 
   On macOS, send the dialog's keys without a `window_id`: a key posted to
   the app's process never reaches an Open panel, and still reports ok. A
   plain Escape sent that way closes the Go-to sheet but not the Open sheet;
   a global Escape or a click on `Cancel` closes it.
+
+  On Windows the Open button reports role `button` until the dialog has
+  loaded its folder view, then `splitbutton`. bad-ass-mcp before PR #36
+  took its proof screenshot of the main window with `PrintWindow`, which
+  stalled that load for good ("Working on it…"), so the script failed at
+  learning the button.
 - **Linux, no dialog appears.** The portal is started by D-Bus with systemd's
   user environment. If that has a different `DISPLAY` than the session (seen
   on a remote-desktop XFCE box), the portal cannot open its window, the app
