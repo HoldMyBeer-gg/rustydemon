@@ -1,6 +1,6 @@
 {
   "name": "wowf-end-to-end",
-  "covers": "One pass through the whole app on a WoW Forever archive: open the install with a listfile, browse the tree to a file, preview text, glob-search for a model and see it in the 3D viewport, search a texture by full path and preview it, extract that texture to disk and check its bytes, then open and close the Help menu.",
+  "covers": "One pass through the whole app on a WoW Forever archive: open the install with a listfile, browse the tree to a file, preview text, glob-search for a model and see it in the 3D viewport, search a texture by full path and preview it, export it with Export As PNG through the native save dialog and check the file on disk, then open and close the Help menu.",
   "platforms": [
     "linux",
     "windows"
@@ -238,16 +238,78 @@
       ]
     },
     {
-      "name": "extract the texture to disk",
+      "name": "open the save dialog",
       "only": [
         "linux"
       ],
-      "note": "The Export buttons open a native folder dialog, which is not scripted, so the same file goes through rustydemon-cli and its first four bytes are checked. POSIX shell, so Linux only for now.",
+      "note": "KDE's file dialog belongs to xdg-desktop-portal-kde and carries that name as its title. The config lists it under helpers so the runner may drive it. Linux only until the dialog's title and field are recorded for Windows and macOS.",
+      "learn": {
+        "png": {
+          "name": "Export As PNG"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "png"
+        },
+        {
+          "action": "wait_for_window",
+          "pattern": "xdg-desktop-portal-kde",
+          "timeout": 10
+        }
+      ]
+    },
+    {
+      "name": "save as PNG",
+      "only": [
+        "linux"
+      ],
+      "window": "xdg-desktop-portal-kde",
+      "note": "The filename field has no name; it is the text field holding focus when the dialog opens.",
+      "learn": {
+        "filename": {
+          "role": "text",
+          "state": "focused"
+        },
+        "save": {
+          "name": "Save"
+        }
+      },
+      "steps": [
+        {
+          "action": "type",
+          "target": "filename",
+          "text": "$SMOKE/exported.png"
+        },
+        {
+          "action": "click",
+          "target": "save"
+        },
+        {
+          "action": "sleep",
+          "seconds": 1.5
+        }
+      ]
+    },
+    {
+      "name": "exported file is a PNG",
+      "only": [
+        "linux"
+      ],
       "learn": {},
       "steps": [
         {
           "action": "shell",
-          "cmd": "\"$RUSTYDEMON_CLI\" export -a \"$WOW_DIR\" -l \"$WOW_LISTFILE\" -p interface/icons/inv_misc_questionmark.blp -o \"$SMOKE/out\" && test \"$(head -c 4 \"$SMOKE/out/interface/icons/inv_misc_questionmark.blp\")\" = BLP2"
+          "cmd": "test \"$(head -c 4 \"$SMOKE/exported.png\" | tail -c 3)\" = PNG"
+        }
+      ],
+      "checks": [
+        {
+          "present": {
+            "name": "Export As PNG"
+          },
+          "note": "The main window is back in charge once the dialog closes."
         }
       ]
     },
@@ -308,5 +370,5 @@
       "windows": 1
     }
   ],
-  "notes": "Requires a World of Warcraft install with the WoW Forever product (wowf) and a current community listfile, both on the app's command line, plus RUSTYDEMON_CLI, WOW_DIR and WOW_LISTFILE in the environment for the extraction phase. See smoke/README.md. On Linux the app must run under XWayland (env -u WAYLAND_DISPLAY in the config), because typed text does not reach the search box on native Wayland. Linux run 2026-11-12 (SteamOS, KDE Wayland session, app on XWayland, wowf 1.60.1.70888, bad-ass-mcp 1.6.1.dev37) passed in 1 minute 14 seconds. The Windows roles and steps are written from sylvanas-spin, which passed there; this script has not been run on Windows. The extraction phase is Linux only."
+  "notes": "Requires a World of Warcraft install with the WoW Forever product (wowf) and a current community listfile, both on the app's command line. See smoke/README.md. On Linux the app must run under XWayland (env -u WAYLAND_DISPLAY in the config), because typed text does not reach the search box on native Wayland, and the config needs helpers: [\"xdg-desktop-portal\"] for the save dialog. Linux run 2026-11-12 (SteamOS, KDE Wayland session, app on XWayland, wowf 1.60.1.70888, bad-ass-mcp 1.6.1.dev37). The Windows roles and steps are written from sylvanas-spin, which passed there; this script has not been run on Windows, and the export phases are Linux only."
 }
