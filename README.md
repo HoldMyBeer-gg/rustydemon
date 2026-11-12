@@ -64,7 +64,7 @@ archives, written entirely in Rust.
   local CASC install without launching the GUI. Supports path/glob/FDID
   selection, parallel workers, dry-run, flatten, and overwrite. See
   [CLI](#cli) below.
-- **Auto product detection** - reads `.build.info` so you never need to know internal product codes (`fenris`, `wow`, etc.)
+- **Auto product detection** - reads `.build.info` so you never need to know internal product codes (`fenris`, `wow`, `wowf`, etc.)
 - **Cross-platform** - Windows · macOS · Linux · Steam Deck (touch-ready via egui)
 - **Steam Diablo IV support** - native reader for the Steam-distribution
   static container format (no `.build.info`, no encoding file, location
@@ -193,6 +193,7 @@ The product UID is detected automatically:
 | Game | Detected as |
 |------|------------|
 | World of Warcraft | `wow` |
+| World of Warcraft Forever | `wowf` |
 | Diablo IV | `fenris` |
 | Diablo II: Resurrected | `osi` |
 | Diablo III | `d3` |
