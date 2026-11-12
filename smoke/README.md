@@ -134,8 +134,8 @@ window, and that is not the same thing everywhere:
   does not reach egui on native Wayland, so scripts click instead.
 - `type` on the search box works on Windows: egui ignores the
   accessibility "set value" call, and bad-ass-mcp falls back to real key
-  presses once it reads the value back. On the way it tries a clipboard
-  paste, which currently leaves the typed text on the clipboard.
+  presses once it reads the value back. The key presses select the old
+  text first, so a second search replaces the first.
 - Static labels (status bar, panel text) are not findable by name on macOS,
   so gate those checks with `"only": ["linux", "windows"]`.
 
@@ -150,8 +150,20 @@ window, and that is not the same thing everywhere:
   bad-ass-mcp's main branch (a0fe32a, 2026-11-12) falls back to the frame's
   name, which carries the title. A version without that fallback reports
   `no window matching 'Rusty Demon'`.
-- **Native file dialogs.** Scripted on Linux (KDE) only so far, in
-  `wowf/end-to-end.json`. The dialog's title and its filename field differ
-  per OS and have not been recorded for Windows or macOS. The folder pickers
-  (Export Folder, Open Game Directory) and Load Listfile are not scripted
-  yet; `--listfile` covers loading.
+- **Native file dialogs.** Export As PNG is scripted on Linux (KDE) and
+  Windows in `wowf/end-to-end.json`. The dialog's title and its filename
+  field differ per OS, so those values are per-platform:
+
+  | OS | dialog window | filename field | button |
+  |---|---|---|---|
+  | Linux (KDE) | `xdg-desktop-portal-kde` | role `text`, focused | `Save` |
+  | Windows | `Save As` | role `textfield`, name `File name:`, focused | `Save` |
+
+  macOS is not recorded yet. The folder pickers (Export Folder, Open Game
+  Directory) and Load Listfile are not scripted yet; `--listfile` covers
+  loading.
+- **Windows needs a recent bad-ass-mcp.** The script types into the search
+  box twice, and the dialog is given a path under `$SMOKE`. Older versions
+  appended the second search to the first, and left `$SMOKE` relative when
+  `--results` was, so the dialog saved somewhere else. Both are fixed in
+  bad-ass-mcp ed0374d (2026-11-12).
