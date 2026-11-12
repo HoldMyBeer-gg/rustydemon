@@ -44,6 +44,9 @@ The configs are not committed, because paths differ per machine.
 
 `load-keys-dialog.json` runs with `bam.json` too. On Linux add
 `"helpers": ["xdg-desktop-portal"]` so the run may drive the file dialog.
+On macOS nothing is added: the dialog is a sheet in the app's own window.
+That script sends real key presses on macOS (Cmd+Shift+G and Return), so
+the window takes the foreground while it runs.
 
 `bam-wowf.json` is the same, with the game directory and listfile on the
 app's command line so no file dialog is needed:
@@ -178,19 +181,23 @@ window, and that is not the same thing everywhere:
   | Linux (KDE) | `xdg-desktop-portal-kde` | role `text`, focused | `Save` |
   | Windows | `Save As` | role `textfield`, name `File name:`, focused | `Save` |
 
-  The folder pickers (Export Folder, Open Game Directory) and the file
-  pickers (Load Listfile, Load TACT Keys) are not scripted yet; `--listfile`
-  covers loading. What a pick-file dialog looks like on the two desktops
-  without a script, recorded by hand on 2026-11-12 from File → Load TACT
-  Keys…, which works with no archive open:
+  The pick-file dialog is scripted in `load-keys-dialog.json` on Linux
+  (KDE) and macOS, from File → Load TACT Keys…, which works with no archive
+  open. The folder pickers (Export Folder, Open Game Directory) and Load
+  Listfile are not scripted yet; `--listfile` covers loading. What the
+  pick-file dialog looks like per desktop (XFCE recorded by hand on
+  2026-11-12, the other two from script runs the same day):
 
   | OS | dialog | path field | buttons |
   |---|---|---|---|
+  | Linux (KDE) | `xdg-desktop-portal-kde`; needs `"helpers": ["xdg-desktop-portal"]` | role `text`, focused | `Open`, `Cancel` |
   | Linux (XFCE, GTK portal) | listed as `xdg-desktop-portal-gtk`, no title; needs `"helpers": ["xdg-desktop-portal"]`, which matches the KDE portal too | hidden until Ctrl+L or a leading `/` is typed, then role `text`, focused | `Select` (disabled until a path is entered), `Cancel` |
-  | macOS | a sheet named `Open` inside the main window, same process, no helpers | none until Cmd+Shift+G, then role `textfield`, name `text field`, focused | `Open` (disabled until a file is chosen; learn it with role `button`, the sheet shares the name), `Cancel` |
+  | macOS | a sheet named `Open` inside the main window, same process, no helpers; the phase's `window` is `null` there | none until Cmd+Shift+G, then role `textfield`, name `text field`, focused; Return selects the typed file in the panel | `Open` (disabled until a file is chosen; learn it with role `button`, the sheet shares the name), `Cancel` |
 
-  On macOS, Escape sent to the window closes the Go-to sheet but not the
-  Open sheet, so close the panel by clicking `Cancel`.
+  On macOS, send the dialog's keys without a `window_id`: a key posted to
+  the app's process never reaches an Open panel, and still reports ok. A
+  plain Escape sent that way closes the Go-to sheet but not the Open sheet;
+  a global Escape or a click on `Cancel` closes it.
 - **Linux, no dialog appears.** The portal is started by D-Bus with systemd's
   user environment. If that has a different `DISPLAY` than the session (seen
   on a remote-desktop XFCE box), the portal cannot open its window, the app
