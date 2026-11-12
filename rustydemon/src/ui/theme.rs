@@ -277,7 +277,10 @@ pub fn masthead_pill(text: &str) -> egui::RichText {
 pub fn panel_header(ui: &mut egui::Ui, label: &str, pill: Option<&str>) {
     ui.horizontal(|ui| {
         ui.add_space(4.0);
-        ui.label(engraved(label));
+        // The engraved text is letter-spaced with thin spaces, which a
+        // screen reader would spell out; publish the plain words.
+        let resp = ui.label(engraved(label));
+        super::a11y::heading(ui.ctx(), resp.id, label);
         if let Some(p) = pill {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(4.0);
@@ -336,11 +339,13 @@ pub fn section_label(ui: &mut egui::Ui, text: &str) {
         .map(|c| c.to_string())
         .collect::<Vec<_>>()
         .join("\u{2009}");
-    ui.label(
+    let resp = ui.label(
         egui::RichText::new(spaced)
             .font(FontId::new(10.5, display_family()))
             .color(rd::RUNE_400),
     );
+    // Publish the plain words, not the letter-spaced uppercase.
+    super::a11y::heading(ui.ctx(), resp.id, text);
     let avail = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(egui::vec2(avail, 1.0), egui::Sense::hover());
     ui.painter().hline(

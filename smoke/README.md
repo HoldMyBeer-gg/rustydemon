@@ -159,10 +159,12 @@ window, and that is not the same thing everywhere:
   can be found or clicked, by a script or by a screen reader. On Linux the
   window is not listed at all; on macOS it is listed by its title, "About
   RustyDemon", with no contents.
-- **The search box has no useful name.** It is found by role: `textfield`
-  on Windows and macOS (where its name is the generic "text field"), `entry`
-  on Linux. On macOS a file panel fills the tree with other text fields, so
-  learn the search box before opening one.
+- **Names added after 0.5.2.** The search box is named `Search files`
+  (scripts written before that find it by role: `textfield` on Windows and
+  macOS, `entry` on Linux). Section headers are headings with plain names
+  (`File Browser`, not the letter-spaced text on screen), the status bar is
+  one `status` node, the Viewer dropdown and preview text boxes are named,
+  and a texture preview is an `image` named with its size.
 - **Disabled items read as enabled on Linux.** A greyed-out item such as
   Load Listfile… with no archive open is published over AT-SPI with the
   `enabled` state. egui marks it disabled; `accesskit_atspi_common` 0.9.3,
