@@ -440,7 +440,7 @@ const KNOWN_KEYS: &[(u64, [u8; 16])] = &[
 /// Public D4 (fenris) keys, kept as an editable text file rather than `hex!`
 /// literals so they can be diffed, verified, and updated without touching Rust.
 /// Baked in at compile time; parsed once when the table is first built.
-const EMBEDDED_D4_KEYS: &str = include_str!("../../keys/d4.keys");
+const EMBEDDED_D4_KEYS: &str = include_str!("../keys/d4.keys");
 
 fn build_table() -> HashMap<u64, [u8; 16]> {
     let mut table: HashMap<u64, [u8; 16]> = KNOWN_KEYS.iter().copied().collect();
@@ -457,7 +457,7 @@ mod embedded_d4_key_tests {
     use super::*;
 
     /// The embedded D4 file must parse and contribute keys to the default
-    /// table with no runtime loading.  Guards against a malformed `keys/d4.keys`
+    /// table with no runtime loading.  Guards against a malformed `rustydemon-lib/keys/d4.keys`
     /// (a typo'd line silently drops that key) and against the include_str!
     /// wiring being removed.
     #[test]

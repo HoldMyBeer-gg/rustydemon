@@ -94,6 +94,17 @@ jobs:
   # The release workflow rewrites packaging/aur/rustydemon-bin with
   # scripts/aur-bump.sh. This checks that script, and that the committed
   # recipe is what the script would produce.
+  # The library crates are published to crates.io. Packaging builds each one
+  # from its tarball alone, which catches a file reached from outside the
+  # crate directory (an include_str! path, a missing README) before a release.
+  package:
+    name: Crates package cleanly
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo package -p rustydemon-blp2 -p rustydemon-gr2 -p rustydemon-lib
+
   aur-recipe:
     name: AUR recipe script
     runs-on: ubuntu-latest
