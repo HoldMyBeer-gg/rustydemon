@@ -6,6 +6,9 @@ authors.workspace    = true
 edition.workspace    = true
 license.workspace    = true
 repository.workspace = true
+readme               = "README.md"
+keywords             = ["granny3d", "gr2", "bitknit", "diablo", "model"]
+categories           = ["parser-implementations", "game-development"]
 
 [dependencies]
 thiserror = "2"

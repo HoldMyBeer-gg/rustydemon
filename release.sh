@@ -9,9 +9,11 @@
 # that references an as-yet-unpublished dependency.
 #
 # Publish order:
-#   1. rustydemon-blp2   (no intra-workspace deps)
-#   2. rustydemon-lib    (depends on blp2)          [uncomment when added]
-#   3. rustydemon        (depends on blp2 + lib)    [uncomment when added]
+# Published library crates (none depends on another, so order is free):
+#   rustydemon-blp2, rustydemon-gr2, rustydemon-lib
+#
+# The GUI (rustydemon) and CLI (rustydemon-cli) ship as release binaries, not
+# through crates.io.
 
 set -euo pipefail
 
@@ -67,8 +69,8 @@ git tag "v${NEW_VERSION}"
 
 # ── Publish ───────────────────────────────────────────────────────────────────
 publish rustydemon-blp2
-# publish rustydemon-lib     # uncomment when the crate exists
-# publish rustydemon         # uncomment when the crate exists
+publish rustydemon-gr2
+publish rustydemon-lib
 
 info "Done. Push the commit and tag with:"
 info "  git push && git push origin v${NEW_VERSION}"

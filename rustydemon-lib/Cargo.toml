@@ -6,6 +6,9 @@ authors.workspace    = true
 edition.workspace    = true
 license.workspace    = true
 repository.workspace = true
+readme               = "README.md"
+keywords             = ["casc", "blizzard", "archive", "tvfs", "blte"]
+categories           = ["parser-implementations", "game-development"]
 
 [dependencies]
 thiserror   = "2"

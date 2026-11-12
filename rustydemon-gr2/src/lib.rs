@@ -38,3 +38,9 @@ pub use error::{GrannyError, Result};
 pub use granny_file::{GrannyFile, GrannySummary};
 pub use header::{has_granny_magic, Endian, Header};
 pub use mesh::Mesh;
+
+// Compile the README's code blocks as doctests so the crates.io front page
+// can't drift from the API.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
