@@ -136,6 +136,11 @@ jobs:
           #     so the DoS has nothing to act on.  Goes away with an egui
           #     upgrade.  The other path, wayland-scanner, is fixed: it is
           #     on quick-xml 0.41.
-          #   0105 core2, 0119 number_prefix, 0192 ttf-parser — unmaintained,
-          #     no known vulnerability.
-          ignore: RUSTSEC-2024-0436,RUSTSEC-2026-0194,RUSTSEC-2026-0195,RUSTSEC-2026-0105,RUSTSEC-2025-0119,RUSTSEC-2026-0192
+          #   0119 number_prefix, 0192 ttf-parser — unmaintained, no known
+          #     vulnerability.
+          #   0370 zvariant, 0371 zbus_names, 0372 zvariant_derive —
+          #     unmaintained since they were merged into zbus 6.0, with no
+          #     patched version to move to.  Reached through zbus 4 and 5,
+          #     which the accessibility stack and the file dialogs pin.  No
+          #     known vulnerability.  Goes away when those move to zbus 6.
+          ignore: RUSTSEC-2024-0436,RUSTSEC-2026-0194,RUSTSEC-2026-0195,RUSTSEC-2025-0119,RUSTSEC-2026-0192,RUSTSEC-2026-0370,RUSTSEC-2026-0371,RUSTSEC-2026-0372
