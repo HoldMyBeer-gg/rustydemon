@@ -3,11 +3,13 @@
   "covers": "With no archive open, File > Load TACT Keys… opens the native file dialog, a key file is picked by typing its path, and the status bar reports how many keys were loaded. Needs no game install.",
   "platforms": [
     "linux",
-    "macos"
+    "macos",
+    "windows"
   ],
   "verified": {
     "linux": "2026-11-12",
-    "macos": "2026-11-12"
+    "macos": "2026-11-12",
+    "windows": "2026-11-12"
   },
   "setup": [
     {
@@ -51,7 +53,8 @@
           "action": "wait_for_window",
           "pattern": {
             "linux": "xdg-desktop-portal-kde",
-            "macos": null
+            "macos": null,
+            "windows": "Open"
           },
           "timeout": 10
         },
@@ -66,7 +69,7 @@
           ]
         }
       ],
-      "note": "KDE's file dialog belongs to xdg-desktop-portal-kde; the config lists it under helpers. On macOS the dialog is a sheet inside the main window (pattern null), so the phase waits for its Cancel button instead."
+      "note": "KDE's file dialog belongs to xdg-desktop-portal-kde; the config lists it under helpers. On macOS the dialog is a sheet inside the main window (pattern null), so the phase waits for its Cancel button instead. On Windows the dialog is the app's own top-level window titled Open (same process, no helpers)."
     },
     {
       "name": "go to folder",
@@ -93,15 +96,20 @@
       "name": "pick the key file",
       "window": {
         "linux": "xdg-desktop-portal-kde",
-        "macos": null
+        "macos": null,
+        "windows": "Open"
       },
       "learn": {
         "filename": {
           "role": {
             "linux": "text",
-            "macos": "textfield"
+            "macos": "textfield",
+            "windows": "textfield"
           },
-          "state": "focused"
+          "state": "focused",
+          "name": {
+            "windows": "File name:"
+          }
         },
         "open": {
           "name": "Open",
@@ -115,13 +123,24 @@
           "only": [
             "macos"
           ]
+        },
+        "open_split": {
+          "role": "splitbutton",
+          "name": "Open",
+          "only": [
+            "windows"
+          ]
         }
       },
       "steps": [
         {
           "action": "type",
           "target": "filename",
-          "text": "$SMOKE/smoke.keys"
+          "text": {
+            "linux": "$SMOKE/smoke.keys",
+            "macos": "$SMOKE/smoke.keys",
+            "windows": "$SMOKE\\smoke.keys"
+          }
         },
         {
           "action": "key",
@@ -154,19 +173,30 @@
           "only": [
             "macos"
           ]
+        },
+        {
+          "action": "click",
+          "target": "open_split",
+          "only": [
+            "windows"
+          ]
         }
       ],
-      "note": "The filename field has no name; it is the text field holding focus when the dialog opens. On macOS it is the Go-to sheet's field: Return selects the typed file in the panel, which enables Open (the sheet itself is also named Open, so the button is learned with role button)."
+      "note": "The filename field has no name; it is the text field holding focus when the dialog opens. On macOS it is the Go-to sheet's field: Return selects the typed file in the panel, which enables Open (the sheet itself is also named Open, so the button is learned with role button). On Windows the field is the focused textfield named \"File name:\" (a combobox and a label share the name), and Open is learned with role splitbutton: the window and two navigation-pane buttons are also named Open."
     },
     {
       "name": "keys are loaded",
-      "note": "A wait step, not a check: step fields expand $SMOKE and check names do not. The status bar names the file it read.",
+      "note": "A wait step, not a check: step fields expand $SMOKE and check names do not. The status bar names the file it read. Windows reports the path with backslashes.",
       "learn": {},
       "steps": [
         {
           "action": "wait_for_element",
           "window_id": "$WINDOW",
-          "name": "Loaded 2 TACT key(s) from $SMOKE/smoke.keys.",
+          "name": {
+            "linux": "Loaded 2 TACT key(s) from $SMOKE/smoke.keys.",
+            "macos": "Loaded 2 TACT key(s) from $SMOKE/smoke.keys.",
+            "windows": "Loaded 2 TACT key(s) from $SMOKE\\smoke.keys."
+          },
           "timeout": 10
         }
       ],
@@ -196,8 +226,14 @@
       ]
     },
     {
+      "no_window": "Open",
+      "only": [
+        "windows"
+      ]
+    },
+    {
       "windows": 1
     }
   ],
-  "notes": "Needs no game install. On Linux the config needs helpers: [\"xdg-desktop-portal\"]; the app may run on native Wayland or XWayland, because the only typing goes into the dialog. The final no_window check needs a bad-ass-mcp that counts a helper's open dialogs (bad-ass-mcp PR #34); older versions fail it with 'unexpected window'. Linux run 2026-11-12 (SteamOS, KDE): passed on native Wayland and on XWayland. Linux values are for KDE's dialog only; the GTK portal and Windows dialogs differ (see the table in smoke/README.md) and are not in this script yet. macOS run 2026-11-12 (macOS 26.6.2, bad-ass-mcp ed0374d): passed with the plain bam.json, no helpers. The Open sheet lives in the main window, so the dialog phases run there (window null); the path goes through Cmd+Shift+G's Go-to sheet and Return, which selects the file and enables Open. Keys are sent without a window id: on macOS a key posted to the app's process never reaches an Open panel. The final no_window check is Linux-only; on macOS the run checks the sheet's Cancel button is gone."
+  "notes": "Needs no game install. On Linux the config needs helpers: [\"xdg-desktop-portal\"]; the app may run on native Wayland or XWayland, because the only typing goes into the dialog. The final no_window check needs a bad-ass-mcp that counts a helper's open dialogs (bad-ass-mcp PR #34); older versions fail it with 'unexpected window'. Linux run 2026-11-12 (SteamOS, KDE): passed on native Wayland and on XWayland. Linux values are for KDE's dialog only; the GTK portal dialog differs (see the table in smoke/README.md) and is not in this script yet. macOS run 2026-11-12 (macOS 26.6.2, bad-ass-mcp ed0374d): passed with the plain bam.json, no helpers. The Open sheet lives in the main window, so the dialog phases run there (window null); the path goes through Cmd+Shift+G's Go-to sheet and Return, which selects the file and enables Open. Keys are sent without a window id: on macOS a key posted to the app's process never reaches an Open panel. The final no_window check is Linux-only; on macOS the run checks the sheet's Cancel button is gone. Windows run 2026-11-12 (Windows 11, plain bam.json, no helpers): passed 4/4, 3.7 to 3.9 s. It needs bad-ass-mcp PR #36 (commit 6ebee13 on its branch): older versions take the phase proof shot of the main window with PrintWindow while the Open dialog loads, which stalls the dialog on \"Working on it…\" so its Open button never becomes a splitbutton. Setup's printf needs Git Bash as the runner's bash; with WSL's bash first on PATH, $SMOKE does not reach it."
 }
