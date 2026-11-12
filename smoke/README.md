@@ -11,6 +11,7 @@ screen reader or automation tool sees them.
 |---|---|---|
 | `launch-empty.json` | no | window title, toolbar, status bar text, File menu |
 | `wowf/ghost-entries.json` | WoW Forever + listfile | issue #3: folders the build does not ship stay out of the tree; real folders expand and browse |
+| `wowf/end-to-end.json` | WoW Forever + listfile | the whole app in one pass: load, browse the tree, text preview, glob search, M2 model preview, texture preview, extraction to disk through `rustydemon-cli`, Help menu |
 | `wow-menu/sylvanas-spin.json` | detected WoW install + listfile | File → Open Game, glob search, M2 preview, orbiting the 3D viewport by drag (Windows) |
 
 Each script's `verified` field lists the platforms it has actually passed
@@ -57,6 +58,33 @@ app's command line so no file dialog is needed:
 }
 ```
 
+`wowf/end-to-end.json` uses the same config, with two additions.
+
+Its extraction phase runs `rustydemon-cli`, and reads where things are from
+the environment:
+
+```
+export RUSTYDEMON_CLI=/path/to/target/release/rustydemon-cli
+export WOW_DIR="/path/to/World of Warcraft"
+export WOW_LISTFILE=/path/to/verified-listfile.csv
+```
+
+On Linux it types into the search box, and typed text only arrives when the
+app runs under XWayland. Start the `app` list with `env -u WAYLAND_DISPLAY`:
+
+```json
+"app": [
+  "env", "-u", "WAYLAND_DISPLAY",
+  "/path/to/target/release/rustydemon",
+  "/path/to/World of Warcraft",
+  "--listfile",
+  "/path/to/verified-listfile.csv"
+]
+```
+
+That script sends real key presses, so the window takes the foreground while
+it runs, and the run stops if you touch the keyboard or mouse.
+
 `bam-wow-menu.json` passes only the listfile, because the script opens
 the game itself from File → Open Game. The listfile waits and loads when
 the archive opens:
@@ -88,7 +116,7 @@ window, and that is not the same thing everywhere:
 |---|---|---|
 | Windows | window title | `"Rusty Demon"` |
 | macOS | process name | `"rustydemon"` |
-| Linux | AT-SPI application name, which egui leaves empty | nothing matches yet, see below |
+| Linux | AT-SPI application name, then the frame's title | `"Rusty Demon"` |
 
 ## Conventions
 
@@ -113,9 +141,15 @@ window, and that is not the same thing everywhere:
 
 ## Known limits
 
-- **Linux, window lookup.** rustydemon's AT-SPI application name is empty,
-  so the runner reports `no window matching 'Rusty Demon'` until
-  bad-ass-mcp falls back to the frame's name, which does carry the title.
+- **The About window.** Help → About opens a separate egui viewport, and
+  only the main window publishes an accessibility tree. Nothing inside About
+  can be found or clicked, by a script or by a screen reader.
+- **The search box has no name.** It is found by role: `textfield` on
+  Windows, `entry` on Linux.
+- **Linux, window lookup.** rustydemon's AT-SPI application name is empty.
+  bad-ass-mcp's main branch (a0fe32a, 2026-11-12) falls back to the frame's
+  name, which carries the title. A version without that fallback reports
+  `no window matching 'Rusty Demon'`.
 - **Native file dialogs.** Flows that pick a folder or file through a dialog
   (Export, Load Listfile from the menu) are not scripted. On KDE the dialog
   belongs to `xdg-desktop-portal-kde`, a process that exists before the app
