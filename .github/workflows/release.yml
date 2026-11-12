@@ -19,6 +19,9 @@
 #                            built by this workflow from the tagged commit.
 #                            Check one with:
 #                              gh attestation verify <file> --repo HoldMyBeer-gg/rustydemon
+#
+# After publishing, the AUR recipe in packaging/aur/rustydemon-bin is pointed
+# at the new release and committed to main, so it cannot fall a version behind.
 
 name: Release
 
@@ -123,3 +126,39 @@ jobs:
             *.dmg
             *.msi
             SHA256SUMS.txt
+
+  # Point the AUR recipe at the release that was just published. Runs last:
+  # the recipe needs the tarball checksum, which exists only once it is built.
+  aur-recipe:
+    needs: release
+    # Only for plain x.y.z tags; a pre-release is not what the recipe installs.
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          # Tags are needed: the license and icons are hashed at the tag.
+          fetch-depth: 0
+      - name: Rewrite the recipe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release download "$TAG" --pattern SHA256SUMS.txt --dir "$RUNNER_TEMP"
+          tarball="rustydemon-${TAG#v}-x86_64-unknown-linux-gnu.tar.gz"
+          sum=$(awk -v f="$tarball" '$2 == f { print $1 }' "$RUNNER_TEMP/SHA256SUMS.txt")
+          test -n "$sum" || { echo "no checksum for $tarball in SHA256SUMS.txt"; exit 1; }
+          scripts/aur-bump.sh "${TAG#v}" "$sum"
+      - name: Commit to main if the recipe changed
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if git diff --quiet -- packaging/aur; then
+            echo "Recipe already at ${TAG#v}; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "packaging: AUR recipe follows ${TAG#v}" -- packaging/aur
+          git push origin HEAD:main

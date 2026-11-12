@@ -7,7 +7,11 @@ Build and install from this directory:
 
     makepkg -si
 
-For a new release: set `pkgver`, refresh the checksums with
-`updpkgsums`, regenerate `.SRCINFO` with
-`makepkg --printsrcinfo > .SRCINFO`, and push the three files
-(`PKGBUILD`, `.SRCINFO`, `rustydemon.desktop`) to the AUR repository.
+The release workflow keeps this directory current: after a release is
+published it runs `scripts/aur-bump.sh` and commits the new version and
+checksums to main. To do the same by hand:
+
+    scripts/aur-bump.sh 1.2.3 <sha256 of the Linux tarball>
+
+Publishing to the AUR is still a manual push of three files (`PKGBUILD`,
+`.SRCINFO`, `rustydemon.desktop`) to the AUR repository.
