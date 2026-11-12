@@ -11,7 +11,7 @@ screen reader or automation tool sees them.
 |---|---|---|
 | `launch-empty.json` | no | window title, toolbar, status bar text, File menu |
 | `wowf/ghost-entries.json` | WoW Forever + listfile | issue #3: folders the build does not ship stay out of the tree; real folders expand and browse |
-| `wowf/end-to-end.json` | WoW Forever + listfile | the whole app in one pass: load, browse the tree, text preview, glob search, M2 model preview, texture preview, extraction to disk through `rustydemon-cli`, Help menu |
+| `wowf/end-to-end.json` | WoW Forever + listfile | the whole app in one pass: load, browse the tree, text preview, glob search, M2 model preview, texture preview, Export As PNG through the native save dialog, Help menu |
 | `wow-menu/sylvanas-spin.json` | detected WoW install + listfile | File → Open Game, glob search, M2 preview, orbiting the 3D viewport by drag (Windows) |
 
 Each script's `verified` field lists the platforms it has actually passed
@@ -58,29 +58,29 @@ app's command line so no file dialog is needed:
 }
 ```
 
-`wowf/end-to-end.json` uses the same config, with two additions.
-
-Its extraction phase runs `rustydemon-cli`, and reads where things are from
-the environment:
-
-```
-export RUSTYDEMON_CLI=/path/to/target/release/rustydemon-cli
-export WOW_DIR="/path/to/World of Warcraft"
-export WOW_LISTFILE=/path/to/verified-listfile.csv
-```
-
-On Linux it types into the search box, and typed text only arrives when the
-app runs under XWayland. Start the `app` list with `env -u WAYLAND_DISPLAY`:
+`wowf/end-to-end.json` uses the same config, with two additions on Linux:
 
 ```json
-"app": [
-  "env", "-u", "WAYLAND_DISPLAY",
-  "/path/to/target/release/rustydemon",
-  "/path/to/World of Warcraft",
-  "--listfile",
-  "/path/to/verified-listfile.csv"
-]
+{
+  "window": "Rusty Demon",
+  "app": [
+    "env", "-u", "WAYLAND_DISPLAY",
+    "/path/to/target/release/rustydemon",
+    "/path/to/World of Warcraft",
+    "--listfile",
+    "/path/to/verified-listfile.csv"
+  ],
+  "helpers": ["xdg-desktop-portal"],
+  "ready": { "name": "Search" },
+  "launch_timeout": 30
+}
 ```
+
+- `env -u WAYLAND_DISPLAY` runs the app under XWayland. The script types
+  into the search box, and typed text only arrives there.
+- `helpers` lets the run drive the save dialog. On KDE the dialog belongs to
+  `xdg-desktop-portal-kde`, a process that was running before the app
+  started, so the runner would otherwise leave it alone.
 
 That script sends real key presses, so the window takes the foreground while
 it runs, and the run stops if you touch the keyboard or mouse.
@@ -150,8 +150,8 @@ window, and that is not the same thing everywhere:
   bad-ass-mcp's main branch (a0fe32a, 2026-11-12) falls back to the frame's
   name, which carries the title. A version without that fallback reports
   `no window matching 'Rusty Demon'`.
-- **Native file dialogs.** Flows that pick a folder or file through a dialog
-  (Export, Load Listfile from the menu) are not scripted. On KDE the dialog
-  belongs to `xdg-desktop-portal-kde`, a process that exists before the app
-  starts, and the runner only drives the process it launched. `--listfile`
-  covers loading; export is checked with `rustydemon-cli export`.
+- **Native file dialogs.** Scripted on Linux (KDE) only so far, in
+  `wowf/end-to-end.json`. The dialog's title and its filename field differ
+  per OS and have not been recorded for Windows or macOS. The folder pickers
+  (Export Folder, Open Game Directory) and Load Listfile are not scripted
+  yet; `--listfile` covers loading.
