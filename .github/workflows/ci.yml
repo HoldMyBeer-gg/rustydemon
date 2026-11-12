@@ -90,6 +90,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
+  # ── AUR recipe tooling ──────────────────────────────────────────────────────
+  # The release workflow rewrites packaging/aur/rustydemon-bin with
+  # scripts/aur-bump.sh. This checks that script, and that the committed
+  # recipe is what the script would produce.
+  aur-recipe:
+    name: AUR recipe script
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The test reads the license and icons at the recipe's release tag.
+          fetch-depth: 0
+      - run: scripts/aur-bump.test.sh
+
   # ── Security audit ──────────────────────────────────────────────────────────
   audit:
     name: Security audit
