@@ -1,0 +1,111 @@
+{
+  "name": "load-keys-dialog",
+  "covers": "With no archive open, File > Load TACT Keys… opens the native file dialog, a key file is picked by typing its path, and the status bar reports how many keys were loaded. Needs no game install.",
+  "platforms": [
+    "linux"
+  ],
+  "verified": {
+    "linux": "2026-11-12"
+  },
+  "setup": [
+    {
+      "shell": "printf 'AAAAAAAAAAAAAAA1 000102030405060708090A0B0C0D0E0F\\nAAAAAAAAAAAAAAA2 101112131415161718191A1B1C1D1E1F\\n' > \"$SMOKE/smoke.keys\""
+    }
+  ],
+  "phases": [
+    {
+      "name": "file menu opens",
+      "learn": {
+        "file": {
+          "name": "File"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "file"
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "Load TACT Keys…",
+          "timeout": 5
+        }
+      ]
+    },
+    {
+      "name": "open the file dialog",
+      "learn": {
+        "keys": {
+          "name": "Load TACT Keys…"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "keys"
+        },
+        {
+          "action": "wait_for_window",
+          "pattern": "xdg-desktop-portal-kde",
+          "timeout": 10
+        }
+      ],
+      "note": "KDE's file dialog belongs to xdg-desktop-portal-kde; the config lists it under helpers."
+    },
+    {
+      "name": "pick the key file",
+      "window": "xdg-desktop-portal-kde",
+      "learn": {
+        "filename": {
+          "role": "text",
+          "state": "focused"
+        },
+        "open": {
+          "name": "Open"
+        }
+      },
+      "steps": [
+        {
+          "action": "type",
+          "target": "filename",
+          "text": "$SMOKE/smoke.keys"
+        },
+        {
+          "action": "click",
+          "target": "open"
+        }
+      ],
+      "note": "The filename field has no name; it is the text field holding focus when the dialog opens."
+    },
+    {
+      "name": "keys are loaded",
+      "note": "A wait step, not a check: step fields expand $SMOKE and check names do not. The status bar names the file it read.",
+      "learn": {},
+      "steps": [
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "Loaded 2 TACT key(s) from $SMOKE/smoke.keys.",
+          "timeout": 10
+        }
+      ],
+      "checks": [
+        {
+          "present": {
+            "name": "Search"
+          }
+        }
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "no_window": "xdg-desktop-portal-kde"
+    },
+    {
+      "windows": 1
+    }
+  ],
+  "notes": "Needs no game install. On Linux the config needs helpers: [\"xdg-desktop-portal\"]; the app may run on native Wayland or XWayland, because the only typing goes into the dialog. The final no_window check needs a bad-ass-mcp that counts a helper's open dialogs (bad-ass-mcp PR #34); older versions fail it with 'unexpected window'. Linux run 2026-11-12 (SteamOS, KDE): passed on native Wayland and on XWayland. Values are for KDE's dialog only. The GTK portal, macOS and Windows dialogs differ (see the table in smoke/README.md) and are not in this script yet."
+}
