@@ -10,6 +10,7 @@ screen reader or automation tool sees them.
 | script | needs a game install | covers |
 |---|---|---|
 | `launch-empty.json` | no | window title, toolbar, status bar text, File menu |
+| `load-keys-dialog.json` | no | File → Load TACT Keys… through the native open dialog: type a path, open it, status bar reports the keys loaded |
 | `wowf/ghost-entries.json` | WoW Forever + listfile | issue #3: folders the build does not ship stay out of the tree; real folders expand and browse |
 | `wowf/end-to-end.json` | WoW Forever + listfile | the whole app in one pass: load, browse the tree, text preview, glob search, M2 model preview, texture preview, Export As PNG through the native save dialog, Help menu |
 | `wow-menu/sylvanas-spin.json` | detected WoW install + listfile | File → Open Game, glob search, M2 preview, orbiting the 3D viewport by drag (Windows) |
@@ -40,6 +41,9 @@ The configs are not committed, because paths differ per machine.
   "launch_timeout": 30
 }
 ```
+
+`load-keys-dialog.json` runs with `bam.json` too. On Linux add
+`"helpers": ["xdg-desktop-portal"]` so the run may drive the file dialog.
 
 `bam-wowf.json` is the same, with the game directory and listfile on the
 app's command line so no file dialog is needed:
@@ -136,20 +140,35 @@ window, and that is not the same thing everywhere:
   accessibility "set value" call, and bad-ass-mcp falls back to real key
   presses once it reads the value back. The key presses select the old
   text first, so a second search replaces the first.
-- Static labels (status bar, panel text) are not findable by name on macOS,
-  so gate those checks with `"only": ["linux", "windows"]`.
+- Static labels (status bar, panel text) were not findable by name on macOS
+  with older bad-ass-mcp versions, so `launch-empty.json` gates one check
+  with `"only": ["linux", "windows"]`. With a0fe32a they resolve on macOS
+  (seen through a direct lookup on 2026-11-12, not yet in a script run).
+- Run from the desktop session. Over SSH or in tmux the app has no display:
+  every script fails with `no window matching`. Export `DISPLAY`,
+  `XAUTHORITY` (on SteamOS, `/run/user/1000/xauth_*`), `WAYLAND_DISPLAY` and
+  `XDG_RUNTIME_DIR` from the desktop session first.
 
 ## Known limits
 
 - **The About window.** Help → About opens a separate egui viewport, and
   only the main window publishes an accessibility tree. Nothing inside About
-  can be found or clicked, by a script or by a screen reader.
-- **The search box has no name.** It is found by role: `textfield` on
-  Windows, `entry` on Linux.
+  can be found or clicked, by a script or by a screen reader. On Linux the
+  window is not listed at all; on macOS it is listed by its title, "About
+  RustyDemon", with no contents.
+- **The search box has no useful name.** It is found by role: `textfield`
+  on Windows and macOS (where its name is the generic "text field"), `entry`
+  on Linux. On macOS a file panel fills the tree with other text fields, so
+  learn the search box before opening one.
+- **Disabled items read as enabled on Linux.** A greyed-out item such as
+  Load Listfile… with no archive open is published over AT-SPI with the
+  `enabled` state. egui marks it disabled; `accesskit_atspi_common` 0.9.3,
+  which egui 0.29 uses, reports any control that cannot be read-only as
+  enabled. A script cannot tell that such an item is disabled.
 - **Linux, window lookup.** rustydemon's AT-SPI application name is empty.
   bad-ass-mcp's main branch (a0fe32a, 2026-11-12) falls back to the frame's
-  name, which carries the title. A version without that fallback reports
-  `no window matching 'Rusty Demon'`.
+  name, which carries the title (also seen with 1.6.0-29-g76c9ed4 on XFCE).
+  A version without that fallback reports `no window matching 'Rusty Demon'`.
 - **Native file dialogs.** Export As PNG is scripted on Linux (KDE) and
   Windows in `wowf/end-to-end.json`. The dialog's title and its filename
   field differ per OS, so those values are per-platform:
@@ -159,9 +178,24 @@ window, and that is not the same thing everywhere:
   | Linux (KDE) | `xdg-desktop-portal-kde` | role `text`, focused | `Save` |
   | Windows | `Save As` | role `textfield`, name `File name:`, focused | `Save` |
 
-  macOS is not recorded yet. The folder pickers (Export Folder, Open Game
-  Directory) and Load Listfile are not scripted yet; `--listfile` covers
-  loading.
+  The folder pickers (Export Folder, Open Game Directory) and the file
+  pickers (Load Listfile, Load TACT Keys) are not scripted yet; `--listfile`
+  covers loading. What a pick-file dialog looks like on the two desktops
+  without a script, recorded by hand on 2026-11-12 from File → Load TACT
+  Keys…, which works with no archive open:
+
+  | OS | dialog | path field | buttons |
+  |---|---|---|---|
+  | Linux (XFCE, GTK portal) | listed as `xdg-desktop-portal-gtk`, no title; needs `"helpers": ["xdg-desktop-portal"]`, which matches the KDE portal too | hidden until Ctrl+L or a leading `/` is typed, then role `text`, focused | `Select` (disabled until a path is entered), `Cancel` |
+  | macOS | a sheet named `Open` inside the main window, same process, no helpers | none until Cmd+Shift+G, then role `textfield`, name `text field`, focused | `Open` (disabled until a file is chosen; learn it with role `button`, the sheet shares the name), `Cancel` |
+
+  On macOS, Escape sent to the window closes the Go-to sheet but not the
+  Open sheet, so close the panel by clicking `Cancel`.
+- **Linux, no dialog appears.** The portal is started by D-Bus with systemd's
+  user environment. If that has a different `DISPLAY` than the session (seen
+  on a remote-desktop XFCE box), the portal cannot open its window, the app
+  shows no error, and the request stays pending. Compare
+  `systemctl --user show-environment` with the session's `DISPLAY`.
 - **Windows needs a recent bad-ass-mcp.** The script types into the search
   box twice, and the dialog is given a path under `$SMOKE`. Older versions
   appended the second search to the first, and left `$SMOKE` relative when
