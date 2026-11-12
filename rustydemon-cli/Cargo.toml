@@ -4,7 +4,7 @@ description  = "Headless batch exporter for CASC archives (Rusty Demon CLI)"
 version.workspace    = true
 authors.workspace    = true
 edition.workspace    = true
-license.workspace    = true
+license-file.workspace = true
 repository.workspace = true
 
 [[bin]]
