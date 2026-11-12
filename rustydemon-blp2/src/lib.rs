@@ -47,3 +47,9 @@ mod dxt;
 
 pub use blp::{BlpFile, ColorEncoding, PixelFormat};
 pub use error::BlpError;
+
+// Compile the README's code blocks as doctests so the crates.io front page
+// can't drift from the API.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

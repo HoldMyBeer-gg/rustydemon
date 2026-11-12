@@ -6,6 +6,9 @@ authors.workspace    = true
 edition.workspace    = true
 license.workspace    = true
 repository.workspace = true
+readme               = "README.md"
+keywords             = ["blp", "texture", "dxt", "warcraft", "image"]
+categories           = ["parser-implementations", "game-development", "multimedia::images"]
 
 [dependencies]
 image     = { version = "0.25", default-features = false, features = ["jpeg"] }

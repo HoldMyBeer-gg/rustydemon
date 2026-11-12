@@ -91,3 +91,9 @@ pub use jenkins96::jenkins96;
 pub use query::PathQuery;
 pub use search::{SearchQuery, SearchResult};
 pub use types::{ContentFlags, EKey9, EncodingEntry, IndexEntry, LocaleFlags, Md5Hash, RootEntry};
+
+// Compile the README's code blocks as doctests so the crates.io front page
+// can't drift from the API.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
