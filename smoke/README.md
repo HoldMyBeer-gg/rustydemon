@@ -10,6 +10,7 @@ screen reader or automation tool sees them.
 | script | needs a game install | covers |
 |---|---|---|
 | `launch-empty.json` | no | window title, toolbar, status bar text, File menu |
+| `about.json` | no | Help → About: its headings, version, link cards and buttons are in the accessibility tree, and Close dismisses it |
 | `load-keys-dialog.json` | no | File → Load TACT Keys… through the native open dialog: type a path, open it, status bar reports the keys loaded |
 | `wowf/ghost-entries.json` | WoW Forever + listfile | issue #3: folders the build does not ship stay out of the tree; real folders expand and browse |
 | `wowf/end-to-end.json` | WoW Forever + listfile | the whole app in one pass: load, browse the tree, text preview, glob search, M2 model preview, texture preview, Export As PNG through the native save dialog, Help menu |
@@ -154,12 +155,9 @@ window, and that is not the same thing everywhere:
 
 ## Known limits
 
-- **The About window.** Help → About opens a separate egui viewport, and
-  only the main window publishes an accessibility tree. Nothing inside About
-  can be found or clicked, by a script or by a screen reader. On Linux the
-  window is not listed at all; on macOS it is listed by its title, "About
-  RustyDemon", with no contents.
-- **Names added after 0.5.2.** The search box is named `Search files`
+- **Names added after 0.5.2.** About is drawn inside the main window, so
+  its contents are in the tree (it used to be a separate OS window with
+  none). The search box is named `Search files`
   (scripts written before that find it by role: `textfield` on Windows and
   macOS, `entry` on Linux). Section headers are headings with plain names
   (`File Browser`, not the letter-spaced text on screen), the status bar is
