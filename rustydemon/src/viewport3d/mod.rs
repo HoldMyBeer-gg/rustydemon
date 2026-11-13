@@ -205,7 +205,20 @@ struct Offscreen {
 struct MeshUniforms {
     view_proj: [[f32; 4]; 4],
     eye_pos: [f32; 3],
-    _pad: f32,
+    /// See [`srgb_encode_flag`].
+    srgb_encode: f32,
+}
+
+/// 1 when the shader must turn its linear colours into sRGB itself, 0 when
+/// the surface does that on write.  Textures are sampled as sRGB, so they
+/// arrive linear; written as they are to a plain surface they come out far
+/// too dark.
+fn srgb_encode_flag(surface: wgpu::TextureFormat) -> f32 {
+    if surface.is_srgb() {
+        0.0
+    } else {
+        1.0
+    }
 }
 
 #[repr(C)]
@@ -281,7 +294,14 @@ const MESH_SHADER: &str = r#"
 struct Uniforms {
     view_proj: mat4x4<f32>,
     eye_pos: vec3<f32>,
+    srgb_encode: f32,
 };
+
+fn to_srgb(c: vec3<f32>) -> vec3<f32> {
+    let lo = c * 12.92;
+    let hi = 1.055 * pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.4)) - 0.055;
+    return select(hi, lo, c <= vec3<f32>(0.0031308));
+}
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
 struct BatchUniform {
@@ -332,7 +352,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         discard;
     }
     let alpha = select(1.0, tex.a, b.mode.x == 2.0);
-    return vec4<f32>(tex.rgb * b.color.rgb * shaded, alpha);
+    var rgb = tex.rgb * b.color.rgb * shaded;
+    if (u.srgb_encode == 1.0) {
+        rgb = to_srgb(rgb);
+    }
+    return vec4<f32>(rgb, alpha);
 }
 "#;
 
@@ -1144,7 +1168,7 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
             let uniforms = MeshUniforms {
                 view_proj: view_proj.to_cols_array_2d(),
                 eye_pos: eye.into(),
-                _pad: 0.0,
+                srgb_encode: srgb_encode_flag(res.offscreen_format),
             };
             queue.write_buffer(&c.uniform_buf, 0, bytemuck::bytes_of(&uniforms));
         }
@@ -1420,6 +1444,15 @@ mod tests {
             assert_eq!(state.alpha.src_factor, wgpu::BlendFactor::Zero);
             assert_eq!(state.alpha.dst_factor, wgpu::BlendFactor::One);
         }
+    }
+
+    #[test]
+    fn colours_are_encoded_only_for_surfaces_that_do_not_do_it_themselves() {
+        use wgpu::TextureFormat as F;
+        assert_eq!(srgb_encode_flag(F::Bgra8Unorm), 1.0);
+        assert_eq!(srgb_encode_flag(F::Rgba8Unorm), 1.0);
+        assert_eq!(srgb_encode_flag(F::Bgra8UnormSrgb), 0.0);
+        assert_eq!(srgb_encode_flag(F::Rgba8UnormSrgb), 0.0);
     }
 
     #[test]
