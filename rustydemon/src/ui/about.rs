@@ -16,13 +16,20 @@ const SPONSOR_URL: &str = "https://github.com/sponsors/jabberwock";
 const BUG_URL: &str = "https://github.com/HoldMyBeer-gg/rustydemon/issues/new/choose";
 const COPYRIGHT: &str = "© 2026 jabberwock · AGPL-3.0 + Commons Clause";
 const AUTHOR_URL: &str = "https://github.com/jabberwock";
+/// Background of a link card.
+const CARD_FILL: egui::Color32 = egui::Color32::from_rgba_premultiplied(5, 5, 5, 5);
 
 /// Show the About window if `open`. Mutates `open` to false when the
 /// user closes the OS window or clicks Close. `logo` caches the decoded
 /// logo texture across frames (lazy-loaded on first open).
-pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui::TextureHandle>) {
+pub fn show_window(
+    ctx: &egui::Context,
+    open: &mut bool,
+    logo: &mut Option<egui::TextureHandle>,
+    bounds: egui::Rect,
+) -> Option<egui::Rect> {
     if !*open {
-        return;
+        return None;
     }
 
     // Lazily decode the bundled icon into a texture (once).
@@ -40,18 +47,25 @@ pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui:
     // `keep_open` carries the Close button's verdict out of the closure;
     // the window's own close box writes to `open` directly.
     let mut keep_open = true;
-    egui::Window::new("About RustyDemon")
+    // Centred in the free area, and never taller than it: a window that
+    // hangs off the bottom hides its own footer.
+    const TITLE_BAR: f32 = 40.0;
+    let max_height = (bounds.height() - TITLE_BAR - 16.0).max(120.0);
+    let offset = bounds.center() - ctx.content_rect().center();
+    let shown = egui::Window::new("About RustyDemon")
         .open(open)
         .collapsible(false)
         .resizable(true)
-        .default_size([400.0, 600.0])
-        .min_size([360.0, 420.0])
-        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .default_size([400.0, 600.0_f32.min(max_height)])
+        .min_size([360.0, 420.0_f32.min(max_height)])
+        .max_height(max_height)
+        .anchor(egui::Align2::CENTER_CENTER, offset)
         .frame(egui::Frame::window(&ctx.global_style()).inner_margin(0.0))
         .show(ctx, |ui| about_body(ui, &logo, &mut keep_open));
     if !keep_open {
         *open = false;
     }
+    shown.map(|s| s.response.rect)
 }
 
 /// Everything inside the About window. `open` is set to false when Close is
@@ -102,91 +116,94 @@ fn about_body(ui: &mut egui::Ui, logo: &Option<egui::TextureHandle>, open: &mut 
                     .inner_margin(egui::Margin::symmetric(28, 24)),
             )
             .show(ui, |ui| {
-                // ── Hero ──────────────────────────────────────────────
-                ui.vertical_centered(|ui| {
-                    if let Some(tex) = logo {
-                        let resp = ui.add(egui::Image::new((tex.id(), egui::vec2(88.0, 88.0))));
-                        a11y::image(ui.ctx(), resp.id, "Rusty Demon logo");
-                    }
-                    ui.add_space(12.0);
-                    a11y::decorated(
-                        ui,
-                        egui::RichText::new("RUSTY  DEMON")
-                            .size(28.0)
-                            .strong()
-                            .color(rd::FROST_900),
-                        egui::Role::Heading,
-                        "Rusty Demon",
-                    );
-                    ui.add_space(6.0);
-                    ui.label(egui::RichText::new(TAGLINE).size(12.5).color(rd::FROST_700));
-                    ui.add_space(12.0);
-
-                    // Version pill.
-                    egui::Frame::NONE
-                        .stroke(egui::Stroke::new(1.0_f32, rd::FROST_400))
-                        .corner_radius(egui::CornerRadius::same(255))
-                        .inner_margin(egui::Margin::symmetric(12, 3))
-                        .show(ui, |ui| {
-                            let v = env!("CARGO_PKG_VERSION");
+                // One scroll area for the whole body, so a short window can
+                // still reach everything and the footer stays in view.
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        // ── Hero ──────────────────────────────────────────────
+                        ui.vertical_centered(|ui| {
+                            if let Some(tex) = logo {
+                                let resp =
+                                    ui.add(egui::Image::new((tex.id(), egui::vec2(88.0, 88.0))));
+                                a11y::image(ui.ctx(), resp.id, "Rusty Demon logo");
+                            }
+                            ui.add_space(12.0);
                             a11y::decorated(
                                 ui,
-                                egui::RichText::new(format!("● v{v} · lib {v}"))
-                                    .monospace()
-                                    .size(11.0)
-                                    .color(rd::RUNE_400),
-                                egui::Role::Label,
-                                &format!("Version {v}, library {v}"),
+                                egui::RichText::new("RUSTY  DEMON")
+                                    .size(28.0)
+                                    .strong()
+                                    .color(rd::FROST_900),
+                                egui::Role::Heading,
+                                "Rusty Demon",
                             );
+                            ui.add_space(6.0);
+                            ui.label(egui::RichText::new(TAGLINE).size(12.5).color(rd::FROST_700));
+                            ui.add_space(12.0);
+
+                            // Version pill.
+                            egui::Frame::NONE
+                                .stroke(egui::Stroke::new(1.0_f32, rd::FROST_400))
+                                .corner_radius(egui::CornerRadius::same(255))
+                                .inner_margin(egui::Margin::symmetric(12, 3))
+                                .show(ui, |ui| {
+                                    let v = env!("CARGO_PKG_VERSION");
+                                    a11y::decorated(
+                                        ui,
+                                        egui::RichText::new(format!("● v{v} · lib {v}"))
+                                            .monospace()
+                                            .size(11.0)
+                                            .color(rd::RUNE_400),
+                                        egui::Role::Label,
+                                        &format!("Version {v}, library {v}"),
+                                    );
+                                });
+
+                            ui.add_space(14.0);
+                            ui.horizontal(|ui| {
+                                // Center the "Created by jabberwock" row.
+                                ui.add_space((ui.available_width() - 150.0).max(0.0) / 2.0);
+                                ui.label(egui::RichText::new("Created by").color(rd::FROST_700));
+                                ui.hyperlink_to(
+                                    egui::RichText::new("jabberwock")
+                                        .color(rd::RUNE_400)
+                                        .strong(),
+                                    AUTHOR_URL,
+                                );
+                            });
                         });
 
-                    ui.add_space(14.0);
-                    ui.horizontal(|ui| {
-                        // Center the "Created by jabberwock" row.
-                        ui.add_space((ui.available_width() - 150.0).max(0.0) / 2.0);
-                        ui.label(egui::RichText::new("Created by").color(rd::FROST_700));
-                        ui.hyperlink_to(
-                            egui::RichText::new("jabberwock")
-                                .color(rd::RUNE_400)
-                                .strong(),
-                            AUTHOR_URL,
+                        ui.add_space(18.0);
+
+                        // ── Link cards ────────────────────────────────────────
+                        ui.columns(3, |cols| {
+                            link_card(&mut cols[0], "Repository", REPO_URL, false);
+                            link_card(&mut cols[1], "Sponsor", SPONSOR_URL, true);
+                            link_card(&mut cols[2], "Report a Bug", BUG_URL, false);
+                        });
+
+                        ui.add_space(20.0);
+                        a11y::decorated(
+                            ui,
+                            egui::RichText::new(
+                                "A C K N O W L E D G E M E N T S   &   L I C E N S E",
+                            )
+                            .size(10.0)
+                            .strong()
+                            .color(rd::FROST_600),
+                            egui::Role::Heading,
+                            "Acknowledgements & License",
                         );
-                    });
-                });
+                        ui.add_space(6.0);
 
-                ui.add_space(18.0);
-
-                // ── Link cards ────────────────────────────────────────
-                ui.columns(3, |cols| {
-                    link_card(&mut cols[0], "Repository", REPO_URL, false);
-                    link_card(&mut cols[1], "Sponsor", SPONSOR_URL, true);
-                    link_card(&mut cols[2], "Report a Bug", BUG_URL, false);
-                });
-
-                ui.add_space(20.0);
-                a11y::decorated(
-                    ui,
-                    egui::RichText::new("A C K N O W L E D G E M E N T S   &   L I C E N S E")
-                        .size(10.0)
-                        .strong()
-                        .color(rd::FROST_600),
-                    egui::Role::Heading,
-                    "Acknowledgements & License",
-                );
-                ui.add_space(6.0);
-
-                // ── Scrollable credits / license ──────────────────────
-                egui::Frame::NONE
-                    .fill(rd::FROST_200)
-                    .stroke(egui::Stroke::new(1.0_f32, rd::FROST_400))
-                    .corner_radius(egui::CornerRadius::same(5))
-                    .inner_margin(egui::Margin::same(12))
-                    .show(ui, |ui| {
-                        egui::ScrollArea::vertical()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                credits_body(ui);
-                            });
+                        // ── Credits / license ──────────────────────
+                        egui::Frame::NONE
+                            .fill(rd::FROST_200)
+                            .stroke(egui::Stroke::new(1.0_f32, rd::FROST_400))
+                            .corner_radius(egui::CornerRadius::same(5))
+                            .inner_margin(egui::Margin::same(12))
+                            .show(ui, credits_body);
                     });
             });
     }
@@ -197,7 +214,7 @@ fn about_body(ui: &mut egui::Ui, logo: &Option<egui::TextureHandle>, open: &mut 
 fn link_card(ui: &mut egui::Ui, label: &str, url: &str, warm: bool) {
     let accent = if warm { rd::EMBER_600 } else { rd::RUNE_400 };
     let resp = egui::Frame::NONE
-        .fill(egui::Color32::from_rgba_premultiplied(255, 255, 255, 5))
+        .fill(CARD_FILL)
         .stroke(egui::Stroke::new(1.0_f32, rd::FROST_400))
         .corner_radius(egui::CornerRadius::same(5))
         .inner_margin(egui::Margin::symmetric(6, 11))
@@ -370,5 +387,47 @@ mod a11y_tests {
             let b = bounds_of(&all, button);
             assert!(!overlap(text, b), "{button} {b:?} covers {text:?}");
         }
+    }
+
+    /// Draw the whole window for two frames in a screen of `screen` points
+    /// whose free area is `bounds`; returns where the window ended up.
+    fn window_in(screen: [f32; 2], bounds: egui::Rect) -> egui::Rect {
+        use crate::ui::a11y::testing::{frame_in, sized};
+        let ctx = egui::Context::default();
+        crate::ui::theme::apply(&ctx);
+        ctx.enable_accesskit();
+        let mut rect = None;
+        for _ in 0..3 {
+            frame_in(&ctx, sized(screen), |ui| {
+                let mut open = true;
+                rect = super::show_window(ui.ctx(), &mut open, &mut None, bounds);
+            });
+        }
+        rect.expect("window shown")
+    }
+
+    /// The window is 600 points tall by default. In a main window shorter
+    /// than that it used to hang off the bottom, cutting off the footer.
+    #[test]
+    fn the_window_fits_a_short_main_window() {
+        let bounds = egui::Rect::from_min_max(egui::pos2(0.0, 40.0), egui::pos2(800.0, 470.0));
+        let rect = window_in([800.0, 500.0], bounds);
+        assert!(bounds.contains_rect(rect), "{rect:?} leaves {bounds:?}");
+    }
+
+    /// It also stays off the menu bar and status bar when there is room.
+    #[test]
+    fn the_window_stays_between_menu_and_status_bar() {
+        let bounds = egui::Rect::from_min_max(egui::pos2(0.0, 40.0), egui::pos2(1100.0, 690.0));
+        let rect = window_in([1100.0, 728.0], bounds);
+        assert!(bounds.contains_rect(rect), "{rect:?} leaves {bounds:?}");
+    }
+
+    /// A premultiplied colour brighter than its alpha is not a faint tint;
+    /// it draws as solid white.
+    #[test]
+    fn link_card_fill_is_a_faint_tint() {
+        let [r, g, b, a] = super::CARD_FILL.to_array();
+        assert!(r <= a && g <= a && b <= a, "{:?}", super::CARD_FILL);
     }
 }

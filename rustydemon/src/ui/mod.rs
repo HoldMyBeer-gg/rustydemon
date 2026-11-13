@@ -18,7 +18,7 @@ pub fn draw(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> egui::Rect {
     draw_status_bar(ui, app);
     let content = ui.available_rect_before_wrap();
     draw_panels(ui, app);
-    about::show_window(ui.ctx(), &mut app.about_open, &mut app.about_logo);
+    about::show_window(ui.ctx(), &mut app.about_open, &mut app.about_logo, content);
     content
 }
 
