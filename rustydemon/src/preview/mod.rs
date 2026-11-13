@@ -16,6 +16,8 @@ pub mod audio;
 pub mod blp;
 pub mod creature_skins;
 pub mod db2;
+pub mod grp;
+pub mod grp_format;
 pub mod m2;
 pub mod m2_lite;
 pub mod model3d;
@@ -216,6 +218,7 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         // the text heuristic could false-positive on a binary header.
         Box::new(blp::BlpPreview),
         Box::new(pcx::PcxPreview),
+        Box::new(grp::GrpPreview),
         // D2R `<DE(` container — magic-sniffed, so it sits above the
         // extension-only `.tex` plugin to claim D2R textures before a
         // name collision could matter.
