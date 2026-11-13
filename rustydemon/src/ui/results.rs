@@ -74,35 +74,17 @@ fn draw_folder_contents(
 
     theme::panel_header(ui, "Folder", Some(&format!("{total} hits")));
 
-    // Folder path + export controls on a second row.
-    ui.horizontal(|ui| {
-        ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new(if folder_path.is_empty() {
-                "/"
-            } else {
-                folder_path.as_str()
-            })
-            .monospace()
-            .color(rd::RUNE_400),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if sel_count > 0 && ui.button(format!("Export {sel_count} Selected")).clicked() {
-                app.export_selected();
+    match folder_bar(ui, &folder_path, sel_count) {
+        Some(FolderAction::ExportSelected) => app.export_selected(),
+        Some(FolderAction::ExportFolder) => app.export_folder(),
+        Some(FolderAction::SelectAll) => {
+            for file in &files {
+                app.multi_selected.insert(file.hash);
             }
-            if ui.button("Export Folder").clicked() {
-                app.export_folder();
-            }
-            if ui.button("Select All").clicked() {
-                for file in &files {
-                    app.multi_selected.insert(file.hash);
-                }
-            }
-            if sel_count > 0 && ui.button("Clear Selection").clicked() {
-                app.multi_selected.clear();
-            }
-        });
-    });
+        }
+        Some(FolderAction::ClearSelection) => app.multi_selected.clear(),
+        None => {}
+    }
     ui.add_space(2.0);
 
     let mut clicked: Option<SearchResult> = None;
@@ -182,6 +164,52 @@ fn draw_folder_contents(
     });
 
     clicked
+}
+
+/// A button pressed in the folder view's second row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FolderAction {
+    ExportSelected,
+    ExportFolder,
+    SelectAll,
+    ClearSelection,
+}
+
+/// Folder path and export controls, on the row under the panel header.
+fn folder_bar(ui: &mut egui::Ui, folder_path: &str, sel_count: usize) -> Option<FolderAction> {
+    let mut action = None;
+    let shown = if folder_path.is_empty() {
+        "/"
+    } else {
+        folder_path
+    };
+    ui.horizontal(|ui| {
+        ui.add_space(4.0);
+        // Buttons first, from the right, so the path gets what is left and
+        // is cut short there. A cut-short label shows the whole path on
+        // hover and still publishes all of it.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if sel_count > 0 && ui.button(format!("Export {sel_count} Selected")).clicked() {
+                action = Some(FolderAction::ExportSelected);
+            }
+            if ui.button("Export Folder").clicked() {
+                action = Some(FolderAction::ExportFolder);
+            }
+            if ui.button("Select All").clicked() {
+                action = Some(FolderAction::SelectAll);
+            }
+            if sel_count > 0 && ui.button("Clear Selection").clicked() {
+                action = Some(FolderAction::ClearSelection);
+            }
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(
+                    egui::Label::new(egui::RichText::new(shown).monospace().color(rd::RUNE_400))
+                        .truncate(),
+                );
+            });
+        });
+    });
+    action
 }
 
 fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<SearchResult> {
@@ -379,5 +407,39 @@ mod a11y_tests {
             .filter_map(|(_, n)| n.label().map(str::to_owned))
             .collect();
         assert!(names.iter().any(|n| n == "core.lua"), "{names:?}");
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use crate::ui::a11y::testing::{bounds_of, nodes_sized, overlap};
+
+    const LONG: &str = "interface/addons/blizzard_sharedxml/shared/frames/templates/mainline";
+
+    /// A path too long for the row is cut short, not drawn under the buttons,
+    /// and is still published whole.
+    #[test]
+    fn long_folder_path_is_not_drawn_under_the_buttons() {
+        let all = nodes_sized([520.0, 300.0], |ui| {
+            super::folder_bar(ui, LONG, 3);
+        });
+        let path = bounds_of(&all, LONG);
+        for button in [
+            "Clear Selection",
+            "Select All",
+            "Export Folder",
+            "Export 3 Selected",
+        ] {
+            let b = bounds_of(&all, button);
+            assert!(!overlap(path, b), "{button} {b:?} covers {path:?}");
+        }
+    }
+
+    #[test]
+    fn short_folder_path_is_shown_as_it_is() {
+        let all = nodes_sized([900.0, 300.0], |ui| {
+            super::folder_bar(ui, "interface/icons", 0);
+        });
+        bounds_of(&all, "interface/icons");
     }
 }

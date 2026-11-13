@@ -10,11 +10,16 @@ use crate::app::CascExplorerApp;
 use rustydemon_lib::SearchResult;
 
 /// Draw the entire application UI for one frame.
-pub fn draw(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
+///
+/// Returns the area between the menu bar and the status bar, where floating
+/// windows belong.
+pub fn draw(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> egui::Rect {
     menu::draw_menu(ui, app);
     draw_status_bar(ui, app);
+    let content = ui.available_rect_before_wrap();
     draw_panels(ui, app);
     about::show_window(ui.ctx(), &mut app.about_open, &mut app.about_logo);
+    content
 }
 
 fn draw_panels(ui: &mut egui::Ui, app: &mut CascExplorerApp) {

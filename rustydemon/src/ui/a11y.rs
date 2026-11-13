@@ -98,12 +98,57 @@ pub(crate) mod testing {
             .collect()
     }
 
+    /// [`nodes`], in a window of `size` points, for layout checks.
+    pub fn nodes_sized(size: [f32; 2], mut draw: impl FnMut(&mut egui::Ui)) -> Vec<Node> {
+        let ctx = egui::Context::default();
+        crate::ui::theme::apply(&ctx);
+        ctx.enable_accesskit();
+        frame_in(&ctx, sized(size), &mut draw);
+        frame_in(&ctx, sized(size), &mut draw)
+            .nodes
+            .into_iter()
+            .map(|(_, n)| n)
+            .collect()
+    }
+
+    /// Input for a frame in a window of `size` points.
+    pub fn sized(size: [f32; 2]) -> egui::RawInput {
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size.into())),
+            ..Default::default()
+        }
+    }
+
+    /// The node whose words are `text`, and where it is drawn.
+    pub fn bounds_of(nodes: &[Node], text: &str) -> egui::accesskit::Rect {
+        nodes
+            .iter()
+            .find(|n| n.label().or_else(|| n.value()) == Some(text))
+            .unwrap_or_else(|| panic!("no node says {text:?}: {:?}", named(nodes)))
+            .bounds()
+            .unwrap_or_else(|| panic!("{text:?} has no bounds"))
+    }
+
+    /// Whether two drawn rectangles share any area.
+    pub fn overlap(a: egui::accesskit::Rect, b: egui::accesskit::Rect) -> bool {
+        a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1
+    }
+
     /// One frame of `draw`, returning the accessibility tree it published.
     pub fn frame(
         ctx: &egui::Context,
         draw: impl FnMut(&mut egui::Ui),
     ) -> egui::accesskit::TreeUpdate {
-        let mut out = ctx.run_ui(egui::RawInput::default(), draw);
+        frame_in(ctx, egui::RawInput::default(), draw)
+    }
+
+    /// [`frame`] with the given input.
+    pub fn frame_in(
+        ctx: &egui::Context,
+        input: egui::RawInput,
+        draw: impl FnMut(&mut egui::Ui),
+    ) -> egui::accesskit::TreeUpdate {
+        let mut out = ctx.run_ui(input, draw);
         // egui panics if texture changes are dropped without being applied.
         out.textures_delta.clear();
         out.platform_output

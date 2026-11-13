@@ -1247,14 +1247,20 @@ pub fn paint_mesh(ui: &mut egui::Ui, mesh: Arc<Mesh3dCpu>) {
 
 /// Show the spike viewport as a movable, resizable egui window.
 /// `open` is mutated to false when the user closes the window.
-pub fn show_window(ctx: &egui::Context, open: &mut bool) {
+/// `bounds` is the part of the app window not taken by the menu and status
+/// bars; the viewport window opens inside it and cannot be dragged out.
+///
+/// Returns where the window was drawn, if it is open.
+pub fn show_window(ctx: &egui::Context, open: &mut bool, bounds: egui::Rect) -> Option<egui::Rect> {
     if !*open {
-        return;
+        return None;
     }
 
     egui::Window::new("3D Test Viewport")
         .open(open)
         .default_size([400.0, 400.0])
+        .default_pos(bounds.min + Vec2::splat(16.0))
+        .constrain_to(bounds)
         .resizable(true)
         .show(ctx, |ui| {
             // Rotate at ~36°/sec. Using ctx time keeps it independent of
@@ -1277,5 +1283,27 @@ pub fn show_window(ctx: &egui::Context, open: &mut bool) {
 
             // Repaint continuously so the rotation animates.
             ctx.request_repaint();
-        });
+        })
+        .map(|shown| shown.response.rect)
+}
+
+#[cfg(test)]
+mod window_tests {
+    use crate::ui::a11y::testing::sized;
+
+    #[test]
+    fn test_viewport_opens_clear_of_the_menu_and_status_bars() {
+        let ctx = egui::Context::default();
+        let bounds = egui::Rect::from_min_max(egui::pos2(0.0, 30.0), egui::pos2(900.0, 570.0));
+        let mut rect = None;
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(sized([900.0, 600.0]), |ui| {
+                let mut open = true;
+                rect = super::show_window(ui.ctx(), &mut open, bounds);
+            });
+            out.textures_delta.clear();
+        }
+        let rect = rect.expect("the window was drawn");
+        assert!(bounds.contains_rect(rect), "{rect:?} leaves {bounds:?}");
+    }
 }
