@@ -85,7 +85,7 @@ impl PreviewPlugin for AdtPreview {
         let chunk_count = chunks.len();
         if chunk_count == 0 {
             out.text =
-                Some(".adt has no MCNK terrain chunks — this is probably a stub file.".into());
+                Some(".adt has no MCNK terrain chunks. This is probably a stub file.".into());
             return out;
         }
 
@@ -166,7 +166,8 @@ impl PreviewPlugin for AdtPreview {
         }
 
         if positions.is_empty() {
-            out.text = Some(".adt terrain has no MCVT height data — cannot build a mesh.".into());
+            out.text =
+                Some(".adt terrain has no MCVT height data, so no mesh can be built.".into());
             return out;
         }
 

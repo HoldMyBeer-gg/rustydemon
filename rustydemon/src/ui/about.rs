@@ -8,7 +8,7 @@
 use crate::ui::a11y;
 use crate::ui::theme::rd;
 
-const TAGLINE: &str = "The most modern, efficient cross-platform CASC explorer — \
+const TAGLINE: &str = "The most modern, efficient cross-platform CASC explorer: \
 view models, inspect in-game stat powers, find hidden gems.";
 
 const REPO_URL: &str = "https://github.com/HoldMyBeer-gg/rustydemon";
@@ -281,18 +281,18 @@ fn credits_body(ui: &mut egui::Ui) {
     head(ui, "LICENSE");
     body(
         ui,
-        "Source licensed under AGPL-3.0 with the Commons Clause — free to read, \
+        "Source licensed under AGPL-3.0 with the Commons Clause: free to read, \
 build, and use for personal and educational purposes. Commercial distribution \
 is reserved to the maintainers under a separate proprietary license.",
     );
 
     head(ui, "BUILT ON THE CASC COMMUNITY");
     for line in [
-        "• CascLib by Ladislav Zezula — C reference for BLTE, encoding, root manifests, MNDX/MARR.",
-        "• CASC Explorer by the WoW-Tools team — original .NET GUI; RustyDemon's UI takes cues from it.",
-        "• TACTLib by the Overtools team — TVFS and static-container reference.",
-        "• SereniaBLPLib by Xalcon — BLP parsing & DXT decompression (rustydemon-blp2).",
-        "• wowdev.wiki & the datamining community — documenting CASC/TACT and the listfiles.",
+        "• CascLib by Ladislav Zezula: C reference for BLTE, encoding, root manifests, MNDX/MARR.",
+        "• CASC Explorer by the WoW-Tools team: original .NET GUI; RustyDemon's UI takes cues from it.",
+        "• TACTLib by the Overtools team: TVFS and static-container reference.",
+        "• SereniaBLPLib by Xalcon: BLP parsing & DXT decompression (rustydemon-blp2).",
+        "• wowdev.wiki & the datamining community: documenting CASC/TACT and the listfiles.",
     ] {
         body(ui, line);
         ui.add_space(3.0);

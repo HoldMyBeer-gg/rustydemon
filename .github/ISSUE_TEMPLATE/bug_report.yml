@@ -58,7 +58,7 @@ body:
         - Heroes of the Storm
         - Diablo II Resurrected
         - Other / unrecognised root (INSTALL-manifest fallback)
-        - N/A — bug is not game-specific
+        - N/A (bug is not game-specific)
     validations:
       required: true
 

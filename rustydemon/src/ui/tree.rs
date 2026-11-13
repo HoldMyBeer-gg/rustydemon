@@ -77,7 +77,7 @@ pub enum TreeClick {
 }
 
 pub fn draw_tree(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<TreeClick> {
-    let game_label = app.game_label().unwrap_or_else(|| "—".to_string());
+    let game_label = app.game_label().unwrap_or_else(|| "-".to_string());
     theme::panel_header(ui, "File Browser", Some(&game_label));
 
     if app.handler.is_none() {

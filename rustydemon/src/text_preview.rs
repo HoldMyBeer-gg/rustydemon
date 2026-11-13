@@ -145,7 +145,7 @@ pub fn decode(filename: Option<&str>, data: &[u8]) -> Option<String> {
 
     if data.len() > MAX_PREVIEW_BYTES {
         text.push_str(&format!(
-            "\n\n… (truncated — {} of {} bytes shown)",
+            "\n\n… (truncated: {} of {} bytes shown)",
             MAX_PREVIEW_BYTES,
             data.len()
         ));

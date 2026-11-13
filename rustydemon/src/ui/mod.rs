@@ -253,3 +253,39 @@ fn paint_forge_glow(ui: &egui::Ui) {
         egui::Color32::from_rgba_premultiplied(0x04, 0x0a, 0x14, 0x14),
     );
 }
+
+#[cfg(test)]
+mod copy_tests {
+    use std::path::Path;
+
+    /// Every line of Rust source under `dir` that has `needle` outside a
+    /// comment, as `file:line`.
+    fn lines_with(dir: &Path, needle: char, found: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                lines_with(&path, needle, found);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                for (i, line) in text.lines().enumerate() {
+                    let code = line.split("//").next().unwrap_or("");
+                    if code.contains(needle) {
+                        found.push(format!("{}:{}", path.display(), i + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Text people read (labels, messages, command-line output) uses plain
+    /// punctuation. An em dash may only appear in a comment.
+    #[test]
+    fn no_em_dashes_in_text_people_read() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let mut found = Vec::new();
+        for krate in ["rustydemon", "rustydemon-cli", "rustydemon-lib"] {
+            lines_with(&workspace.join(krate).join("src"), '\u{2014}', &mut found);
+        }
+        assert!(found.is_empty(), "em dash outside a comment: {found:#?}");
+    }
+}

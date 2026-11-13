@@ -383,7 +383,7 @@ fn inspect_m2(
         let (positions, normals, uvs) = (&m2.positions, &m2.normals, &m2.uvs);
 
         println!(
-            "\nOBJ export: writing {} vertices (no triangles — skin file not available from disk)",
+            "\nOBJ export: writing {} vertices (no triangles: skin file not available from disk)",
             positions.len()
         );
         write_obj_verts_only(path, positions, normals, uvs)?;
@@ -742,9 +742,9 @@ fn load_from_archive(
 fn chunk_label(tag: &[u8; 4], size: usize) -> String {
     let name = String::from_utf8_lossy(tag);
     match tag {
-        b"SFID" => format!("SFID — {} skin file IDs", size / 4),
-        b"TXID" => format!("TXID — {} texture file IDs", size / 4),
-        b"AFID" => format!("AFID — {} animation file IDs", size / 8),
-        _ => format!("{name} — {size} bytes"),
+        b"SFID" => format!("SFID: {} skin file IDs", size / 4),
+        b"TXID" => format!("TXID: {} texture file IDs", size / 4),
+        b"AFID" => format!("AFID: {} animation file IDs", size / 8),
+        _ => format!("{name}: {size} bytes"),
     }
 }

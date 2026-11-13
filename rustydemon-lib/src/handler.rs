@@ -204,7 +204,7 @@ impl CascHandler {
                 ) {
                     Ok(f) => Some(std::sync::Arc::new(f)),
                     Err(e) => {
-                        eprintln!("cdn: disabled — {e}");
+                        eprintln!("cdn: disabled: {e}");
                         None
                     }
                 }
@@ -300,7 +300,7 @@ impl CascHandler {
                 match TvfsRootHandler::load(&vfs_ekey, &vfs_list, &opener) {
                     Ok(tvfs) => {
                         eprintln!(
-                            "root fallback: TVFS loaded ({} entries) — legacy root was unrecognised",
+                            "root fallback: TVFS loaded ({} entries); legacy root was unrecognised",
                             tvfs.count()
                         );
                         handler = Box::new(tvfs);
