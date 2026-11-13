@@ -3929,7 +3929,6 @@ dependencies = [
  "rustydemon-lib",
  "texture2ddecoder",
  "wgpu",
- "wow-adt",
  "wow-alchemy-data",
  "wow-alchemy-m2",
  "wow-wmo",
@@ -5775,17 +5774,6 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",
-]
-
-[[package]]
-name = "wow-adt"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca9ccedef8d4f1e5fc1fdd86cf8545b5ae8fec49fa90b935a70e6967cfb835c0"
-dependencies = [
- "binrw",
- "log",
- "thiserror 2.0.18",
 ]
 
 [[package]]

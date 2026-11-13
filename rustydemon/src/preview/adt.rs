@@ -28,7 +28,6 @@
 //!
 //! 64 quads × 4 triangles = 256 triangles per MCNK, 65,536 per ADT tile.
 
-use std::io::Cursor;
 use std::sync::Arc;
 
 use super::{Mesh3dCpu, MeshBatch, PreviewOutput, PreviewPlugin};
@@ -76,32 +75,13 @@ impl PreviewPlugin for AdtPreview {
     ) -> PreviewOutput {
         let mut out = PreviewOutput::new();
 
-        let parsed = match wow_adt::parse_adt(&mut Cursor::new(data)) {
-            Ok(p) => p,
+        let chunks = match super::adt_lite::parse(data) {
+            Ok(c) => c,
             Err(e) => {
                 out.text = Some(format!("ADT parse failed: {e}"));
                 return out;
             }
         };
-
-        // Only the root ADT carries terrain heights.  Split-format Tex0 /
-        // Obj0 / Lod files are structurally valid ADTs in their own right
-        // but contain no `MCNK` heightmap data — show a text note instead
-        // of silently rendering an empty mesh.
-        let mut root = match parsed {
-            wow_adt::ParsedAdt::Root(r) => r,
-            other => {
-                out.text = Some(format!(
-                    ".adt parsed as {:?}, but terrain heights live in the root \
-                     .adt — open the main file (e.g. `world/maps/azeroth/azeroth_32_48.adt`) \
-                     rather than a split `_tex0` / `_obj0` / `_lod` sibling.",
-                    other.version()
-                ));
-                return out;
-            }
-        };
-
-        let chunks = root.mcnk_chunks_mut();
         let chunk_count = chunks.len();
         if chunk_count == 0 {
             out.text =
@@ -118,14 +98,12 @@ impl PreviewPlugin for AdtPreview {
         let mut bbox_max = [f32::NEG_INFINITY; 3];
 
         for mcnk in chunks.iter() {
-            let Some(heights) = mcnk.heights.as_ref() else {
+            if mcnk.heights.is_none() {
                 continue;
-            };
+            }
 
-            // `header.position` is stored as `[Z, X, Y]` in the file per the
-            // wow-adt source comments — Z is vertical.  Fetch via explicit
-            // indices rather than hoping a helper exists with the right name.
-            let raw_pos = mcnk.header.position;
+            // The header position is stored as `[Z, X, Y]`: Z is vertical.
+            let raw_pos = mcnk.position;
             let base_x = raw_pos[1];
             let base_y = raw_pos[2];
             let base_z = raw_pos[0];
@@ -135,7 +113,7 @@ impl PreviewPlugin for AdtPreview {
             // Outer 9×9 grid (vertex indices 0..81 within this chunk).
             for iy in 0..OUTER_DIM {
                 for ix in 0..OUTER_DIM {
-                    let rel_h = heights.get_outer_height(ix, iy).unwrap_or(0.0);
+                    let rel_h = mcnk.outer(ix, iy);
                     let x = base_x + ix as f32 * OUTER_STEP;
                     let y = base_y + iy as f32 * OUTER_STEP;
                     let z = base_z + rel_h;
@@ -150,7 +128,7 @@ impl PreviewPlugin for AdtPreview {
             // centre of an outer quad.
             for iy in 0..INNER_DIM {
                 for ix in 0..INNER_DIM {
-                    let rel_h = heights.get_inner_height(ix, iy).unwrap_or(0.0);
+                    let rel_h = mcnk.inner(ix, iy);
                     let x = base_x + (ix as f32 + 0.5) * OUTER_STEP;
                     let y = base_y + (iy as f32 + 0.5) * OUTER_STEP;
                     let z = base_z + rel_h;
