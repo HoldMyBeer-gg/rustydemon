@@ -175,6 +175,7 @@ impl PreviewPlugin for AdtPreview {
             start_index: 0,
             index_count,
             material_id: u32::MAX, // fallback colour
+            blend: Default::default(),
         }];
 
         let mesh = Mesh3dCpu {

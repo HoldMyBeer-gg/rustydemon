@@ -27,6 +27,8 @@ pub struct M2Lite {
     /// unreadable.
     pub texture_types: Vec<u32>,
     pub material_count: usize,
+    /// Blend mode of each material (the pair's second half; flags come first).
+    pub blend_modes: Vec<u16>,
     pub bone_count: usize,
     pub animation_count: usize,
     /// Corners of the model's bounding box, as stored in the header.
@@ -189,6 +191,16 @@ impl M2Lite {
                 })
                 .unwrap_or_default(),
             material_count: count(F_MATERIALS),
+            // Only changes how see-through parts look; not worth failing on.
+            blend_modes: array(body, F_MATERIALS, 4, "materials")
+                .map(|m| {
+                    m.as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|pair| u16::from_le_bytes([pair[2], pair[3]]))
+                        .collect()
+                })
+                .unwrap_or_default(),
             bone_count: count(F_BONES),
             animation_count: count(F_ANIMATIONS),
             bounding_box: [0, 12]
@@ -202,7 +214,7 @@ impl M2Lite {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A header-only MD20 body: `0x130` zero bytes with magic and version.
@@ -267,11 +279,16 @@ mod tests {
             textures.extend_from_slice(&[0u8; 12]); // flags, name
         }
         put(&mut b, 0x50, 3, &textures);
-        b[0x70..0x74].copy_from_slice(&4u32.to_le_bytes()); // materials
+        // Materials: (flags, blend mode) pairs.
+        let materials: Vec<u8> = [(0u16, 0u16), (16, 2), (21, 4), (0, 1)]
+            .iter()
+            .flat_map(|(f, m)| [f.to_le_bytes(), m.to_le_bytes()].concat())
+            .collect();
+        put(&mut b, 0x70, 4, &materials);
         b
     }
 
-    fn chunked() -> Vec<u8> {
+    pub(crate) fn chunked() -> Vec<u8> {
         let mut f = chunk(b"MD21", &body());
         f.extend(chunk(b"SFID", &le(&[111, 222])));
         f.extend(chunk(b"TXID", &le(&[0, 333])));
@@ -290,6 +307,12 @@ mod tests {
         assert_eq!((m.bone_count, m.texture_count, m.material_count), (7, 3, 4));
         assert_eq!(m.skin_fdids, [111, 222]);
         assert_eq!(m.texture_fdids, [0, 333]);
+    }
+
+    #[test]
+    fn reads_each_material_blend_mode() {
+        let m = M2Lite::parse(&chunked()).unwrap();
+        assert_eq!(m.blend_modes, [0, 2, 4, 1]);
     }
 
     #[test]

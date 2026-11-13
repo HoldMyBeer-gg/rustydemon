@@ -48,6 +48,7 @@ fn group_to_mesh_parts(group: &ParsedGroup) -> Option<GroupMeshParts> {
             start_index: 0,
             index_count: indices.len() as u32,
             material_id: u32::MAX,
+            blend: Default::default(),
         }]
     } else {
         group
@@ -57,6 +58,7 @@ fn group_to_mesh_parts(group: &ParsedGroup) -> Option<GroupMeshParts> {
                 start_index: b.start_index,
                 index_count: b.count as u32,
                 material_id: b.material_id as u32,
+                blend: Default::default(),
             })
             .collect()
     };
@@ -265,6 +267,7 @@ impl PreviewPlugin for Model3dPreview {
                         start_index: b.start_index + index_offset,
                         index_count: b.index_count,
                         material_id: b.material_id,
+                        blend: Default::default(),
                     }));
                     loaded_groups += 1;
                 }

@@ -18,7 +18,7 @@ use egui::Vec2;
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
-use crate::preview::Mesh3dCpu;
+use crate::preview::{Blend, Mesh3dCpu};
 
 /// Stride of one per-batch uniform within the dynamic-offset buffer.
 /// Must be ≥ size_of::<BatchUniform>() AND a multiple of
@@ -44,6 +44,8 @@ struct Viewport3dResources {
 /// pass having no depth attachment.
 struct MeshResources {
     mesh_pipeline: wgpu::RenderPipeline,
+    /// One per entry of [`BLENDED`]: depth-tested, but not depth-writing.
+    blend_pipelines: Vec<wgpu::RenderPipeline>,
     mesh_bgl: wgpu::BindGroupLayout,
     batch_bgl: wgpu::BindGroupLayout,
     /// Bind group layout for the per-material texture (slot 2). Holds
@@ -127,6 +129,67 @@ impl Default for CameraState {
 struct UploadedBatch {
     start_index: u32,
     index_count: u32,
+    blend: Blend,
+}
+
+/// The blends that need a pipeline of their own, in `blend_pipelines` order.
+const BLENDED: [Blend; 5] = [
+    Blend::Alpha,
+    Blend::Add,
+    Blend::AddAlpha,
+    Blend::Mod,
+    Blend::Mod2x,
+];
+
+/// Colour blending for a see-through batch; `None` for solid ones.  The
+/// alpha channel of the offscreen image is always left alone, because the
+/// image is later laid over the panel with alpha blending.
+fn blend_state(blend: Blend) -> Option<wgpu::BlendState> {
+    use wgpu::BlendFactor as F;
+    let (src_factor, dst_factor) = match blend {
+        Blend::Opaque | Blend::AlphaKey => return None,
+        Blend::Alpha => (F::SrcAlpha, F::OneMinusSrcAlpha),
+        Blend::Add => (F::One, F::One),
+        Blend::AddAlpha => (F::SrcAlpha, F::One),
+        Blend::Mod => (F::Dst, F::Zero),
+        Blend::Mod2x => (F::Dst, F::Src),
+    };
+    Some(wgpu::BlendState {
+        color: wgpu::BlendComponent {
+            src_factor,
+            dst_factor,
+            operation: wgpu::BlendOperation::Add,
+        },
+        alpha: wgpu::BlendComponent {
+            src_factor: F::Zero,
+            dst_factor: F::One,
+            operation: wgpu::BlendOperation::Add,
+        },
+    })
+}
+
+/// What the shader does with texture alpha: 0 ignores it, 1 cuts out
+/// texels below half, 2 passes it on to the blend.
+fn alpha_mode(blend: Blend) -> f32 {
+    match blend {
+        Blend::Opaque => 0.0,
+        Blend::AlphaKey => 1.0,
+        _ => 2.0,
+    }
+}
+
+/// Batch indices in drawing order: solid ones first so they fill the depth
+/// buffer, then the see-through ones, each group in file order.
+fn draw_order(blends: &[Blend]) -> Vec<usize> {
+    let solid = |b: &Blend| blend_state(*b).is_none();
+    let pick = |want: bool| {
+        blends
+            .iter()
+            .enumerate()
+            .filter(move |(_, b)| solid(b) == want)
+            .map(|(i, _)| i)
+    };
+    pick(true).chain(pick(false)).collect()
 }
 
 struct Offscreen {
@@ -149,6 +212,8 @@ struct MeshUniforms {
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct BatchUniform {
     color: [f32; 4],
+    /// x: see [`alpha_mode`].  The rest is padding.
+    mode: [f32; 4],
 }
 
 /// Map a material id to a stable, pleasant colour. Hue jittered by the
@@ -221,6 +286,7 @@ struct Uniforms {
 
 struct BatchUniform {
     color: vec4<f32>,
+    mode: vec4<f32>,
 };
 @group(1) @binding(0) var<uniform> b: BatchUniform;
 
@@ -261,7 +327,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let fill = max(dot(n, fill_dir), 0.0);
     let shaded = 0.45 + 0.40 * headlamp + 0.15 * fill;
     let tex = textureSample(mat_tex, mat_smp, in.uv);
-    return vec4<f32>(tex.rgb * b.color.rgb * shaded, 1.0);
+    // mode.x: 0 ignores texture alpha, 1 cuts out below half, 2 blends.
+    if (b.mode.x == 1.0 && tex.a < 0.5) {
+        discard;
+    }
+    let alpha = select(1.0, tex.a, b.mode.x == 2.0);
+    return vec4<f32>(tex.rgb * b.color.rgb * shaded, alpha);
 }
 "#;
 
@@ -462,54 +533,61 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         immediate_size: 0,
     });
 
-    let mesh_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("viewport3d mesh pipeline"),
-        layout: Some(&mesh_pl_layout),
-        vertex: wgpu::VertexState {
-            module: &mesh_shader,
-            entry_point: Some("vs_main"),
-            buffers: &[Some(wgpu::VertexBufferLayout {
-                // 5 floats per vertex: position(xyz) + uv.
-                array_stride: (std::mem::size_of::<f32>() * 5) as wgpu::BufferAddress,
-                step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2],
-            })],
-            compilation_options: Default::default(),
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &mesh_shader,
-            entry_point: Some("fs_main"),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: offscreen_format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-            compilation_options: Default::default(),
-        }),
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            strip_index_format: None,
-            front_face: wgpu::FrontFace::Cw,
-            // No back-face culling — M2/Granny models have mixed
-            // winding (hair, capes, two-sided geometry), and WMO
-            // groups occasionally do too.  The flat-shading normal
-            // derivation via dpdx/dpdy handles both sides correctly.
-            cull_mode: None,
-            unclipped_depth: false,
-            polygon_mode: wgpu::PolygonMode::Fill,
-            conservative: false,
-        },
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: depth_format,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(wgpu::CompareFunction::Less),
-            stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
-        }),
-        multisample: wgpu::MultisampleState::default(),
-        multiview_mask: None,
-        cache: None,
-    });
+    let mesh_pipeline_for = |blend: Option<wgpu::BlendState>| {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("viewport3d mesh pipeline"),
+            layout: Some(&mesh_pl_layout),
+            vertex: wgpu::VertexState {
+                module: &mesh_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    // 5 floats per vertex: position(xyz) + uv.
+                    array_stride: (std::mem::size_of::<f32>() * 5) as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2],
+                })],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &mesh_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: offscreen_format,
+                    blend: Some(blend.unwrap_or(wgpu::BlendState::REPLACE)),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Cw,
+                // No back-face culling — M2/Granny models have mixed
+                // winding (hair, capes, two-sided geometry), and WMO
+                // groups occasionally do too.  The flat-shading normal
+                // derivation via dpdx/dpdy handles both sides correctly.
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: depth_format,
+                depth_write_enabled: Some(blend.is_none()),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        })
+    };
+    let mesh_pipeline = mesh_pipeline_for(None);
+    let blend_pipelines = BLENDED
+        .iter()
+        .map(|&b| mesh_pipeline_for(blend_state(b)))
+        .collect();
 
     // ── Blit pipeline (offscreen colour → egui render pass) ───────────────────
     let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -655,6 +733,7 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
     });
     renderer.callback_resources.insert(MeshResources {
         mesh_pipeline,
+        blend_pipelines,
         mesh_bgl,
         batch_bgl,
         texture_bgl,
@@ -800,7 +879,10 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
                 } else {
                     material_color(b.material_id)
                 };
-                let bu = BatchUniform { color };
+                let bu = BatchUniform {
+                    color,
+                    mode: [alpha_mode(b.blend), 0.0, 0.0, 0.0],
+                };
                 let off = i * BATCH_UNIFORM_STRIDE as usize;
                 batch_bytes[off..off + std::mem::size_of::<BatchUniform>()]
                     .copy_from_slice(bytemuck::bytes_of(&bu));
@@ -830,6 +912,7 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
                 .map(|b| UploadedBatch {
                     start_index: b.start_index,
                     index_count: b.index_count,
+                    blend: b.blend,
                 })
                 .collect();
 
@@ -1100,7 +1183,15 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
             pass.set_bind_group(0, &c.bind_group, &[]);
             pass.set_vertex_buffer(0, c.vertex_buf.slice(..));
             pass.set_index_buffer(c.index_buf.slice(..), wgpu::IndexFormat::Uint32);
-            for (i, b) in c.batches.iter().enumerate() {
+            let blends: Vec<Blend> = c.batches.iter().map(|b| b.blend).collect();
+            for i in draw_order(&blends) {
+                let b = &c.batches[i];
+                let pipeline = BLENDED
+                    .iter()
+                    .position(|&x| x == b.blend)
+                    .and_then(|p| res.blend_pipelines.get(p))
+                    .unwrap_or(&res.mesh_pipeline);
+                pass.set_pipeline(pipeline);
                 let dyn_offset = (i as u64 * BATCH_UNIFORM_STRIDE) as u32;
                 pass.set_bind_group(1, &c.batch_bind_group, &[dyn_offset]);
 
@@ -1305,5 +1396,37 @@ mod window_tests {
         }
         let rect = rect.expect("the window was drawn");
         assert!(bounds.contains_rect(rect), "{rect:?} leaves {bounds:?}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn solid_batches_draw_before_see_through_ones() {
+        use Blend::*;
+        let order = draw_order(&[Add, Opaque, Alpha, AlphaKey, Mod, Opaque]);
+        assert_eq!(order, [1, 3, 5, 0, 2, 4]);
+    }
+
+    #[test]
+    fn only_see_through_batches_get_a_blend_pipeline() {
+        assert!(blend_state(Blend::Opaque).is_none());
+        assert!(blend_state(Blend::AlphaKey).is_none());
+        for b in BLENDED {
+            let state = blend_state(b).expect("blended");
+            // The offscreen image must stay opaque or the panel shows through.
+            assert_eq!(state.alpha.src_factor, wgpu::BlendFactor::Zero);
+            assert_eq!(state.alpha.dst_factor, wgpu::BlendFactor::One);
+        }
+    }
+
+    #[test]
+    fn the_shader_is_told_how_to_treat_texture_alpha() {
+        assert_eq!(alpha_mode(Blend::Opaque), 0.0);
+        assert_eq!(alpha_mode(Blend::AlphaKey), 1.0);
+        assert_eq!(alpha_mode(Blend::Alpha), 2.0);
+        assert_eq!(alpha_mode(Blend::AddAlpha), 2.0);
     }
 }

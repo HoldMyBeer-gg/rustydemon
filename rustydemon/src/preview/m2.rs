@@ -23,7 +23,9 @@ use wow_alchemy_m2::Skin;
 
 use super::m2_lite::M2Lite;
 
-use super::{ExportAction, Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin};
+use super::{
+    Blend, ExportAction, Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin,
+};
 
 pub struct M2Preview;
 
@@ -32,6 +34,20 @@ fn monster_skin_slot(texture_type: Option<u32>) -> Option<usize> {
     match texture_type? {
         t @ 11..=13 => Some(t as usize - 11),
         _ => None,
+    }
+}
+
+/// How the viewport draws a material with this M2 blend mode.  Modes it
+/// does not know, and batches with no material, draw solid.
+fn blend_for(mode: Option<u16>) -> Blend {
+    match mode {
+        Some(1) => Blend::AlphaKey,
+        Some(2 | 7) => Blend::Alpha,
+        Some(3) => Blend::Add,
+        Some(4) => Blend::AddAlpha,
+        Some(5) => Blend::Mod,
+        Some(6) => Blend::Mod2x,
+        _ => Blend::Opaque,
     }
 }
 
@@ -111,17 +127,19 @@ impl PreviewPlugin for M2Preview {
         }
 
         // ── Pull SKIN 0 (highest-quality LOD) via the FDID fetcher ───────────
-        let skin_bytes: Option<Vec<u8>> = if let Some(&id) = skin_fdids.first() {
-            (siblings.by_fdid)(id)
-        } else {
-            None
-        };
-
-        let Some(skin_bytes) = skin_bytes else {
+        let Some(&skin_id) = skin_fdids.first() else {
             text.push_str(
-                "\n\nNo external SKIN file available (legacy embedded \
-                 skins aren't supported yet — geometry will not render).",
+                "\n\nThis model lists no skin file, so there are no triangles \
+                 to draw. Skins stored inside the model are not read yet.",
             );
+            out.text = Some(text);
+            return out;
+        };
+        let Some(skin_bytes) = (siblings.by_fdid)(skin_id) else {
+            text.push_str(&format!(
+                "\n\nCould not read skin file {skin_id}, which holds this model's \
+                 triangles. It is probably not downloaded in this install.",
+            ));
             out.text = Some(text);
             return out;
         };
@@ -227,6 +245,7 @@ impl PreviewPlugin for M2Preview {
                     start_index: s.triangle_start as u32,
                     index_count: s.triangle_count as u32,
                     material_id: i as u32,
+                    blend: Blend::Opaque,
                 })
                 .collect()
         } else {
@@ -248,6 +267,7 @@ impl PreviewPlugin for M2Preview {
                         start_index: sub.triangle_start as u32,
                         index_count: sub.triangle_count as u32,
                         material_id,
+                        blend: blend_for(m2.blend_modes.get(tu.material_index as usize).copied()),
                     })
                 })
                 .collect()
@@ -347,4 +367,58 @@ fn compute_bbox(positions: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {
         }
     }
     (mn, mx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Blend, SiblingFetcher};
+    use super::*;
+
+    #[test]
+    fn material_blend_modes_map_to_how_the_viewport_draws() {
+        assert_eq!(blend_for(Some(0)), Blend::Opaque);
+        assert_eq!(blend_for(Some(1)), Blend::AlphaKey);
+        assert_eq!(blend_for(Some(2)), Blend::Alpha);
+        assert_eq!(blend_for(Some(3)), Blend::Add);
+        assert_eq!(blend_for(Some(4)), Blend::AddAlpha);
+        assert_eq!(blend_for(Some(5)), Blend::Mod);
+        assert_eq!(blend_for(Some(6)), Blend::Mod2x);
+        assert_eq!(blend_for(Some(7)), Blend::Alpha);
+        // Unknown modes and missing materials draw solid, as before.
+        assert_eq!(blend_for(Some(99)), Blend::Opaque);
+        assert_eq!(blend_for(None), Blend::Opaque);
+    }
+
+    fn build_without_skin(model: &[u8]) -> String {
+        let none = |_: u32| None;
+        let no_name = |_: &str| None;
+        let no_info = |_: &str| None;
+        let no_skins = || None;
+        let siblings = SiblingFetcher {
+            by_name: &no_name,
+            by_fdid: &none,
+            texture_info: &no_info,
+            monster_skins: &no_skins,
+        };
+        M2Preview
+            .build("crab.m2", model, &egui::Context::default(), &siblings)
+            .text
+            .unwrap()
+    }
+
+    #[test]
+    fn a_listed_skin_that_cannot_be_read_is_named() {
+        let text = build_without_skin(&super::super::m2_lite::tests::chunked());
+        assert!(text.contains("skin file 111"), "{text}");
+        assert!(!text.contains("legacy"), "{text}");
+    }
+
+    #[test]
+    fn a_model_that_lists_no_skin_says_so() {
+        let chunked = super::super::m2_lite::tests::chunked();
+        // Keep only the MD21 chunk: no SFID.
+        let len = u32::from_le_bytes(chunked[4..8].try_into().unwrap()) as usize;
+        let text = build_without_skin(&chunked[..8 + len]);
+        assert!(text.contains("lists no skin file"), "{text}");
+    }
 }
