@@ -175,6 +175,9 @@ enum FolderAction {
     ClearSelection,
 }
 
+/// Space left of the folder path.
+const LEFT_PAD: f32 = 4.0;
+
 /// Folder path and export controls, on the row under the panel header.
 fn folder_bar(ui: &mut egui::Ui, folder_path: &str, sel_count: usize) -> Option<FolderAction> {
     let mut action = None;
@@ -183,33 +186,71 @@ fn folder_bar(ui: &mut egui::Ui, folder_path: &str, sel_count: usize) -> Option<
     } else {
         folder_path
     };
+    // Right to left, as drawn.
+    let mut buttons: Vec<(String, FolderAction)> = Vec::new();
+    if sel_count > 0 {
+        buttons.push((
+            format!("Export {sel_count} Selected"),
+            FolderAction::ExportSelected,
+        ));
+    }
+    buttons.push(("Export Folder".into(), FolderAction::ExportFolder));
+    buttons.push(("Select All".into(), FolderAction::SelectAll));
+    if sel_count > 0 {
+        buttons.push(("Clear Selection".into(), FolderAction::ClearSelection));
+    }
+
+    // Is there room beside the buttons for at least the current folder?
+    let wide = |text: &str, style: egui::TextStyle| {
+        ui.painter()
+            .layout_no_wrap(text.to_owned(), style.resolve(ui.style()), rd::RUNE_400)
+            .size()
+            .x
+    };
+    let spacing = ui.spacing().item_spacing.x;
+    let buttons_width: f32 = buttons
+        .iter()
+        .map(|(label, _)| {
+            wide(label, egui::TextStyle::Button) + 2.0 * ui.spacing().button_padding.x + spacing
+        })
+        .sum();
+    let least = cut_front(shown, |_| false);
+    let least_width =
+        wide(&least, egui::TextStyle::Monospace).min(wide(shown, egui::TextStyle::Monospace));
+    let beside = ui.available_width() - LEFT_PAD - buttons_width >= least_width;
+
+    let path = |ui: &mut egui::Ui| {
+        let (galley, cut) = path_text(ui, shown, ui.available_width());
+        let (rect, resp) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+        ui.painter().galley(rect.min, galley, rd::RUNE_400);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, shown));
+        if cut {
+            resp.on_hover_text(shown);
+        }
+    };
+
+    // A path too long for its space loses its leading folders; it shows
+    // whole on hover and its accessible name is always the whole path.
+    // When the buttons leave no room even for the current folder, the path
+    // goes on a row of its own above them.
+    if !beside {
+        ui.horizontal(|ui| {
+            ui.add_space(LEFT_PAD);
+            path(ui);
+        });
+    }
     ui.horizontal(|ui| {
-        ui.add_space(4.0);
+        ui.add_space(LEFT_PAD);
         // Buttons first, from the right, so the path gets what is left.
-        // A path too long for that loses its leading folders; it shows
-        // whole on hover and its accessible name is always the whole path.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if sel_count > 0 && ui.button(format!("Export {sel_count} Selected")).clicked() {
-                action = Some(FolderAction::ExportSelected);
-            }
-            if ui.button("Export Folder").clicked() {
-                action = Some(FolderAction::ExportFolder);
-            }
-            if ui.button("Select All").clicked() {
-                action = Some(FolderAction::SelectAll);
-            }
-            if sel_count > 0 && ui.button("Clear Selection").clicked() {
-                action = Some(FolderAction::ClearSelection);
-            }
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                let (galley, cut) = path_text(ui, shown, ui.available_width());
-                let (rect, resp) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
-                ui.painter().galley(rect.min, galley, rd::RUNE_400);
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, shown));
-                if cut {
-                    resp.on_hover_text(shown);
+            for (label, what) in &buttons {
+                if ui.button(label).clicked() {
+                    action = Some(*what);
                 }
-            });
+            }
+            if beside {
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), path);
+            }
         });
     });
     action
@@ -523,6 +564,33 @@ mod layout_tests {
         });
         assert!(drawn.starts_with('…'), "{drawn}");
         assert!(drawn.ends_with("mainline"), "{drawn}");
+    }
+
+    /// With four buttons in a narrow panel nothing is left beside them.
+    /// The path then takes a row of its own; it must not shrink to a bare
+    /// ellipsis squeezed against the first button.
+    #[test]
+    fn path_gets_its_own_row_when_the_buttons_leave_no_room() {
+        let all = nodes_sized([430.0, 300.0], |ui| {
+            super::folder_bar(ui, "creature/abyssalillidan", 1);
+        });
+        let path = bounds_of(&all, "creature/abyssalillidan");
+        assert!(path.x1 - path.x0 > 80.0, "path drawn {path:?}");
+        let button = bounds_of(&all, "Clear Selection");
+        assert!(path.y1 <= button.y0, "path {path:?} not above {button:?}");
+    }
+
+    #[test]
+    fn path_stays_beside_the_buttons_when_it_fits() {
+        let all = nodes_sized([900.0, 300.0], |ui| {
+            super::folder_bar(ui, "creature/abyssalillidan", 1);
+        });
+        let path = bounds_of(&all, "creature/abyssalillidan");
+        let button = bounds_of(&all, "Clear Selection");
+        assert!(
+            path.y0 < button.y1 && button.y0 < path.y1,
+            "{path:?} {button:?}"
+        );
     }
 
     #[test]
