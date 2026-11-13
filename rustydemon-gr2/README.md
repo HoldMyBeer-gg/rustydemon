@@ -10,7 +10,7 @@ it to preview D2R models.
 
 ```toml
 [dependencies]
-rustydemon-gr2 = "0.5"
+rustydemon-gr2 = "0.6"
 ```
 
 ## Quick start

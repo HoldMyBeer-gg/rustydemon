@@ -10,7 +10,7 @@ a cross-platform CASC explorer, and has no GUI dependencies of its own.
 
 ```toml
 [dependencies]
-rustydemon-lib = "0.5"
+rustydemon-lib = "0.6"
 ```
 
 ## Quick start
