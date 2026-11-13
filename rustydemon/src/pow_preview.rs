@@ -6,11 +6,14 @@
 //!
 //! Binary layout (discovered via binary analysis + d4data definitions):
 //! - 0x00: magic (0xDEADBEEF)
-//! - 0x10: power_id (u32)
-//! - 0x78: struct_size (u32) — PowerDefinition fixed struct size (typically 3232)
-//! - struct starts at 0x10, variable data follows at 0x10 + struct_size
-//! - First formula descriptor at struct+0x0258 points to contiguous formula data
-//! - Each formula entry: [text (4-byte aligned)][12-byte bytecode (type_tag + value)]
+//! - 0x10: power_id (u32); the fixed struct starts here
+//! - Current client: an (offset, size) pair at 0xBB8 locates the script
+//!   formula array, offsets relative to 0x10. Each 0x20-byte entry holds
+//!   the formula text's (offset, size) at +0x08 and its bytecode's at +0x18.
+//! - Original layout: 0x78 holds the fixed struct size (typically 3232),
+//!   variable data follows at 0x10 + struct_size, and struct+0x0258 holds
+//!   the absolute offset of the first formula text. Entries are contiguous:
+//!   [text (4-byte aligned)][12-byte bytecode (type_tag + value)]
 
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -40,10 +43,6 @@ pub struct Formula {
     pub values: Vec<TypedValue>,
     /// SF_ references found in the formula text.
     pub sf_refs: Vec<String>,
-    /// Extracted numeric coefficient (e.g. 1.75 from "1.75 * Table(34,...)").
-    pub coefficient: Option<f64>,
-    /// Table ID if present (34 = damage, 35 = cooldown).
-    pub table_id: Option<u32>,
 }
 
 fn read_u32(data: &[u8], off: usize) -> Option<u32> {
@@ -185,29 +184,151 @@ impl PowPreview {
         }
         writeln!(out, "  {display}").ok();
 
-        // Interpret damage formulas.
-        if let Some(coeff) = f.coefficient {
-            let pct = coeff * 100.0;
-            match f.table_id {
-                Some(34) => {
-                    writeln!(out, "    → {pct:.0}% weapon damage (level-scaled)").ok();
+        // Interpret formulas that multiply a game table lookup.
+        if let Some((mult, id, level)) = table_product(&f.text, &self.sf_values) {
+            let scale = if level.eq_ignore_ascii_case("sLevel") {
+                "level-scaled".to_string()
+            } else {
+                format!("at table level {level}")
+            };
+            let shown = format_number(mult);
+            match id {
+                34 => {
+                    let pct = format_number(mult * 100.0);
+                    writeln!(out, "    → {pct}% weapon damage ({scale})").ok();
                 }
-                Some(35) => {
-                    writeln!(out, "    → {coeff} sec base cooldown (level-scaled)").ok();
+                35 => {
+                    writeln!(out, "    → {shown} sec base cooldown ({scale})").ok();
                 }
-                Some(id) => {
-                    writeln!(out, "    → {coeff} × Table({id})").ok();
+                id => {
+                    writeln!(out, "    → {shown} × Table({id}, {level})").ok();
                 }
-                None => {}
             }
         }
     }
 }
 
+/// Reduce a formula that is a plain product of numbers, scaling factors
+/// and exactly one `Table(id, level)` lookup to (multiplier, id, level).
+/// Returns `None` for anything else, or when a scaling factor in the
+/// product has no numeric value, so no hint is better than a wrong one.
+fn table_product(text: &str, sf_values: &HashMap<u32, String>) -> Option<(f64, u32, String)> {
+    let mut mult = 1.0;
+    let mut table = None;
+    for factor in split_top_level(text, '*')? {
+        let factor = factor.trim();
+        if let Some(args) = factor
+            .strip_prefix("Table(")
+            .and_then(|r| r.strip_suffix(')'))
+        {
+            if table.is_some() {
+                return None;
+            }
+            let (id, level) = args.split_once(',')?;
+            table = Some((id.trim().parse().ok()?, level.trim().to_string()));
+        } else if let Some(n) = factor.strip_prefix("SF_") {
+            let value = sf_values.get(&n.parse().ok()?)?;
+            mult *= value.trim().parse::<f64>().ok()?;
+        } else {
+            mult *= factor.parse::<f64>().ok()?;
+        }
+    }
+    let (id, level) = table?;
+    mult.is_finite().then_some((mult, id, level))
+}
+
+/// Split on `sep` outside parentheses. `None` if the parentheses don't balance.
+fn split_top_level(text: &str, sep: char) -> Option<Vec<&str>> {
+    let mut parts = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0;
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth < 0 {
+                    return None;
+                }
+            }
+            c if c == sep && depth == 0 => {
+                parts.push(&text[start..i]);
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    if depth != 0 {
+        return None;
+    }
+    parts.push(&text[start..]);
+    Some(parts)
+}
+
+/// Up to four decimals, trailing zeros dropped (0.42 * 120 * 100 → "5040").
+fn format_number(v: f64) -> String {
+    let s = format!("{v:.4}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s == "-0" {
+        "0".to_string()
+    } else {
+        s.to_string()
+    }
+}
+
 // ── SF value extraction from formula data block ──────────────────────────────
 
-/// Walk the contiguous formula data block and extract SF values.
+/// Extract SF values: SF_n is the text of script formula n.
+///
+/// Reads the current client's formula array first. If it isn't there,
+/// falls back to the layout this parser was first written for.
 fn extract_sf_values(data: &[u8]) -> HashMap<u32, String> {
+    sf_values_from_formula_array(data).unwrap_or_else(|| sf_values_from_contiguous_block(data))
+}
+
+/// Where the current client keeps the script formula array: an
+/// (offset, size) pair in the fixed struct, offsets relative to 0x10.
+const FORMULA_ARRAY_PTR: usize = 0x0BB8;
+const STRUCT_START: usize = 0x10;
+const FORMULA_ENTRY_SIZE: usize = 0x20;
+
+/// Read the current client's script formula array. Each 0x20-byte entry
+/// holds the formula text's (offset, size) at +0x08 and its bytecode's
+/// (offset, size) at +0x18. Returns `None` when the pair at
+/// [`FORMULA_ARRAY_PTR`] doesn't describe a well-formed array of text
+/// entries, so an older file falls through to the other reader.
+fn sf_values_from_formula_array(data: &[u8]) -> Option<HashMap<u32, String>> {
+    let off = read_u32(data, FORMULA_ARRAY_PTR)? as usize;
+    let size = read_u32(data, FORMULA_ARRAY_PTR + 4)? as usize;
+    if size == 0 || !size.is_multiple_of(FORMULA_ENTRY_SIZE) {
+        return None;
+    }
+    let start = STRUCT_START.checked_add(off)?;
+    data.get(start..start.checked_add(size)?)?;
+
+    let mut values = HashMap::new();
+    for i in 0..size / FORMULA_ENTRY_SIZE {
+        let entry = start + i * FORMULA_ENTRY_SIZE;
+        let text_off = read_u32(data, entry + 0x08)? as usize;
+        let text_len = read_u32(data, entry + 0x0C)? as usize;
+        if text_len == 0 {
+            values.insert(i as u32, String::new());
+            continue;
+        }
+        let text_start = STRUCT_START.checked_add(text_off)?;
+        let bytes = data.get(text_start..text_start.checked_add(text_len)?)?;
+        let (last, text) = bytes.split_last()?;
+        if *last != 0 || !text.iter().all(|b| (32..127).contains(b)) {
+            return None;
+        }
+        values.insert(i as u32, String::from_utf8_lossy(text).into_owned());
+    }
+    Some(values)
+}
+
+/// The original layout: struct size at 0x78, an absolute offset to the
+/// first formula text at struct+0x258, then contiguous entries.
+fn sf_values_from_contiguous_block(data: &[u8]) -> HashMap<u32, String> {
     let mut values = HashMap::new();
 
     let struct_start = 0x10usize;
@@ -378,20 +499,6 @@ fn parse_typed_values(data: &[u8], offset: usize) -> Vec<TypedValue> {
     values
 }
 
-fn extract_coefficient(s: &str) -> (Option<f64>, Option<u32>) {
-    if let Some(rest) = s.split("* Table(").nth(1) {
-        let before = s.split("* Table(").next().unwrap_or("").trim();
-        let table_id: Option<u32> = rest.split(',').next().and_then(|t| t.parse().ok());
-        let coeff: Option<f64> = before
-            .trim_end()
-            .rsplit(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
-            .next()
-            .and_then(|n| n.parse().ok());
-        return (coeff, table_id);
-    }
-    (None, None)
-}
-
 fn extract_sf_refs(s: &str) -> Vec<String> {
     let mut refs = Vec::new();
     let mut i = 0;
@@ -436,7 +543,6 @@ fn extract_formulas(data: &[u8]) -> Vec<Formula> {
         let aligned_end = (formula_end + 3) & !3;
 
         let values = parse_typed_values(data, aligned_end);
-        let (coefficient, table_id) = extract_coefficient(&full_str);
         let sf_refs = extract_sf_refs(&full_str);
 
         formulas.push(Formula {
@@ -445,8 +551,6 @@ fn extract_formulas(data: &[u8]) -> Vec<Formula> {
             offset: *offset,
             values,
             sf_refs,
-            coefficient,
-            table_id,
         });
     }
 
@@ -479,4 +583,128 @@ fn extract_printable_strings(data: &[u8], min_len: usize) -> Vec<(usize, String)
     }
 
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn put_u32(buf: &mut [u8], off: usize, v: u32) {
+        buf[off..off + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    fn put_str(buf: &mut [u8], off: usize, s: &str) {
+        buf[off..off + s.len()].copy_from_slice(s.as_bytes());
+        buf[off + s.len()] = 0;
+    }
+
+    /// A power in the current client's layout: the fixed struct holds an
+    /// (offset, size) pair at file 0xBB8 for the script formula array.
+    /// Offsets are relative to the struct start at 0x10. Each array entry
+    /// is 0x20 bytes, with the formula text's (offset, size) at +0x08 and
+    /// its compiled bytecode's (offset, size) at +0x18. SF_n is entry n.
+    /// The word at 0x78 is 0, as in some real files.
+    fn current_layout_pow(sf_texts: &[&str], formula: &str) -> Vec<u8> {
+        let mut buf = vec![0u8; 0x1000];
+        put_u32(&mut buf, 0x00, POW_MAGIC);
+        put_u32(&mut buf, 0x10, 0x0006_13B2);
+        let array = 0xC00;
+        put_u32(&mut buf, 0xBB8, (array - 0x10) as u32);
+        put_u32(&mut buf, 0xBBC, (sf_texts.len() * 0x20) as u32);
+        let mut text = 0xD00;
+        for (i, s) in sf_texts.iter().enumerate() {
+            let entry = array + i * 0x20;
+            put_str(&mut buf, text, s);
+            put_u32(&mut buf, entry + 0x08, (text - 0x10) as u32);
+            put_u32(&mut buf, entry + 0x0C, (s.len() + 1) as u32);
+            // Bytecode: a float push of 0, as the game writes after a literal.
+            let code = text + ((s.len() + 1 + 3) & !3);
+            put_u32(&mut buf, code, 6);
+            put_u32(&mut buf, entry + 0x18, (code - 0x10) as u32);
+            put_u32(&mut buf, entry + 0x1C, 12);
+            text = code + 0x10;
+        }
+        put_str(&mut buf, 0xF00, formula);
+        buf
+    }
+
+    #[test]
+    fn current_layout_scaling_factors_resolve() {
+        let data = current_layout_pow(&["SF_1 * Table(34, sLevel)", "0.42"], "SF_1 * 2.5");
+        let pow = PowPreview::parse(&data).expect("parses");
+        assert_eq!(
+            pow.sf_values.get(&0).map(String::as_str),
+            Some("SF_1 * Table(34, sLevel)")
+        );
+        assert_eq!(pow.sf_values.get(&1).map(String::as_str), Some("0.42"));
+        let summary = pow.summary();
+        assert!(summary.contains("SF_1  = 0.42"), "{summary}");
+        assert!(!summary.contains("???"), "{summary}");
+    }
+
+    #[test]
+    fn current_layout_empty_formula_array_resolves_nothing() {
+        let data = current_layout_pow(&[], "SF_3 * 2");
+        let pow = PowPreview::parse(&data).expect("parses");
+        assert!(pow.sf_values.is_empty());
+    }
+
+    /// The layout this parser was first written for: struct size at 0x78,
+    /// and an absolute offset to the first formula text at file 0x268,
+    /// followed by [text, 4-byte aligned][12-byte bytecode] entries.
+    #[test]
+    fn older_layout_still_resolves() {
+        let mut data = vec![0u8; 0x300];
+        put_u32(&mut data, 0x00, POW_MAGIC);
+        put_u32(&mut data, 0x78, 0x100);
+        put_u32(&mut data, 0x268, 0x280);
+        put_str(&mut data, 0x280, "0.5");
+        put_u32(&mut data, 0x284, 6);
+        put_str(&mut data, 0x290, "7");
+        put_u32(&mut data, 0x294, 6);
+        let pow = PowPreview::parse(&data).expect("parses");
+        assert_eq!(pow.sf_values.get(&0).map(String::as_str), Some("0.5"));
+        assert_eq!(pow.sf_values.get(&1).map(String::as_str), Some("7"));
+    }
+
+    /// The summary for one formula, with the given scaling factor values.
+    fn summary_of(formula: &str, sfs: &[(u32, &str)]) -> String {
+        let mut data = formula.as_bytes().to_vec();
+        data.extend_from_slice(&[0; 16]);
+        PowPreview {
+            power_id: 0,
+            file_size: data.len(),
+            magic_ok: false,
+            sf_values: sfs.iter().map(|(n, v)| (*n, v.to_string())).collect(),
+            formulas: extract_formulas(&data),
+        }
+        .summary()
+    }
+
+    #[test]
+    fn damage_hint_multiplies_every_factor() {
+        let s = summary_of("SF_2 * Table(34,sLevel) * 1.5", &[(2, "2")]);
+        assert!(s.contains("→ 300% weapon damage (level-scaled)"), "{s}");
+    }
+
+    #[test]
+    fn damage_hint_uses_scaling_factor_values() {
+        let s = summary_of("SF_1 * 120 * Table(34, 3)", &[(1, "0.42")]);
+        assert!(s.contains("→ 5040% weapon damage"), "{s}");
+        assert!(!s.contains("level-scaled"), "{s}");
+    }
+
+    #[test]
+    fn damage_hint_is_left_out_when_a_factor_is_unknown() {
+        let s = summary_of("SF_1 * Table(34, sLevel)", &[]);
+        assert!(!s.contains("weapon damage"), "{s}");
+        let s = summary_of("min(0.1 * Table(34, sLevel), SF_16)", &[(16, "24")]);
+        assert!(!s.contains("weapon damage"), "{s}");
+    }
+
+    #[test]
+    fn damage_hint_for_a_plain_coefficient() {
+        let s = summary_of("0.9* Table(34,sLevel)", &[]);
+        assert!(s.contains("→ 90% weapon damage (level-scaled)"), "{s}");
+    }
 }
