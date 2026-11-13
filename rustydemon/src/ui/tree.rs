@@ -76,15 +76,10 @@ pub enum TreeClick {
     Folder(String),
 }
 
-/// What the badge beside "File Browser" says: the open game's product, or
-/// words when there is none (a lone dash there looked like a minus button).
-pub(crate) fn game_pill(game: Option<String>) -> String {
-    game.unwrap_or_else(|| "No game".to_string())
-}
-
 pub fn draw_tree(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<TreeClick> {
-    let game_label = game_pill(app.game_label());
-    theme::panel_header(ui, "File Browser", Some(&game_label));
+    // No badge with nothing open: "No archive open." right below says it,
+    // and a placeholder badge crowded the heading.
+    theme::panel_header(ui, "File Browser", app.game_label().as_deref());
 
     if app.handler.is_none() {
         ui.add_space(8.0);
