@@ -87,8 +87,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
+      # The Clippy job above lints on Linux only, so code behind
+      # cfg(windows) or cfg(target_os = "macos") was never linted until a
+      # developer on that system hit the pre-commit hook.
+      - name: Clippy (this system's own code)
+        if: runner.os != 'Linux'
+        run: >
+          cargo clippy
+          --workspace
+          --all-targets
+          --
+          -D warnings
+          -A clippy::manual_let_else
+          -A clippy::map_unwrap_or
+          -A clippy::redundant_closure_for_method_calls
+          -A clippy::cloned_instead_of_copied
 
   # ── AUR recipe tooling ──────────────────────────────────────────────────────
   # The release workflow rewrites packaging/aur/rustydemon-bin with
