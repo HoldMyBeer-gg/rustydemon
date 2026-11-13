@@ -43,10 +43,6 @@ pub struct Formula {
     pub values: Vec<TypedValue>,
     /// SF_ references found in the formula text.
     pub sf_refs: Vec<String>,
-    /// Extracted numeric coefficient (e.g. 1.75 from "1.75 * Table(34,...)").
-    pub coefficient: Option<f64>,
-    /// Table ID if present (34 = damage, 35 = cooldown).
-    pub table_id: Option<u32>,
 }
 
 fn read_u32(data: &[u8], off: usize) -> Option<u32> {
@@ -188,22 +184,95 @@ impl PowPreview {
         }
         writeln!(out, "  {display}").ok();
 
-        // Interpret damage formulas.
-        if let Some(coeff) = f.coefficient {
-            let pct = coeff * 100.0;
-            match f.table_id {
-                Some(34) => {
-                    writeln!(out, "    → {pct:.0}% weapon damage (level-scaled)").ok();
+        // Interpret formulas that multiply a game table lookup.
+        if let Some((mult, id, level)) = table_product(&f.text, &self.sf_values) {
+            let scale = if level.eq_ignore_ascii_case("sLevel") {
+                "level-scaled".to_string()
+            } else {
+                format!("at table level {level}")
+            };
+            let shown = format_number(mult);
+            match id {
+                34 => {
+                    let pct = format_number(mult * 100.0);
+                    writeln!(out, "    → {pct}% weapon damage ({scale})").ok();
                 }
-                Some(35) => {
-                    writeln!(out, "    → {coeff} sec base cooldown (level-scaled)").ok();
+                35 => {
+                    writeln!(out, "    → {shown} sec base cooldown ({scale})").ok();
                 }
-                Some(id) => {
-                    writeln!(out, "    → {coeff} × Table({id})").ok();
+                id => {
+                    writeln!(out, "    → {shown} × Table({id}, {level})").ok();
                 }
-                None => {}
             }
         }
+    }
+}
+
+/// Reduce a formula that is a plain product of numbers, scaling factors
+/// and exactly one `Table(id, level)` lookup to (multiplier, id, level).
+/// Returns `None` for anything else, or when a scaling factor in the
+/// product has no numeric value, so no hint is better than a wrong one.
+fn table_product(text: &str, sf_values: &HashMap<u32, String>) -> Option<(f64, u32, String)> {
+    let mut mult = 1.0;
+    let mut table = None;
+    for factor in split_top_level(text, '*')? {
+        let factor = factor.trim();
+        if let Some(args) = factor
+            .strip_prefix("Table(")
+            .and_then(|r| r.strip_suffix(')'))
+        {
+            if table.is_some() {
+                return None;
+            }
+            let (id, level) = args.split_once(',')?;
+            table = Some((id.trim().parse().ok()?, level.trim().to_string()));
+        } else if let Some(n) = factor.strip_prefix("SF_") {
+            let value = sf_values.get(&n.parse().ok()?)?;
+            mult *= value.trim().parse::<f64>().ok()?;
+        } else {
+            mult *= factor.parse::<f64>().ok()?;
+        }
+    }
+    let (id, level) = table?;
+    mult.is_finite().then_some((mult, id, level))
+}
+
+/// Split on `sep` outside parentheses. `None` if the parentheses don't balance.
+fn split_top_level(text: &str, sep: char) -> Option<Vec<&str>> {
+    let mut parts = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0;
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth < 0 {
+                    return None;
+                }
+            }
+            c if c == sep && depth == 0 => {
+                parts.push(&text[start..i]);
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    if depth != 0 {
+        return None;
+    }
+    parts.push(&text[start..]);
+    Some(parts)
+}
+
+/// Up to four decimals, trailing zeros dropped (0.42 * 120 * 100 → "5040").
+fn format_number(v: f64) -> String {
+    let s = format!("{v:.4}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s == "-0" {
+        "0".to_string()
+    } else {
+        s.to_string()
     }
 }
 
@@ -430,20 +499,6 @@ fn parse_typed_values(data: &[u8], offset: usize) -> Vec<TypedValue> {
     values
 }
 
-fn extract_coefficient(s: &str) -> (Option<f64>, Option<u32>) {
-    if let Some(rest) = s.split("* Table(").nth(1) {
-        let before = s.split("* Table(").next().unwrap_or("").trim();
-        let table_id: Option<u32> = rest.split(',').next().and_then(|t| t.parse().ok());
-        let coeff: Option<f64> = before
-            .trim_end()
-            .rsplit(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
-            .next()
-            .and_then(|n| n.parse().ok());
-        return (coeff, table_id);
-    }
-    (None, None)
-}
-
 fn extract_sf_refs(s: &str) -> Vec<String> {
     let mut refs = Vec::new();
     let mut i = 0;
@@ -488,7 +543,6 @@ fn extract_formulas(data: &[u8]) -> Vec<Formula> {
         let aligned_end = (formula_end + 3) & !3;
 
         let values = parse_typed_values(data, aligned_end);
-        let (coefficient, table_id) = extract_coefficient(&full_str);
         let sf_refs = extract_sf_refs(&full_str);
 
         formulas.push(Formula {
@@ -497,8 +551,6 @@ fn extract_formulas(data: &[u8]) -> Vec<Formula> {
             offset: *offset,
             values,
             sf_refs,
-            coefficient,
-            table_id,
         });
     }
 
@@ -613,5 +665,46 @@ mod tests {
         let pow = PowPreview::parse(&data).expect("parses");
         assert_eq!(pow.sf_values.get(&0).map(String::as_str), Some("0.5"));
         assert_eq!(pow.sf_values.get(&1).map(String::as_str), Some("7"));
+    }
+
+    /// The summary for one formula, with the given scaling factor values.
+    fn summary_of(formula: &str, sfs: &[(u32, &str)]) -> String {
+        let mut data = formula.as_bytes().to_vec();
+        data.extend_from_slice(&[0; 16]);
+        PowPreview {
+            power_id: 0,
+            file_size: data.len(),
+            magic_ok: false,
+            sf_values: sfs.iter().map(|(n, v)| (*n, v.to_string())).collect(),
+            formulas: extract_formulas(&data),
+        }
+        .summary()
+    }
+
+    #[test]
+    fn damage_hint_multiplies_every_factor() {
+        let s = summary_of("SF_2 * Table(34,sLevel) * 1.5", &[(2, "2")]);
+        assert!(s.contains("→ 300% weapon damage (level-scaled)"), "{s}");
+    }
+
+    #[test]
+    fn damage_hint_uses_scaling_factor_values() {
+        let s = summary_of("SF_1 * 120 * Table(34, 3)", &[(1, "0.42")]);
+        assert!(s.contains("→ 5040% weapon damage"), "{s}");
+        assert!(!s.contains("level-scaled"), "{s}");
+    }
+
+    #[test]
+    fn damage_hint_is_left_out_when_a_factor_is_unknown() {
+        let s = summary_of("SF_1 * Table(34, sLevel)", &[]);
+        assert!(!s.contains("weapon damage"), "{s}");
+        let s = summary_of("min(0.1 * Table(34, sLevel), SF_16)", &[(16, "24")]);
+        assert!(!s.contains("weapon damage"), "{s}");
+    }
+
+    #[test]
+    fn damage_hint_for_a_plain_coefficient() {
+        let s = summary_of("0.9* Table(34,sLevel)", &[]);
+        assert!(s.contains("→ 90% weapon damage (level-scaled)"), "{s}");
     }
 }
