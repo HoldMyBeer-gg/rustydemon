@@ -44,6 +44,11 @@ Files can also be opened by name hash, FileDataID, content key, or encoding
 key: see `open_file_by_hash`, `open_file_by_fdid`, `open_by_ckey`, and
 `open_by_ekey` on `CascHandler`.
 
+Game data tables keep rows for unreleased content in blocks encrypted with
+keys that are not public. `open_file_by_fdid_partial` and
+`open_by_ckey_partial` return such a file with zeros in place of the blocks
+that could not be decrypted, along with the names of the missing keys.
+
 ## What it reads
 
 - Battle.net installs: `.idx` local indices, the encoding file, the root

@@ -688,6 +688,52 @@ impl CascHandler {
         }
     }
 
+    /// [`open_file_by_fdid`](Self::open_file_by_fdid), but blocks encrypted
+    /// with a key we do not hold come back as zeros instead of failing the
+    /// whole file.  See [`blte::decode_partial`].
+    pub fn open_file_by_fdid_partial(&self, id: u32) -> Result<blte::PartialDecode, CascError> {
+        let hash = self
+            .root
+            .hash_for_file_data_id(id)
+            .ok_or_else(|| CascError::FileNotFound(format!("FileDataId {id}")))?;
+        let ckey = self.resolve_hash(hash)?;
+        self.open_by_ckey_partial(&ckey)
+    }
+
+    /// [`open_by_ckey`](Self::open_by_ckey), but blocks encrypted with a key
+    /// we do not hold come back as zeros.  See [`blte::decode_partial`].
+    ///
+    /// Only a missing key is forgiven.  Anything else that goes wrong takes
+    /// the same path as [`open_by_ckey`](Self::open_by_ckey), CDN fallback
+    /// included.
+    pub fn open_by_ckey_partial(&self, ckey: &Md5Hash) -> Result<blte::PartialDecode, CascError> {
+        let whole = |data| blte::PartialDecode {
+            data,
+            missing_keys: Vec::new(),
+        };
+        let Some(local_index) = self
+            .local_index
+            .as_ref()
+            .filter(|_| self.static_container.is_none())
+        else {
+            return self.open_by_ckey(ckey).map(whole);
+        };
+        let ekey = match &self.encoding {
+            Some(enc) => enc
+                .best_ekey(ckey)
+                .ok_or_else(|| CascError::EncodingNotFound(ckey.to_hex()))?,
+            None => *ckey,
+        };
+        match local_index
+            .read_block(&ekey)
+            .and_then(|raw| blte::decode_partial(&raw, &ekey, self.validate_hashes))
+        {
+            Ok(partial) => Ok(partial),
+            Err(err @ CascError::MissingKey(_)) => Err(err),
+            Err(_) => self.open_by_ekey(&ekey).map(whole),
+        }
+    }
+
     // ── Internal helpers ───────────────────────────────────────────────────────
 
     /// Resolve a filename hash to a content key using the root manifest.
