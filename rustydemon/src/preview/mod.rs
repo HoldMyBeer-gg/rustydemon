@@ -11,6 +11,7 @@
 //! `preview/` and adding one line to [`registry`].
 
 pub mod adt;
+pub mod adt_lite;
 pub mod audio;
 pub mod blp;
 pub mod m2;
