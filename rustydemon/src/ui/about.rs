@@ -1,17 +1,11 @@
-//! About window — a real native child viewport (NOT an inner egui::Window).
+//! About window, opened from Help → About.
 //!
-//! Opened from Help → About. Uses `ctx.show_viewport_immediate`, so it's
-//! a true OS-level window with its own title bar, taskbar entry, and close
-//! button — not a floating panel inside the main window.
-//!
-//! Wiring (see patch notes):
-//!   • add `pub about_open: bool` and `pub about_logo: Option<egui::TextureHandle>`
-//!     to `CascExplorerApp` (init both to false / None)
-//!   • add `mod about;` to `src/ui/mod.rs`
-//!   • Help → About: set `app.about_open = true;` (replace the status-text line)
-//!   • in `ui::draw`, after the panels, call:
-//!         about::show_window(ctx, &mut app.about_open, &mut app.about_logo);
+//! Drawn as an egui window inside the main window. It used to be a native
+//! child viewport with its own title bar, but eframe publishes an
+//! accessibility tree for the root viewport only, so nothing in a child
+//! viewport could be read by a screen reader or reached by automation.
 
+use crate::ui::a11y;
 use crate::ui::theme::rd;
 
 const TAGLINE: &str = "The most modern, efficient cross-platform CASC explorer — \
@@ -42,14 +36,28 @@ pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui:
     }
     let logo = logo.clone();
 
-    let viewport_id = egui::ViewportId::from_hash_of("rd_about_window");
-    let builder = egui::ViewportBuilder::default()
-        .with_title("About RustyDemon")
-        .with_inner_size([400.0, 600.0])
-        .with_min_inner_size([360.0, 420.0])
-        .with_resizable(true);
+    // `keep_open` carries the Close button's verdict out of the closure;
+    // the window's own close box writes to `open` directly.
+    let mut keep_open = true;
+    egui::Window::new("About RustyDemon")
+        .open(open)
+        .collapsible(false)
+        .resizable(true)
+        .default_size([400.0, 600.0])
+        .min_size([360.0, 420.0])
+        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .frame(egui::Frame::window(&ctx.style()).inner_margin(0.0))
+        .show(ctx, |ui| about_body(ui, &logo, &mut keep_open));
+    if !keep_open {
+        *open = false;
+    }
+}
 
-    ctx.show_viewport_immediate(viewport_id, builder, move |ctx, _class| {
+/// Everything inside the About window. `open` is set to false when Close is
+/// clicked.
+fn about_body(ui: &mut egui::Ui, logo: &Option<egui::TextureHandle>, open: &mut bool) {
+    let ctx = ui.ctx().clone();
+    {
         // Footer pinned to the bottom; credits ScrollArea fills the rest.
         egui::TopBottomPanel::bottom("about_footer")
             .frame(
@@ -57,7 +65,7 @@ pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui:
                     .fill(rd::FROST_050)
                     .inner_margin(egui::Margin::symmetric(20.0, 12.0)),
             )
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("© 2026 jabberwock · AGPL-3.0 + Commons Clause")
@@ -66,7 +74,7 @@ pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui:
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Close").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            *open = false;
                         }
                         if ui.button("Copy Version").clicked() {
                             let v = env!("CARGO_PKG_VERSION");
@@ -85,19 +93,21 @@ pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui:
                     .fill(rd::FROST_100)
                     .inner_margin(egui::Margin::symmetric(28.0, 24.0)),
             )
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 // ── Hero ──────────────────────────────────────────────
                 ui.vertical_centered(|ui| {
-                    if let Some(tex) = &logo {
-                        ui.add(egui::Image::new((tex.id(), egui::vec2(88.0, 88.0))));
+                    if let Some(tex) = logo {
+                        let resp = ui.add(egui::Image::new((tex.id(), egui::vec2(88.0, 88.0))));
+                        a11y::image(ui.ctx(), resp.id, "Rusty Demon logo");
                     }
                     ui.add_space(12.0);
-                    ui.label(
+                    let resp = ui.label(
                         egui::RichText::new("RUSTY  DEMON")
                             .size(28.0)
                             .strong()
                             .color(rd::FROST_900),
                     );
+                    a11y::heading(ui.ctx(), resp.id, "Rusty Demon");
                     ui.add_space(6.0);
                     ui.label(egui::RichText::new(TAGLINE).size(12.5).color(rd::FROST_700));
                     ui.add_space(12.0);
@@ -109,12 +119,13 @@ pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui:
                         .inner_margin(egui::Margin::symmetric(12.0, 3.0))
                         .show(ui, |ui| {
                             let v = env!("CARGO_PKG_VERSION");
-                            ui.label(
+                            let resp = ui.label(
                                 egui::RichText::new(format!("● v{v} · lib {v}"))
                                     .monospace()
                                     .size(11.0)
                                     .color(rd::RUNE_400),
                             );
+                            a11y::name(ui.ctx(), resp.id, &format!("Version {v}, library {v}"));
                         });
 
                     ui.add_space(14.0);
@@ -141,12 +152,13 @@ pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui:
                 });
 
                 ui.add_space(20.0);
-                ui.label(
+                let resp = ui.label(
                     egui::RichText::new("A C K N O W L E D G E M E N T S   &   L I C E N S E")
                         .size(10.0)
                         .strong()
                         .color(rd::FROST_600),
                 );
+                a11y::heading(ui.ctx(), resp.id, "Acknowledgements & License");
                 ui.add_space(6.0);
 
                 // ── Scrollable credits / license ──────────────────────
@@ -163,15 +175,7 @@ pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui:
                             });
                     });
             });
-
-        // Honour the OS close button.
-        if ctx.input(|i| i.viewport().close_requested()) {
-            *open = false;
-        }
-    });
-
-    // If the immediate viewport set close_requested, `*open` is already
-    // false; nothing else to do.
+    }
 }
 
 /// One link card in the 3-column row. `warm` gives the ember treatment
@@ -190,6 +194,8 @@ fn link_card(ui: &mut egui::Ui, label: &str, url: &str, warm: bool) {
         })
         .response
         .interact(egui::Sense::click());
+    // A framed label is not a control to a screen reader until it is told so.
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Link, true, label));
 
     if resp.hovered() {
         ui.painter().rect_stroke(
@@ -207,12 +213,13 @@ fn link_card(ui: &mut egui::Ui, label: &str, url: &str, warm: bool) {
 fn credits_body(ui: &mut egui::Ui) {
     let head = |ui: &mut egui::Ui, t: &str| {
         ui.add_space(4.0);
-        ui.label(
+        let resp = ui.label(
             egui::RichText::new(t)
                 .size(11.0)
                 .strong()
                 .color(rd::RUNE_400),
         );
+        a11y::heading(ui.ctx(), resp.id, t);
         ui.add_space(2.0);
     };
     let body = |ui: &mut egui::Ui, t: &str| {
@@ -245,4 +252,53 @@ is reserved to the maintainers under a separate proprietary license.",
         "Cinzel Decorative, Inter, and JetBrains Mono (SIL OFL). \
 OpenDyslexic bundled as an accessibility alternate.",
     );
+}
+
+#[cfg(test)]
+mod a11y_tests {
+    use crate::ui::a11y::testing::{named, nodes};
+    use egui::accesskit::Role;
+
+    fn about() -> Vec<(Role, String)> {
+        named(&nodes(|ui| {
+            let mut open = true;
+            super::about_body(ui, &None, &mut open);
+        }))
+    }
+
+    fn has(n: &[(Role, String)], role: Role, name: &str) -> bool {
+        n.iter().any(|(r, s)| *r == role && s == name)
+    }
+
+    #[test]
+    fn about_contents_are_published() {
+        let n = about();
+        assert!(has(&n, Role::Button, "Close"), "{n:?}");
+        assert!(has(&n, Role::Button, "Copy Version"), "{n:?}");
+        assert!(has(&n, Role::Heading, "Rusty Demon"), "{n:?}");
+        assert!(
+            has(&n, Role::Heading, "Acknowledgements & License"),
+            "{n:?}"
+        );
+        let version = format!("Version {v}, library {v}", v = env!("CARGO_PKG_VERSION"));
+        assert!(n.iter().any(|(_, s)| *s == version), "{n:?}");
+    }
+
+    #[test]
+    fn link_cards_are_links() {
+        let n = about();
+        for name in ["Repository", "Sponsor", "Report a Bug"] {
+            assert!(has(&n, Role::Link, name), "{name}: {n:?}");
+        }
+    }
+
+    #[test]
+    fn no_letter_spaced_names() {
+        let n = about();
+        assert!(
+            !n.iter()
+                .any(|(_, s)| s.contains("A C K") || s.contains("RUSTY  DEMON")),
+            "{n:?}"
+        );
+    }
 }

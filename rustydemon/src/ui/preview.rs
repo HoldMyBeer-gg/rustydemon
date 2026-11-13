@@ -84,30 +84,11 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     let mut override_change: Option<Option<usize>> = None;
     if sel.data.is_some() {
         let names = crate::preview::plugin_names();
-        let current_label = match sel.preview_override {
-            None => "Auto".to_string(),
-            Some(i) => names.get(i).cloned().unwrap_or_else(|| format!("#{i}")),
-        };
         theme::section_label(ui, "Viewer");
         ui.horizontal(|ui| {
-            egui::ComboBox::from_id_salt("preview_override")
-                .selected_text(current_label)
-                .show_ui(ui, |ui| {
-                    if ui
-                        .selectable_label(sel.preview_override.is_none(), "Auto")
-                        .clicked()
-                    {
-                        override_change = Some(None);
-                    }
-                    for (i, name) in names.iter().enumerate() {
-                        if ui
-                            .selectable_label(sel.preview_override == Some(i), name.as_str())
-                            .clicked()
-                        {
-                            override_change = Some(Some(i));
-                        }
-                    }
-                });
+            if let Some(change) = viewer_combo(ui, sel.preview_override, &names) {
+                override_change = Some(change);
+            }
         });
     }
 
@@ -124,10 +105,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
                     tex_size.y.round() as u32
                 ),
             );
-            let max_w = ui.available_width();
-            let scale = (max_w / tex_size.x).min(1.0);
-            let display_size = tex_size * scale;
-            ui.image((tex.id(), display_size));
+            texture_image(ui, tex);
         }
 
         // 3D mesh viewport (currently only WMO group geometry).
@@ -141,11 +119,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         // as its contents.
         if let Some(text) = &preview.text {
             theme::section_label(ui, "Text");
-            ui.add(
-                egui::TextEdit::multiline(&mut text.as_str())
-                    .font(egui::TextStyle::Monospace)
-                    .desired_width(f32::INFINITY),
-            );
+            text_block(ui, text, "File contents");
         }
     } else if let Some(data) = &sel.data {
         // ── Hex-dump fallback (no plugin claimed this file) ───────────────────
@@ -171,11 +145,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
             .collect::<Vec<_>>()
             .join("\n");
 
-        ui.add(
-            egui::TextEdit::multiline(&mut hex.as_str())
-                .font(egui::TextStyle::Monospace)
-                .desired_width(f32::INFINITY),
-        );
+        text_block(ui, &hex, "Hex dump");
     }
 
     // ── Deep-search content matches ────────────────────────────────────────────
@@ -282,12 +252,15 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
             } else {
                 "▶ Play"
             };
-            if ui
-                .add_enabled(
-                    !(this_is_current && is_playing),
-                    egui::Button::new(play_label),
-                )
-                .clicked()
+            // Spoken name without the glyph ("Play", not "black triangle Play").
+            let play_spoken = play_label.trim_start_matches("▶ ");
+            if super::a11y::button_enabled(
+                ui,
+                !(this_is_current && is_playing),
+                play_label,
+                play_spoken,
+            )
+            .clicked()
             {
                 if this_is_current && is_paused {
                     audio_action = Some(crate::app::AudioAction::TogglePause);
@@ -298,18 +271,18 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
                     ));
                 }
             }
-            if ui
-                .add_enabled(this_is_current && is_playing, egui::Button::new("⏸ Pause"))
+            if super::a11y::button_enabled(ui, this_is_current && is_playing, "⏸ Pause", "Pause")
                 .clicked()
             {
                 audio_action = Some(crate::app::AudioAction::TogglePause);
             }
-            if ui
-                .add_enabled(
-                    this_is_current && (is_playing || is_paused),
-                    egui::Button::new("⏹ Stop"),
-                )
-                .clicked()
+            if super::a11y::button_enabled(
+                ui,
+                this_is_current && (is_playing || is_paused),
+                "⏹ Stop",
+                "Stop",
+            )
+            .clicked()
             {
                 audio_action = Some(crate::app::AudioAction::Stop);
             }
@@ -563,7 +536,68 @@ fn export_raw(app: &CascExplorerApp) {
     }
 }
 
-fn meta_row(ui: &mut egui::Ui, label: &str, value: &str) {
+/// The viewer override dropdown. Returns the new choice when the user picks
+/// one: `Some(None)` for Auto, `Some(Some(i))` for plugin `i`.
+pub(crate) fn viewer_combo(
+    ui: &mut egui::Ui,
+    current: Option<usize>,
+    names: &[String],
+) -> Option<Option<usize>> {
+    let current_label = match current {
+        None => "Auto".to_string(),
+        Some(i) => names.get(i).cloned().unwrap_or_else(|| format!("#{i}")),
+    };
+    let mut change = None;
+    let combo = egui::ComboBox::from_id_salt("preview_override")
+        .selected_text(current_label)
+        .show_ui(ui, |ui| {
+            if ui.selectable_label(current.is_none(), "Auto").clicked() {
+                change = Some(None);
+            }
+            for (i, name) in names.iter().enumerate() {
+                if ui
+                    .selectable_label(current == Some(i), name.as_str())
+                    .clicked()
+                {
+                    change = Some(Some(i));
+                }
+            }
+        });
+    // The dropdown has no label of its own; the heading above it is a
+    // separate node.
+    super::a11y::name(ui.ctx(), combo.response.id, "Viewer");
+    change
+}
+
+/// A read-only block of monospace text, published under `name`.
+pub(crate) fn text_block(ui: &mut egui::Ui, text: &str, name: &str) {
+    let resp = ui.add(
+        egui::TextEdit::multiline(&mut &*text)
+            .font(egui::TextStyle::Monospace)
+            .desired_width(f32::INFINITY),
+    );
+    super::a11y::name(ui.ctx(), resp.id, name);
+}
+
+/// The decoded texture, scaled down to the panel width. It is pixels, so
+/// what a screen reader can be told is that it is there and how big it is.
+pub(crate) fn texture_image(ui: &mut egui::Ui, tex: &egui::TextureHandle) {
+    let tex_size = tex.size_vec2();
+    let max_w = ui.available_width();
+    let scale = (max_w / tex_size.x).min(1.0);
+    let resp = ui.image((tex.id(), tex_size * scale));
+    super::a11y::image(
+        ui.ctx(),
+        resp.id,
+        &format!(
+            "Texture preview, {} by {} pixels",
+            tex_size.x.round() as u32,
+            tex_size.y.round() as u32
+        ),
+    );
+}
+
+pub(crate) fn meta_row(ui: &mut egui::Ui, label: &str, value: &str) {
     // Frost-variant `.v-meta`: rune-blue bold keys, primary values.
     // Technical fields (FDID, Hash, CKey, Size) render mono; display
     // fields (Name, Type, Locale) stay proportional.
@@ -571,7 +605,9 @@ fn meta_row(ui: &mut egui::Ui, label: &str, value: &str) {
     let is_technical = matches!(label, "FDID:" | "Hash:" | "CKey:" | "Size:");
     let max_chars = 24;
     let (display, tip): (String, Option<&str>) = if value.chars().count() > max_chars {
-        (format!("{}…", &value[..max_chars]), Some(value))
+        // Cut on a character boundary: a byte offset can land inside one.
+        let head: String = value.chars().take(max_chars).collect();
+        (format!("{head}…"), Some(value))
     } else {
         (value.to_string(), None)
     };
@@ -581,6 +617,8 @@ fn meta_row(ui: &mut egui::Ui, label: &str, value: &str) {
     }
     let resp = ui.label(rt);
     if let Some(full) = tip {
+        // The screen shows a shortened value; a screen reader gets all of it.
+        super::a11y::name(ui.ctx(), resp.id, full);
         resp.on_hover_text(full);
     }
     ui.end_row();

@@ -1,3 +1,4 @@
+pub(crate) mod a11y;
 mod about;
 mod menu;
 pub(crate) mod preview;
@@ -33,22 +34,7 @@ fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {
                 toolbar(ui, app);
                 // Zoom buttons pinned to the far right.
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .button("A+")
-                        .on_hover_text("Increase font size")
-                        .clicked()
-                    {
-                        let z = (ctx.zoom_factor() + 0.1).min(3.0);
-                        ctx.set_zoom_factor(z);
-                    }
-                    if ui
-                        .button("A-")
-                        .on_hover_text("Decrease font size")
-                        .clicked()
-                    {
-                        let z = (ctx.zoom_factor() - 0.1).max(0.5);
-                        ctx.set_zoom_factor(z);
-                    }
+                    zoom_buttons(ui);
                 });
             });
             ui.separator();
@@ -116,12 +102,39 @@ fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {
         });
 }
 
-fn toolbar(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
+/// The text-size buttons. Drawn right to left, so `A+` comes first.
+fn zoom_buttons(ui: &mut egui::Ui) {
+    let ctx = ui.ctx().clone();
+    if a11y::button(ui, "A+", "Increase text size")
+        .on_hover_text("Increase font size")
+        .clicked()
+    {
+        let z = (ctx.zoom_factor() + 0.1).min(3.0);
+        ctx.set_zoom_factor(z);
+    }
+    if a11y::button(ui, "A-", "Decrease text size")
+        .on_hover_text("Decrease font size")
+        .clicked()
+    {
+        let z = (ctx.zoom_factor() - 0.1).max(0.5);
+        ctx.set_zoom_factor(z);
+    }
+}
+
+/// The search field. Its hint text is not an accessible name, so it gets
+/// one here.
+fn search_box(ui: &mut egui::Ui, text: &mut String) -> egui::Response {
     let response = ui.add(
-        egui::TextEdit::singleline(&mut app.search_text)
+        egui::TextEdit::singleline(text)
             .hint_text("Search files…")
             .desired_width(300.0),
     );
+    a11y::name(ui.ctx(), response.id, "Search files");
+    response
+}
+
+fn toolbar(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
+    let response = search_box(ui, &mut app.search_text);
     if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
         app.run_search();
     }
@@ -141,7 +154,7 @@ fn toolbar(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
 
     ui.checkbox(&mut app.deep_search_enabled, "Deep search");
 
-    if ui.button("🔍 Find All (Deep Search)").clicked() {
+    if a11y::button(ui, "🔍 Find All (Deep Search)", "Find All (Deep Search)").clicked() {
         app.run_deep_search();
     }
 }
@@ -163,13 +176,35 @@ fn draw_status_bar(ctx: &Context, app: &CascExplorerApp) {
                 // (if any) and the rest in muted body color, so live states
                 // ("Opening…", "Loading…", "Searching…") read as hot while
                 // idle status stays calm.
-                let (accent, rest) = split_status_accent(&app.status);
-                if let Some(a) = accent {
-                    ui.label(egui::RichText::new(a).color(theme::rd::EMBER_600).strong());
-                }
-                ui.label(egui::RichText::new(rest).color(theme::rd::FG_SECONDARY));
+                status_line(ui, &app.status);
             });
         });
+}
+
+/// The status text: an ember-tinted leading verb (if any) and the rest in
+/// muted body color, so live states ("Opening…", "Loading…") read as hot
+/// while idle status stays calm.
+///
+/// One label with two colors, not two labels: a screen reader gets the whole
+/// sentence as a single status line, and is told when it changes.
+fn status_line(ui: &mut egui::Ui, status: &str) {
+    let (accent, rest) = split_status_accent(status);
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let mut job = egui::text::LayoutJob::default();
+    if let Some(a) = accent {
+        job.append(
+            a,
+            0.0,
+            egui::TextFormat::simple(font.clone(), theme::rd::EMBER_600),
+        );
+    }
+    job.append(
+        rest,
+        0.0,
+        egui::TextFormat::simple(font, theme::rd::FG_SECONDARY),
+    );
+    let resp = ui.label(job);
+    a11y::status(ui.ctx(), resp.id, status);
 }
 
 /// Split a status string into an optional hot prefix (one of a short

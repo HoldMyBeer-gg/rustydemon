@@ -1,0 +1,122 @@
+{
+  "name": "about",
+  "covers": "Help > About opens inside the main window, its contents are published to the accessibility tree (headings, version, link cards, buttons), and Close dismisses it. Needs no game install.",
+  "platforms": [
+    "linux",
+    "macos",
+    "windows"
+  ],
+  "verified": {
+    "linux": "2026-11-12"
+  },
+  "phases": [
+    {
+      "name": "help menu opens",
+      "learn": {
+        "help": {
+          "name": "Help"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "help"
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "About",
+          "timeout": 5
+        }
+      ]
+    },
+    {
+      "name": "about opens",
+      "learn": {
+        "about": {
+          "name": "About"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "about"
+        },
+        {
+          "action": "wait_for_element",
+          "window_id": "$WINDOW",
+          "name": "Copy Version",
+          "timeout": 5
+        }
+      ],
+      "checks": [
+        {
+          "present": {
+            "name": "Rusty Demon"
+          }
+        },
+        {
+          "present": {
+            "name": "Acknowledgements & License"
+          }
+        },
+        {
+          "present": {
+            "name": "Repository"
+          }
+        },
+        {
+          "present": {
+            "name": "Sponsor"
+          }
+        },
+        {
+          "present": {
+            "name": "Report a Bug"
+          }
+        },
+        {
+          "present": {
+            "name": "Close"
+          }
+        }
+      ]
+    },
+    {
+      "name": "about closes",
+      "learn": {
+        "close": {
+          "name": "Close"
+        }
+      },
+      "steps": [
+        {
+          "action": "click",
+          "target": "close"
+        },
+        {
+          "action": "sleep",
+          "seconds": 0.3
+        }
+      ],
+      "checks": [
+        {
+          "present": {
+            "name": "Search"
+          }
+        },
+        {
+          "absent": {
+            "name": "Copy Version"
+          }
+        }
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "windows": 1
+    }
+  ],
+  "notes": "About used to be a separate OS window with no accessibility tree; it is now drawn inside the main window. Linux run 2026-11-12 (SteamOS, KDE). Written to be the same on macOS and Windows; not yet run there."
+}
