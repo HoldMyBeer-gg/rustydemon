@@ -89,6 +89,27 @@ pub struct MeshBatch {
     pub start_index: u32,
     pub index_count: u32,
     pub material_id: u32,
+    pub blend: Blend,
+}
+
+/// How a batch is laid over what is already drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Blend {
+    /// Solid; texture alpha is ignored.
+    #[default]
+    Opaque,
+    /// Solid, with texels below half alpha cut out.
+    AlphaKey,
+    /// Mixed in by texture alpha.
+    Alpha,
+    /// Added to what is behind, ignoring alpha (glows).
+    Add,
+    /// Added to what is behind, scaled by alpha.
+    AddAlpha,
+    /// Multiplies what is behind (shadows, tints).
+    Mod,
+    /// Multiplies what is behind, doubled.
+    Mod2x,
 }
 
 /// CPU-side decoded texture for one material. RGBA8, ready to upload.

@@ -140,6 +140,7 @@ impl PreviewPlugin for ModelD2rPreview {
                     start_index: ibase,
                     index_count: m.indices.len() as u32,
                     material_id: m.material_index.unwrap_or(mesh_i as u32),
+                    blend: Default::default(),
                 });
                 for axis in 0..3 {
                     if m.bbox_min[axis] < bbox_min[axis] {
