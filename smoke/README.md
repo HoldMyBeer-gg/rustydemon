@@ -163,11 +163,12 @@ window, and that is not the same thing everywhere:
   (`File Browser`, not the letter-spaced text on screen), the status bar is
   one `status` node, the Viewer dropdown and preview text boxes are named,
   and a texture preview is an `image` named with its size.
-- **Disabled items read as enabled on Linux.** A greyed-out item such as
-  Load Listfile… with no archive open is published over AT-SPI with the
-  `enabled` state. egui marks it disabled; `accesskit_atspi_common` 0.9.3,
-  which egui 0.29 uses, reports any control that cannot be read-only as
-  enabled. A script cannot tell that such an item is disabled.
+- **Disabled items.** Since the egui 0.37 upgrade a greyed-out item (Load
+  Listfile… with no archive open) is published without the `enabled` state
+  on Linux. Before it, `accesskit_atspi_common` 0.9.3 reported every such
+  control as enabled.
+- **Shortcuts are not part of a name.** File → Open Game Directory… keeps
+  that name; its shortcut is published separately.
 - **Linux, window lookup.** rustydemon's AT-SPI application name is empty.
   bad-ass-mcp's main branch (a0fe32a, 2026-11-12) falls back to the frame's
   name, which carries the title (also seen with 1.6.0-29-g76c9ed4 on XFCE).

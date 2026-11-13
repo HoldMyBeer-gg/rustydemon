@@ -11,33 +11,49 @@ use egui::accesskit::{Live, Role};
 
 /// Replace the accessible name of the widget with id `id`.
 pub fn name(ctx: &egui::Context, id: egui::Id, name: &str) {
-    ctx.accesskit_node_builder(id, |node| node.set_name(name));
+    ctx.accesskit_node_builder(id, |node| node.set_label(name));
 }
 
-/// Publish the widget as a heading called `name`.
-pub fn heading(ctx: &egui::Context, id: egui::Id, name: &str) {
-    ctx.accesskit_node_builder(id, |node| {
-        node.set_role(Role::Heading);
-        node.set_name(name);
-    });
+/// Draw `shown` and publish `spoken` for it, as a single node of `role`.
+///
+/// For text whose on-screen form is decoration: letter-spaced headings, a
+/// value cut short with an ellipsis, a bullet or glyph prefix. An egui label
+/// would publish the drawn characters themselves (as its value, and again as
+/// text runs), so the text is painted instead and the one node says the
+/// plain words.
+pub fn decorated(
+    ui: &mut egui::Ui,
+    shown: impl Into<egui::WidgetText>,
+    role: Role,
+    spoken: &str,
+) -> egui::Response {
+    let galley = shown.into().into_galley(
+        ui,
+        Some(egui::TextWrapMode::Wrap),
+        ui.available_width(),
+        egui::TextStyle::Body,
+    );
+    let (rect, resp) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+    if ui.is_rect_visible(rect) {
+        ui.painter()
+            .galley(rect.min, galley, ui.visuals().text_color());
+    }
+    resp.widget_info(|| egui::WidgetInfo::labeled(role, true, spoken));
+    resp
 }
 
 /// Publish the widget as an image described by `name`.
 pub fn image(ctx: &egui::Context, id: egui::Id, name: &str) {
     ctx.accesskit_node_builder(id, |node| {
         node.set_role(Role::Image);
-        node.set_name(name);
+        node.set_label(name);
     });
 }
 
-/// Publish the widget as a status line: a screen reader announces a change
-/// to it when it is next idle, without moving focus there.
-pub fn status(ctx: &egui::Context, id: egui::Id, text: &str) {
-    ctx.accesskit_node_builder(id, |node| {
-        node.set_role(Role::Status);
-        node.set_name(text);
-        node.set_live(Live::Polite);
-    });
+/// Mark a node as a status line: a screen reader announces a change to it
+/// when it is next idle, without moving focus there.
+pub fn live(ctx: &egui::Context, id: egui::Id) {
+    ctx.accesskit_node_builder(id, |node| node.set_live(Live::Polite));
 }
 
 /// A button whose visible text carries a glyph or shorthand (`A+`,
@@ -74,27 +90,43 @@ pub(crate) mod testing {
         let ctx = egui::Context::default();
         crate::ui::theme::apply(&ctx);
         ctx.enable_accesskit();
-        let mut frame = || {
-            ctx.run(egui::RawInput::default(), |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| draw(ui));
-            })
-        };
-        frame();
-        frame()
-            .platform_output
-            .accesskit_update
-            .expect("accesskit enabled")
+        frame(&ctx, &mut draw);
+        frame(&ctx, &mut draw)
             .nodes
             .into_iter()
             .map(|(_, n)| n)
             .collect()
     }
 
-    /// `(role, name)` of every named node.
+    /// One frame of `draw`, returning the accessibility tree it published.
+    pub fn frame(
+        ctx: &egui::Context,
+        draw: impl FnMut(&mut egui::Ui),
+    ) -> egui::accesskit::TreeUpdate {
+        let mut out = ctx.run_ui(egui::RawInput::default(), draw);
+        // egui panics if texture changes are dropped without being applied.
+        out.textures_delta.clear();
+        out.platform_output
+            .accesskit_update
+            .expect("accesskit enabled")
+    }
+
+    /// One frame of `draw` with no accessibility output wanted.
+    pub fn frame_plain(ctx: &egui::Context, draw: impl FnMut(&mut egui::Ui)) {
+        let mut out = ctx.run_ui(egui::RawInput::default(), draw);
+        out.textures_delta.clear();
+    }
+
+    /// `(role, text)` of every node a screen reader has words for: its
+    /// label, or for static text (which egui publishes as a value) its value.
     pub fn named(nodes: &[Node]) -> Vec<(Role, String)> {
         nodes
             .iter()
-            .filter_map(|n| n.name().map(|name| (n.role(), name.to_owned())))
+            .filter_map(|n| {
+                n.label()
+                    .or_else(|| n.value())
+                    .map(|text| (n.role(), text.to_owned()))
+            })
             .collect()
     }
 
@@ -102,7 +134,7 @@ pub(crate) mod testing {
     pub fn unnamed_roles(nodes: &[Node]) -> Vec<Role> {
         nodes
             .iter()
-            .filter(|n| n.name().is_none_or(|s| s.trim().is_empty()))
+            .filter(|n| n.label().is_none_or(|s| s.trim().is_empty()))
             .map(|n| n.role())
             .collect()
     }
@@ -195,7 +227,7 @@ mod tests {
         });
         let status: Vec<_> = all.iter().filter(|n| n.role() == Role::Status).collect();
         assert_eq!(status.len(), 1, "{:?}", named(&all));
-        assert_eq!(status[0].name(), Some("Loading listfile /tmp/list.csv…"));
+        assert_eq!(status[0].label(), Some("Loading listfile /tmp/list.csv…"));
         assert_eq!(status[0].live(), Some(Live::Polite));
         // The accent word must not also be published on its own.
         assert!(
@@ -234,7 +266,7 @@ mod tests {
         let n = named(&nodes(|ui| {
             let tex = ui.ctx().load_texture(
                 "t",
-                egui::ColorImage::new([64, 32], egui::Color32::RED),
+                egui::ColorImage::filled([64, 32], egui::Color32::RED),
                 egui::TextureOptions::LINEAR,
             );
             crate::ui::preview::texture_image(ui, &tex);
@@ -252,5 +284,30 @@ mod tests {
         }));
         assert!(has(&n, Role::Button, "Play"), "{n:?}");
         assert!(!n.iter().any(|(_, name)| name.contains('▶')), "{n:?}");
+    }
+
+    /// Text a widget shows is also its accessible *value*. A renamed label
+    /// must not keep the on-screen decoration there.
+    #[test]
+    fn renamed_text_does_not_keep_the_decorated_value() {
+        let all = nodes(|ui| {
+            crate::ui::theme::section_label(ui, "Viewer");
+            egui::Grid::new("g").show(ui, |ui| {
+                crate::ui::preview::meta_row(ui, "Name:", "a_very_long_file_name_indeed_yes.blp");
+            });
+        });
+        for n in &all {
+            let v = n.value().unwrap_or_default();
+            assert!(!v.contains('\u{2009}') && !v.ends_with('…'), "value {v:?}");
+        }
+    }
+
+    #[test]
+    fn empty_game_pill_says_what_it_means() {
+        let n = named(&nodes(|ui| {
+            crate::ui::theme::panel_header(ui, "File Browser", Some("—"));
+        }));
+        assert!(n.iter().any(|(_, s)| s == "No game loaded"), "{n:?}");
+        assert!(!n.iter().any(|(_, s)| s == "—"), "{n:?}");
     }
 }

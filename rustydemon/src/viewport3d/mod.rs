@@ -363,8 +363,8 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("viewport3d pl"),
-        bind_group_layouts: &[&bind_group_layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&bind_group_layout)],
+        immediate_size: 0,
     });
 
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -372,13 +372,13 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: "vs_main",
+            entry_point: Some("vs_main"),
             buffers: &[],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: target_format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -389,7 +389,7 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
 
@@ -458,8 +458,8 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
 
     let mesh_pl_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("viewport3d mesh pl"),
-        bind_group_layouts: &[&mesh_bgl, &batch_bgl, &texture_bgl],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&mesh_bgl), Some(&batch_bgl), Some(&texture_bgl)],
+        immediate_size: 0,
     });
 
     let mesh_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -467,18 +467,18 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         layout: Some(&mesh_pl_layout),
         vertex: wgpu::VertexState {
             module: &mesh_shader,
-            entry_point: "vs_main",
-            buffers: &[wgpu::VertexBufferLayout {
+            entry_point: Some("vs_main"),
+            buffers: &[Some(wgpu::VertexBufferLayout {
                 // 5 floats per vertex: position(xyz) + uv.
                 array_stride: (std::mem::size_of::<f32>() * 5) as wgpu::BufferAddress,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2],
-            }],
+            })],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &mesh_shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: offscreen_format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -501,13 +501,13 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: depth_format,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::Less,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Less),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
 
@@ -541,8 +541,8 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
 
     let blit_pl_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("viewport3d blit pl"),
-        bind_group_layouts: &[&blit_bgl],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&blit_bgl)],
+        immediate_size: 0,
     });
 
     let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -550,13 +550,13 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         layout: Some(&blit_pl_layout),
         vertex: wgpu::VertexState {
             module: &blit_shader,
-            entry_point: "vs",
+            entry_point: Some("vs"),
             buffers: &[],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &blit_shader,
-            entry_point: "fs",
+            entry_point: Some("fs"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: target_format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -567,7 +567,7 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
 
@@ -578,7 +578,7 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         address_mode_w: wgpu::AddressMode::ClampToEdge,
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
         ..Default::default()
     });
 
@@ -599,7 +599,7 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         address_mode_w: wgpu::AddressMode::Repeat,
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
         ..Default::default()
     });
 
@@ -620,14 +620,14 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
         view_formats: &[],
     });
     render_state.queue.write_texture(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: &fallback_tex,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
         &[255u8, 255, 255, 255],
-        wgpu::ImageDataLayout {
+        wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(4),
             rows_per_image: Some(1),
@@ -857,14 +857,14 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
                         view_formats: &[],
                     });
                     queue.write_texture(
-                        wgpu::ImageCopyTexture {
+                        wgpu::TexelCopyTextureInfo {
                             texture: &tex,
                             mip_level: 0,
                             origin: wgpu::Origin3d::ZERO,
                             aspect: wgpu::TextureAspect::All,
                         },
                         rgba,
-                        wgpu::ImageDataLayout {
+                        wgpu::TexelCopyBufferLayout {
                             offset: 0,
                             bytes_per_row: Some(mat.width * 4),
                             rows_per_image: Some(mat.height),
@@ -1072,6 +1072,7 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
                 label: Some("wmo offscreen pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &o.color_view,
+                    depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -1093,6 +1094,7 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&res.mesh_pipeline);
             pass.set_bind_group(0, &c.bind_group, &[]);
@@ -1190,7 +1192,7 @@ pub fn paint_mesh(ui: &mut egui::Ui, mesh: Arc<Mesh3dCpu>) {
     // viewport and automation can find it to drag.
     response.widget_info(|| {
         egui::WidgetInfo::labeled(
-            egui::WidgetType::Other,
+            egui::Role::Canvas,
             true,
             "3D preview: drag to rotate, Shift+drag to pan, scroll to zoom",
         )
@@ -1212,7 +1214,7 @@ pub fn paint_mesh(ui: &mut egui::Ui, mesh: Arc<Mesh3dCpu>) {
     // Scroll wheel → zoom multiplier. Only consume scroll while hovered
     // so it doesn't fight the surrounding scroll area.
     let zoom_delta = if response.hovered() {
-        let scroll = ui.input(|i| i.raw_scroll_delta.y);
+        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
         scroll * 0.0015
     } else {
         0.0

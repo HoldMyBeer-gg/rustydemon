@@ -2,27 +2,27 @@ pub(crate) mod a11y;
 mod about;
 mod menu;
 pub(crate) mod preview;
-mod results;
+pub(crate) mod results;
 pub(crate) mod theme;
-mod tree;
+pub(crate) mod tree;
 
 use crate::app::CascExplorerApp;
-use egui::Context;
 use rustydemon_lib::SearchResult;
 
 /// Draw the entire application UI for one frame.
-pub fn draw(ctx: &Context, app: &mut CascExplorerApp) {
-    menu::draw_menu(ctx, app);
-    draw_status_bar(ctx, app);
-    draw_panels(ctx, app);
-    about::show_window(ctx, &mut app.about_open, &mut app.about_logo);
+pub fn draw(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
+    menu::draw_menu(ui, app);
+    draw_status_bar(ui, app);
+    draw_panels(ui, app);
+    about::show_window(ui.ctx(), &mut app.about_open, &mut app.about_logo);
 }
 
-fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {
-    let central_frame = egui::Frame::central_panel(&ctx.style()).fill(theme::rd::BG_APP);
+fn draw_panels(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
+    let ctx = &ui.ctx().clone();
+    let central_frame = egui::Frame::central_panel(&ctx.global_style()).fill(theme::rd::BG_APP);
     egui::CentralPanel::default()
         .frame(central_frame)
-        .show(ctx, |ui| {
+        .show(ui, |ui| {
             // Forge-glow vignette: a warm radial in the top-left + a cool
             // one in the bottom-right, painted under the toolbar so it
             // reads as "something is hot off-screen", not a full gradient
@@ -43,23 +43,23 @@ fn draw_panels(ctx: &Context, app: &mut CascExplorerApp) {
             let mut tree_click: Option<tree::TreeClick> = None;
             let mut result_click: Option<rustydemon_lib::SearchResult> = None;
 
-            egui::SidePanel::left("tree_panel")
+            egui::Panel::left("tree_panel")
                 .resizable(true)
-                .default_width(220.0)
-                .min_width(140.0)
-                .show_inside(ui, |ui| {
+                .default_size(220.0)
+                .min_size(140.0)
+                .show(ui, |ui| {
                     tree_click = tree::draw_tree(ui, app);
                 });
 
-            egui::SidePanel::right("preview_panel")
+            egui::Panel::right("preview_panel")
                 .resizable(true)
-                .default_width(240.0)
-                .min_width(160.0)
-                .show_inside(ui, |ui| {
+                .default_size(240.0)
+                .min_size(160.0)
+                .show(ui, |ui| {
                     preview::draw_preview(ui, app);
                 });
 
-            egui::CentralPanel::default().show_inside(ui, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
                 result_click = results::draw_results(ui, app);
             });
 
@@ -159,15 +159,15 @@ fn toolbar(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     }
 }
 
-fn draw_status_bar(ctx: &Context, app: &CascExplorerApp) {
-    egui::TopBottomPanel::bottom("status_bar")
+fn draw_status_bar(ui: &mut egui::Ui, app: &CascExplorerApp) {
+    egui::Panel::bottom("status_bar")
         .frame(
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(theme::rd::FROST_150)
                 .stroke(egui::Stroke::new(1.0_f32, theme::rd::BORDER_SUBTLE))
-                .inner_margin(egui::Margin::symmetric(12.0, 4.0)),
+                .inner_margin(egui::Margin::symmetric(12, 4)),
         )
-        .show(ctx, |ui| {
+        .show(ui, |ui| {
             ui.horizontal(|ui| {
                 if app.loading {
                     ui.spinner();
@@ -203,8 +203,8 @@ fn status_line(ui: &mut egui::Ui, status: &str) {
         0.0,
         egui::TextFormat::simple(font, theme::rd::FG_SECONDARY),
     );
-    let resp = ui.label(job);
-    a11y::status(ui.ctx(), resp.id, status);
+    let resp = a11y::decorated(ui, job, egui::Role::Status, status);
+    a11y::live(ui.ctx(), resp.id);
 }
 
 /// Split a status string into an optional hot prefix (one of a short
@@ -229,7 +229,7 @@ fn split_status_accent(status: &str) -> (Option<&str>, &str) {
 /// the top-left, cool rune in the bottom-right, both at very low alpha
 /// so nothing competes with actual UI content.
 fn paint_forge_glow(ui: &egui::Ui) {
-    let rect = ui.ctx().screen_rect();
+    let rect = ui.ctx().content_rect();
     let painter = ui.ctx().layer_painter(egui::LayerId::background());
 
     // Warm ember — top-left quadrant.
