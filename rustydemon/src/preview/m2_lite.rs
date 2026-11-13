@@ -18,10 +18,17 @@ pub struct M2Lite {
     pub version: u32,
     pub name: String,
     pub positions: Vec<[f32; 3]>,
+    pub normals: Vec<[f32; 3]>,
     pub uvs: Vec<[f32; 2]>,
     pub texture_count: usize,
     pub material_count: usize,
     pub bone_count: usize,
+    pub animation_count: usize,
+    /// Corners of the model's bounding box, as stored in the header.
+    pub bounding_box: [[f32; 3]; 2],
+    /// Tag and body size of every chunk, in file order (empty for a bare
+    /// `MD20`).
+    pub chunks: Vec<([u8; 4], usize)>,
     /// Texture combo index to texture index.
     pub texture_lookup: Vec<i16>,
     /// `SFID` chunk: skin files, then LOD skins.
@@ -38,13 +45,16 @@ const VERTEX_SIZE: usize = 48;
 // Header fields, as offsets into the MD20 body.  Arrays are a `(count,
 // offset)` pair of `u32`s; the offset is from the start of the body.
 const F_NAME: usize = 0x08;
+const F_ANIMATIONS: usize = 0x1C;
 const F_BONES: usize = 0x2C;
 const F_VERTICES: usize = 0x3C;
 const F_TEXTURES: usize = 0x50;
 const F_MATERIALS: usize = 0x70;
 const F_TEXTURE_LOOKUP: usize = 0x80;
+/// Six floats: minimum corner, then maximum corner.
+const F_BOUNDING_BOX: usize = 0xA0;
 /// The header must reach at least the end of the last field read.
-const HEADER_MIN: usize = F_TEXTURE_LOOKUP + 8;
+const HEADER_MIN: usize = F_BOUNDING_BOX + 24;
 
 fn u32_at(b: &[u8], at: usize) -> Option<u32> {
     let bytes = b.get(at..at.checked_add(4)?)?;
@@ -84,6 +94,7 @@ fn u32s(bytes: &[u8]) -> Vec<u32> {
 impl M2Lite {
     pub fn parse(data: &[u8]) -> Result<Self, String> {
         let magic = data.get(..4).ok_or("file is shorter than its magic")?;
+        let mut chunks = Vec::new();
         let (body, chunked, skin_fdids, texture_fdids) = match magic {
             b"MD20" => (data, false, Vec::new(), Vec::new()),
             b"MD21" => {
@@ -95,6 +106,7 @@ impl M2Lite {
                         .checked_add(size)
                         .and_then(|end| data.get(at + 8..end))
                         .ok_or("a chunk runs past the end of the file")?;
+                    chunks.push(([data[at], data[at + 1], data[at + 2], data[at + 3]], size));
                     match &data[at..at + 4] {
                         b"MD21" => body = Some(chunk),
                         b"SFID" => skins = u32s(chunk),
@@ -125,6 +137,12 @@ impl M2Lite {
             .iter()
             .map(|v| [f32_at(v, 0), f32_at(v, 4), f32_at(v, 8)])
             .collect();
+        let normals = vertices
+            .as_chunks::<VERTEX_SIZE>()
+            .0
+            .iter()
+            .map(|v| [f32_at(v, 20), f32_at(v, 24), f32_at(v, 28)])
+            .collect();
         let uvs = vertices
             .as_chunks::<VERTEX_SIZE>()
             .0
@@ -151,10 +169,15 @@ impl M2Lite {
             version,
             name,
             positions,
+            normals,
             uvs,
             texture_count: count(F_TEXTURES),
             material_count: count(F_MATERIALS),
             bone_count: count(F_BONES),
+            animation_count: count(F_ANIMATIONS),
+            bounding_box: [0, 12]
+                .map(|corner| [0, 4, 8].map(|axis| f32_at(body, F_BOUNDING_BOX + corner + axis))),
+            chunks,
             texture_lookup,
             skin_fdids,
             texture_fdids,
@@ -188,7 +211,9 @@ mod tests {
             v.extend_from_slice(&f.to_le_bytes());
         }
         v.extend_from_slice(&[0u8; 8]); // bone weights, bone indices
-        v.extend_from_slice(&[0u8; 12]); // normal
+        for f in [0.0f32, 0.0, 1.0] {
+            v.extend_from_slice(&f.to_le_bytes()); // normal
+        }
         for f in uv {
             v.extend_from_slice(&f.to_le_bytes());
         }
@@ -215,6 +240,10 @@ mod tests {
         verts.extend(vertex([4.0, 5.0, 6.0], [0.75, 1.0]));
         put(&mut b, 0x3C, 2, &verts);
         put(&mut b, 0x80, 2, &[1, 0, 0xFF, 0xFF]); // lookup: 1, -1
+        b[0x1C..0x20].copy_from_slice(&9u32.to_le_bytes()); // animations
+        for (i, f) in [-1.0f32, -2.0, -3.0, 1.0, 2.0, 3.0].iter().enumerate() {
+            b[0xA0 + i * 4..0xA4 + i * 4].copy_from_slice(&f.to_le_bytes());
+        }
         b[0x2C..0x30].copy_from_slice(&7u32.to_le_bytes()); // bones
         b[0x50..0x54].copy_from_slice(&3u32.to_le_bytes()); // textures
         b[0x70..0x74].copy_from_slice(&4u32.to_le_bytes()); // materials
@@ -240,6 +269,18 @@ mod tests {
         assert_eq!((m.bone_count, m.texture_count, m.material_count), (7, 3, 4));
         assert_eq!(m.skin_fdids, [111, 222]);
         assert_eq!(m.texture_fdids, [0, 333]);
+    }
+
+    #[test]
+    fn reads_what_the_command_line_inspector_prints() {
+        let m = M2Lite::parse(&chunked()).unwrap();
+        assert_eq!(m.animation_count, 9);
+        assert_eq!(m.normals, [[0.0, 0.0, 1.0]; 2]);
+        assert_eq!(m.bounding_box, [[-1.0, -2.0, -3.0], [1.0, 2.0, 3.0]]);
+        let tags: Vec<(&[u8; 4], usize)> = m.chunks.iter().map(|(t, n)| (t, *n)).collect();
+        assert_eq!(tags[1..], [(b"SFID", 8), (b"TXID", 8)]);
+        assert_eq!(tags[0].0, b"MD21");
+        assert!(M2Lite::parse(&body()).unwrap().chunks.is_empty());
     }
 
     #[test]

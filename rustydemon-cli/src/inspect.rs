@@ -11,6 +11,10 @@
 //! - `.blp` / BLP texture (`rustydemon-blp2`)
 //! - `.texture` / D2R `<DE(` container
 
+#[path = "../../rustydemon/src/preview/m2_lite.rs"]
+mod m2_lite;
+use m2_lite::M2Lite;
+
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
@@ -251,34 +255,10 @@ fn inspect_m2(
     obj_path: Option<&Path>,
     _png_path: Option<&Path>,
 ) -> Result<()> {
-    use wow_alchemy_data::types::WowStructR;
-    use wow_alchemy_m2::M2Model;
-
-    let mut reader = Cursor::new(data);
-    let m2 = M2Model::wow_read(&mut reader).map_err(|e| anyhow::anyhow!("M2 parse failed: {e}"))?;
-
-    let md20 = &m2.md20;
-    let is_chunked = &m2.magic == b"MD21";
-
-    // SFID chunk (skin file FDIDs).
-    let skin_fdids: Vec<u32> = m2
-        .chunks
-        .iter()
-        .find_map(|c| match c {
-            wow_alchemy_m2::model::M2Chunk::SFID(skins) => Some(skins.file_ids.clone()),
-            _ => None,
-        })
-        .unwrap_or_default();
-
-    // TXID chunk (texture FDIDs) — stored as a flat Vec<u32>.
-    let texture_fdids: Vec<u32> = m2
-        .chunks
-        .iter()
-        .find_map(|c| match c {
-            wow_alchemy_m2::model::M2Chunk::TXID(ids) => Some(ids.clone()),
-            _ => None,
-        })
-        .unwrap_or_default();
+    let m2 = M2Lite::parse(data).map_err(|e| anyhow::anyhow!("M2 parse failed: {e}"))?;
+    let is_chunked = m2.chunked;
+    let skin_fdids = &m2.skin_fdids;
+    let texture_fdids = &m2.texture_fdids;
 
     println!("M2 model  •  {filename}\n");
     println!(
@@ -289,12 +269,12 @@ fn inspect_m2(
             "MD20 (legacy)"
         }
     );
-    println!("Name          {}", md20.name);
-    println!("Vertices      {}", md20.vertices.len());
-    println!("Textures      {}", md20.textures.len());
-    println!("Materials     {}", md20.materials.len());
-    println!("Bones         {}", md20.bones.len());
-    println!("Animations    {}", md20.animations.len());
+    println!("Name          {}", m2.name);
+    println!("Vertices      {}", m2.positions.len());
+    println!("Textures      {}", m2.texture_count);
+    println!("Materials     {}", m2.material_count);
+    println!("Bones         {}", m2.bone_count);
+    println!("Animations    {}", m2.animation_count);
     println!("Skin files    {}", skin_fdids.len());
 
     if !skin_fdids.is_empty() {
@@ -312,26 +292,23 @@ fn inspect_m2(
     }
 
     // Bounding box from header.
-    let bb = &md20.header.bounding_box;
+    let [lo, hi] = m2.bounding_box;
     println!(
         "\nBounding box  ({:.2}, {:.2}, {:.2}) .. ({:.2}, {:.2}, {:.2})",
-        bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z,
+        lo[0], lo[1], lo[2], hi[0], hi[1], hi[2],
     );
 
     // Chunks summary.
     if !m2.chunks.is_empty() {
         println!("\nChunks ({}):", m2.chunks.len());
-        for c in &m2.chunks {
-            println!("  {}", chunk_label(c));
+        for (tag, size) in &m2.chunks {
+            println!("  {}", chunk_label(tag, *size));
         }
     }
 
     // Texture lookup table.
-    println!(
-        "\nTexture lookup table ({}):",
-        md20.texture_lookup_table.len()
-    );
-    for (i, &idx) in md20.texture_lookup_table.iter().enumerate() {
+    println!("\nTexture lookup table ({}):", m2.texture_lookup.len());
+    for (i, &idx) in m2.texture_lookup.iter().enumerate() {
         let fdid_info = if idx >= 0 && (idx as usize) < texture_fdids.len() {
             format!(" → FDID {}", texture_fdids[idx as usize])
         } else {
@@ -374,11 +351,7 @@ fn inspect_m2(
                         println!("\nTexture units (render batches):");
                         for (i, tu) in skin.texture_units.iter().enumerate() {
                             let combo_idx = tu.texture_combo_index as usize;
-                            let tex_idx = md20
-                                .texture_lookup_table
-                                .get(combo_idx)
-                                .copied()
-                                .unwrap_or(-1);
+                            let tex_idx = m2.texture_lookup.get(combo_idx).copied().unwrap_or(-1);
                             let fdid_info =
                                 if tex_idx >= 0 && (tex_idx as usize) < texture_fdids.len() {
                                     format!(" → FDID {}", texture_fdids[tex_idx as usize])
@@ -407,27 +380,13 @@ fn inspect_m2(
 
     // OBJ export.
     if let Some(path) = obj_path {
-        let positions: Vec<[f32; 3]> = md20
-            .vertices
-            .iter()
-            .map(|v| [v.position.x, v.position.y, v.position.z])
-            .collect();
-        let normals: Vec<[f32; 3]> = md20
-            .vertices
-            .iter()
-            .map(|v| [v.normal.x, v.normal.y, v.normal.z])
-            .collect();
-        let uvs: Vec<[f32; 2]> = md20
-            .vertices
-            .iter()
-            .map(|v| [v.tex_coords.x, v.tex_coords.y])
-            .collect();
+        let (positions, normals, uvs) = (&m2.positions, &m2.normals, &m2.uvs);
 
         println!(
             "\nOBJ export: writing {} vertices (no triangles — skin file not available from disk)",
             positions.len()
         );
-        write_obj_verts_only(path, &positions, &normals, &uvs)?;
+        write_obj_verts_only(path, positions, normals, uvs)?;
     }
 
     Ok(())
@@ -780,14 +739,12 @@ fn load_from_archive(
     Ok((data, filename, casc))
 }
 
-fn chunk_label(c: &wow_alchemy_m2::model::M2Chunk) -> String {
-    use wow_alchemy_m2::model::M2Chunk;
-    match c {
-        M2Chunk::SFID(s) => format!("SFID — {} skin file IDs", s.file_ids.len()),
-        M2Chunk::TXID(t) => format!("TXID — {} texture file IDs", t.len()),
-        M2Chunk::AFID(a) => format!("AFID — {} animation file IDs", a.len()),
-        M2Chunk::TXAC(t) => format!("TXAC — {} entries", t.len()),
-        M2Chunk::Unknown(bytes) => format!("Unknown — {} bytes", bytes.len()),
-        _ => format!("{c:?}"),
+fn chunk_label(tag: &[u8; 4], size: usize) -> String {
+    let name = String::from_utf8_lossy(tag);
+    match tag {
+        b"SFID" => format!("SFID — {} skin file IDs", size / 4),
+        b"TXID" => format!("TXID — {} texture file IDs", size / 4),
+        b"AFID" => format!("AFID — {} animation file IDs", size / 8),
+        _ => format!("{name} — {size} bytes"),
     }
 }
