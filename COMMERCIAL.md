@@ -56,7 +56,7 @@ single AGPL-only contribution could block commercial distribution forever.
 
 If you don't agree to these terms, please don't submit contributions.
 Opening an issue to report a bug or request a feature does not require
-this grant — only contributions that add or modify code, assets, or
+this grant: only contributions that add or modify code, assets, or
 documentation do.
 
 ## Questions

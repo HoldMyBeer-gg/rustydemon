@@ -1,13 +1,13 @@
-# Diablo IV (fenris) TACT decryption keys — public, community-harvested.
+# Diablo IV (fenris) TACT decryption keys: public, community-harvested.
 #
-# Format: KEYNAME (16 hex) <space> KEYVALUE (32 hex), one per line — the same
+# Format: KEYNAME (16 hex) <space> KEYVALUE (32 hex), one per line, the same
 # wowdev format as https://github.com/wowdev/TACTKeys. KEYNAME is the BLTE
 # lookup id (the u64 the block header resolves to), i.e. the byte-swap of the
 # on-disk `EncryptedNameDict-0x<id>.dat` filename hex.
 #
 # These are baked into the binary at build (see key_service::build_table). To
 # add keys you harvest yourself without rebuilding, drop them in your per-user
-# key file instead — see the "Encrypted Files & TACT Keys" section of README.
+# key file instead; see the "Encrypted Files & TACT Keys" section of README.
 #
 # NOTE ON COMPLETENESS: D4 streams keys to the client at runtime and only the
 # keys for content the client has touched are ever resident in memory, so no

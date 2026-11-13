@@ -175,7 +175,7 @@ cd rustydemon
 cargo run --release -p rustydemon
 ```
 
-The first build downloads and compiles all dependencies (~3–5 minutes).
+The first build downloads and compiles all dependencies (about 3 to 5 minutes).
 Subsequent builds are incremental and much faster.
 
 ---

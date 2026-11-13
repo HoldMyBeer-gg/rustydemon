@@ -348,11 +348,10 @@ mod tests {
     }
 
     #[test]
-    fn empty_game_pill_says_what_it_means() {
+    fn a_panel_header_without_a_badge_is_only_its_heading() {
         let n = named(&nodes(|ui| {
-            crate::ui::theme::panel_header(ui, "File Browser", Some("-"));
+            crate::ui::theme::panel_header(ui, "File Browser", None);
         }));
-        assert!(n.iter().any(|(_, s)| s == "No game loaded"), "{n:?}");
-        assert!(!n.iter().any(|(_, s)| s == "-"), "{n:?}");
+        assert_eq!(n, [(Role::Heading, "File Browser".to_owned())], "{n:?}");
     }
 }

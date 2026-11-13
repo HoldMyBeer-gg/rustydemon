@@ -204,7 +204,7 @@ impl CascHandler {
                 ) {
                     Ok(f) => Some(std::sync::Arc::new(f)),
                     Err(e) => {
-                        eprintln!("cdn: disabled: {e}");
+                        eprintln!("cdn disabled: {e}");
                         None
                     }
                 }

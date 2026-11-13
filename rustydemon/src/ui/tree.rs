@@ -77,8 +77,9 @@ pub enum TreeClick {
 }
 
 pub fn draw_tree(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<TreeClick> {
-    let game_label = app.game_label().unwrap_or_else(|| "-".to_string());
-    theme::panel_header(ui, "File Browser", Some(&game_label));
+    // No badge with nothing open: "No archive open." right below says it,
+    // and a placeholder badge crowded the heading.
+    theme::panel_header(ui, "File Browser", app.game_label().as_deref());
 
     if app.handler.is_none() {
         ui.add_space(8.0);

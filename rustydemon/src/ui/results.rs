@@ -2,6 +2,16 @@ use crate::app::CascExplorerApp;
 use crate::ui::theme::{self, rd};
 use rustydemon_lib::SearchResult;
 
+/// The small line under a file name: its file ID, when the game has them,
+/// and the start of its name hash.
+fn row_meta(file_data_id: Option<u32>, hash: u64) -> String {
+    let hash = &format!("{hash:016x}")[..12];
+    match file_data_id {
+        Some(id) => format!("FDID {id} · {hash}"),
+        None => hash.to_owned(),
+    }
+}
+
 /// Draw the center panel — shows either search results or browsed folder contents.
 /// Returns the clicked [`SearchResult`], if any.
 pub fn draw_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<SearchResult> {
@@ -116,13 +126,7 @@ fn draw_folder_contents(
                 .unwrap_or(false);
 
             let icon = file_icon(&file.name);
-            let meta = format!(
-                "FDID {} · {} · -",
-                file.file_data_id
-                    .map(|x| x.to_string())
-                    .unwrap_or_else(|| "-".into()),
-                &format!("{:016x}", file.hash)[..12],
-            );
+            let meta = row_meta(file.file_data_id, file.hash);
 
             let resp = ui.push_id(file.hash, |ui| {
                 draw_file_row(ui, &file.name, &meta, icon, is_multi || is_preview)
@@ -354,14 +358,7 @@ fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<S
                 .to_string();
 
             let icon = file_icon(&display_name);
-            let meta = format!(
-                "FDID {} · {} · -",
-                result
-                    .file_data_id
-                    .map(|x| x.to_string())
-                    .unwrap_or_else(|| "-".into()),
-                &format!("{:016x}", result.hash)[..12],
-            );
+            let meta = row_meta(result.file_data_id, result.hash);
 
             let resp = ui.push_id(result.hash, |ui| {
                 draw_file_row(ui, &display_name, &meta, icon, is_multi || is_preview)
@@ -481,7 +478,7 @@ mod a11y_tests {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         let out = crate::ui::a11y::testing::frame(&ctx, |ui| {
-            draw_file_row(ui, "core.lua", "FDID 1 · abc · -", "📄", false);
+            draw_file_row(ui, "core.lua", "FDID 1 · abc", "📄", false);
         });
         let names: Vec<String> = out
             .nodes
@@ -599,5 +596,17 @@ mod layout_tests {
             super::folder_bar(ui, "interface/icons", 0);
         });
         bounds_of(&all, "interface/icons");
+    }
+
+    /// The line under a file name. It used to end in a third, always-empty
+    /// field shown as a dash.
+    #[test]
+    fn the_line_under_a_name_has_no_empty_fields() {
+        assert_eq!(
+            super::row_meta(Some(234701), 0xb76c26a981e4c55f),
+            "FDID 234701 · b76c26a981e4"
+        );
+        // Games without file IDs show the hash alone.
+        assert_eq!(super::row_meta(None, 0x00000000deadbeef), "00000000dead");
     }
 }

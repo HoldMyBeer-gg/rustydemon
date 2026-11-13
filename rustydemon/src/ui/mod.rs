@@ -258,6 +258,20 @@ fn paint_forge_glow(ui: &egui::Ui) {
 mod copy_tests {
     use std::path::Path;
 
+    /// The part of a source line before its `//` comment, if it has one.
+    fn code_part(line: &str) -> &str {
+        // "://" is a URL inside a string, not the start of a comment.
+        let mut from = 0;
+        while let Some(at) = line[from..].find("//") {
+            let at = from + at;
+            if at == 0 || line.as_bytes()[at - 1] != b':' {
+                return &line[..at];
+            }
+            from = at + 2;
+        }
+        line
+    }
+
     /// Every line of Rust source under `dir` that has `needle` outside a
     /// comment, as `file:line`.
     fn lines_with(dir: &Path, needle: char, found: &mut Vec<String>) {
@@ -268,8 +282,7 @@ mod copy_tests {
             } else if path.extension().is_some_and(|e| e == "rs") {
                 let text = std::fs::read_to_string(&path).unwrap();
                 for (i, line) in text.lines().enumerate() {
-                    let code = line.split("//").next().unwrap_or("");
-                    if code.contains(needle) {
+                    if code_part(line).contains(needle) {
                         found.push(format!("{}:{}", path.display(), i + 1));
                     }
                 }
@@ -277,14 +290,42 @@ mod copy_tests {
         }
     }
 
-    /// Text people read (labels, messages, command-line output) uses plain
-    /// punctuation. An em dash may only appear in a comment.
+    #[test]
+    fn a_dash_after_a_url_is_not_mistaken_for_a_comment() {
+        assert!(code_part("say(\"see https://example.com \u{2014} now\");").contains('\u{2014}'));
+        assert!(!code_part("let x = 1; // old \u{2014} note").contains('\u{2014}'));
+        assert!(!code_part("    /// doc \u{2014} comment").contains('\u{2014}'));
+    }
+
+    /// Text people read (labels, messages, command-line output, the README,
+    /// the key file users edit) uses plain punctuation. An em dash may only
+    /// appear in a source comment.
     #[test]
     fn no_em_dashes_in_text_people_read() {
         let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let mut found = Vec::new();
         for krate in ["rustydemon", "rustydemon-cli", "rustydemon-lib"] {
-            lines_with(&workspace.join(krate).join("src"), '\u{2014}', &mut found);
+            for dir in ["src", "examples"] {
+                let dir = workspace.join(krate).join(dir);
+                if dir.is_dir() {
+                    lines_with(&dir, '\u{2014}', &mut found);
+                }
+            }
+        }
+        for file in [
+            "README.md",
+            "COMMERCIAL.md",
+            "rustydemon-lib/README.md",
+            "rustydemon-blp2/README.md",
+            "rustydemon-gr2/README.md",
+            "rustydemon-lib/keys/d4.keys",
+        ] {
+            let text = std::fs::read_to_string(workspace.join(file)).unwrap();
+            for (i, line) in text.lines().enumerate() {
+                if line.contains('\u{2014}') {
+                    found.push(format!("{file}:{}", i + 1));
+                }
+            }
         }
         assert!(found.is_empty(), "em dash outside a comment: {found:#?}");
     }
