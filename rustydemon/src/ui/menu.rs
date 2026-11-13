@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::app::{detect_game_installs, CascExplorerApp};
+use crate::app::CascExplorerApp;
 
 /// Ctrl+O on Linux/Windows, ⌘+O on macOS — egui's `COMMAND` modifier maps
 /// to whichever the host platform uses.
@@ -72,16 +72,30 @@ pub fn draw_menu(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
                 // ── File ──────────────────────────────────────────────────────────
                 ui.menu_button("File", |ui| {
                     // Auto-detected game installs.
-                    let installs = detect_game_installs();
-                    if !installs.is_empty() {
-                        ui.menu_button("Open Game", |ui| {
-                            for (name, path) in &installs {
-                                if ui.button(name).clicked() {
-                                    ui.close();
-                                    app.open_game_dir(path.clone());
+                    let repaint = ui.ctx().clone();
+                    let search = app
+                        .installs
+                        .get_or_insert_with(|| {
+                            crate::installs::Search::start(crate::installs::detect, move || {
+                                repaint.request_repaint()
+                            })
+                        })
+                        .clone();
+                    match search.found() {
+                        None => {
+                            ui.add_enabled(false, egui::Button::new("Looking for games…"));
+                        }
+                        Some([]) => {}
+                        Some(installs) => {
+                            ui.menu_button("Open Game", |ui| {
+                                for (name, path) in installs {
+                                    if ui.button(name).clicked() {
+                                        ui.close();
+                                        app.open_game_dir(path.clone());
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
                     }
 
                     if open_dir_button(ui).clicked() {

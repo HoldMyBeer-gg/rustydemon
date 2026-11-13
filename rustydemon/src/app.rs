@@ -131,6 +131,10 @@ pub struct CascExplorerApp {
     pub handler: Option<Arc<CascHandler>>,
     /// Creature skin lookup for `handler`'s archive, built on first use.
     pub creature_skins: crate::preview::creature_skins::Cache,
+    /// The search for installed games in the usual places, started the
+    /// first time the File menu opens.  It walks the disk, so it runs once
+    /// and off the UI thread.
+    pub installs: Option<crate::installs::Search>,
     /// Internal product UID (e.g. "fenris", "wow").  Editable in Tools menu.
     pub product: String,
     /// Products detected from the last directory's .build.info.
@@ -243,6 +247,7 @@ impl CascExplorerApp {
         Self {
             handler: None,
             creature_skins: Default::default(),
+            installs: None,
             product: String::new(),
             detected_products: vec![],
             expanded: HashSet::new(),
@@ -928,124 +933,6 @@ fn collect_file_hashes(folder: &rustydemon_lib::CascFolder, out: &mut Vec<u64>) 
     for sub in folder.folders.values() {
         collect_file_hashes(sub, out);
     }
-}
-
-/// Scan common install locations for Blizzard/Steam games with CASC archives.
-/// Returns a list of (display_name, path) pairs.
-pub fn detect_game_installs() -> Vec<(String, std::path::PathBuf)> {
-    use rustydemon_lib::CascConfig;
-
-    let mut found = Vec::new();
-
-    // Known Blizzard game UIDs → display names.  Some installs (notably
-    // the Mac Battle.net Diablo III) ship with an empty `.build.info`
-    // Product column, so we infer the UID from the CDN path (e.g.
-    // `tpr/diablo3`) — those verbose spellings are listed alongside the
-    // short ones so the menu label is right either way.
-    let uid_names: &[(&str, &str)] = &[
-        ("fenris", "Diablo IV"),
-        ("wow", "World of Warcraft"),
-        ("d3", "Diablo III"),
-        ("diablo3", "Diablo III"),
-        ("hero", "Heroes of the Storm"),
-        ("pro", "Overwatch"),
-        ("osi", "Diablo II: Resurrected"),
-        ("w3", "Warcraft III: Reforged"),
-        ("s1", "StarCraft"),
-        ("sc1", "StarCraft: Remastered"),
-        ("s2", "StarCraft II"),
-        ("hs", "Hearthstone"),
-        ("viper", "Call of Duty"),
-        ("odin", "Call of Duty"),
-        ("lazr", "Crash Bandicoot 4"),
-        ("fore", "Spyro"),
-        ("zeus", "Call of Duty: MW"),
-        ("gryphon", "Call of Duty: BO6"),
-    ];
-
-    // Common install directories to scan (Windows + Linux/Steam Deck + macOS).
-    let mut candidates: Vec<std::path::PathBuf> = vec![
-        // Windows — Battle.net / Steam
-        "C:/Program Files (x86)".into(),
-        "C:/Program Files".into(),
-        "D:/Games".into(),
-        "E:/Games".into(),
-        "C:/Program Files (x86)/Steam/steamapps/common".into(),
-        "D:/SteamLibrary/steamapps/common".into(),
-        "E:/SteamLibrary/steamapps/common".into(),
-        // macOS — Battle.net installs each game as a top-level directory
-        // under /Applications (e.g. `/Applications/Diablo III`).  Scanning
-        // one level deep finds every Blizzard title without enumerating
-        // individual `.app` bundles — the `.build.info` filter below
-        // rejects anything that isn't a CASC root.
-        "/Applications".into(),
-    ];
-
-    // Linux / Steam Deck
-    if let Ok(home) = std::env::var("HOME") {
-        candidates.push(format!("{home}/.local/share/Steam/steamapps/common").into());
-        candidates.push(format!("{home}/.steam/steam/steamapps/common").into());
-    }
-    // Steam Deck SD card
-    candidates.push("/run/media/mmcblk0p1/steamapps/common".into());
-    candidates.push("/run/media/sdcard/steamapps/common".into());
-
-    for base in &candidates {
-        let Ok(entries) = std::fs::read_dir(base) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            // Check if this directory has a .build.info file.
-            if !path.join(".build.info").exists() {
-                continue;
-            }
-            let products = CascConfig::detect_products(&path);
-            let dir_name = path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-
-            if products.is_empty() {
-                found.push((format!("{dir_name}  —  {}", path.display()), path));
-            } else {
-                for product in &products {
-                    let game_name = uid_names
-                        .iter()
-                        .find(|(uid, _)| product.starts_with(uid))
-                        .map(|(_, name)| *name)
-                        .unwrap_or(&dir_name);
-
-                    // Detect launcher from path.
-                    let path_str = path.to_string_lossy();
-                    let is_steam = path_str.contains("Steam")
-                        || path_str.contains("steam")
-                        || path_str.contains("steamapps");
-                    let launcher = if is_steam && path_str.contains("mmcblk0p1")
-                        || path_str.contains("sdcard")
-                    {
-                        "Steam Deck SD"
-                    } else if is_steam {
-                        "Steam"
-                    } else if path_str.contains("Public Test") || product.contains("test") {
-                        "Battle.net PTR"
-                    } else {
-                        "Battle.net"
-                    };
-
-                    found.push((format!("{game_name} [{launcher}]"), path.clone()));
-                }
-            }
-        }
-    }
-
-    found.sort_by(|a, b| a.0.cmp(&b.0));
-    found.dedup_by(|a, b| a.1 == b.1);
-    found
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@
 mod app;
 mod audio;
 mod deep_search;
+mod installs;
 mod launch_args;
 pub mod pow_preview;
 mod preview;

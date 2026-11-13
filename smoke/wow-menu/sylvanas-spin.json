@@ -24,7 +24,7 @@
           "action": "wait_for_element",
           "window_id": "$WINDOW",
           "name": "Open Game",
-          "timeout": 5
+          "timeout": 15
         }
       ]
     },
