@@ -94,12 +94,9 @@ impl PreviewPlugin for GrpPreview {
         out.text = Some(text);
 
         let image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &pixels);
-        // Pixel art: keep the edges hard when the panel scales it up.
-        let hard_edges = egui::TextureOptions {
-            magnification: egui::TextureFilter::Nearest,
-            minification: egui::TextureFilter::Linear,
-            ..Default::default()
-        };
+        // Hard edges both ways: a sprite a little wider than the panel is
+        // drawn smaller, and smoothing that blurs every pixel of it.
+        let hard_edges = egui::TextureOptions::NEAREST;
         out.texture = Some(ctx.load_texture("grp_preview", image, hard_edges));
         out.texture_pixels = Some((pixels, w, h));
         out.extra_exports.push(ExportAction {
