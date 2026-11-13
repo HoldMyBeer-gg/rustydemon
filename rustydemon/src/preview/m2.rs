@@ -1,4 +1,6 @@
-//! M2 model preview plugin (wow-alchemy-m2 backend).
+//! M2 model preview plugin.
+//!
+//! The model itself is read by [`M2Lite`]; the skin file by wow-alchemy-m2.
 //!
 //! Renders the static bind pose with per-submesh textures loaded from
 //! the TXID chunk's FileDataIDs.  The texture lookup chain is:
@@ -15,13 +17,18 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
-use wow_alchemy_data::types::{VWowStructR, WowStructR};
+use wow_alchemy_data::types::VWowStructR;
 use wow_alchemy_m2::skin::SkinVersion;
-use wow_alchemy_m2::{M2Model, Skin};
+use wow_alchemy_m2::Skin;
+
+use super::m2_lite::M2Lite;
 
 use super::{ExportAction, Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin};
 
 pub struct M2Preview;
+
+const NO_MESH: &str = "\n\nThis model has no mesh to draw. Spell effects made only of \
+                       particles and camera paths are stored as M2 files too.";
 
 fn looks_like_m2(data: &[u8]) -> bool {
     data.len() >= 4 && (&data[..4] == b"MD20" || &data[..4] == b"MD21")
@@ -54,38 +61,17 @@ impl PreviewPlugin for M2Preview {
         siblings: &super::SiblingFetcher<'_>,
     ) -> PreviewOutput {
         let mut out = PreviewOutput::new();
-        let mut reader = Cursor::new(data);
 
-        let m2 = match M2Model::wow_read(&mut reader) {
+        let m2 = match M2Lite::parse(data) {
             Ok(m) => m,
             Err(e) => {
                 out.text = Some(format!("M2 parse failed: {e}"));
                 return out;
             }
         };
-
-        let md20 = &m2.md20;
-        let is_chunked = &m2.magic == b"MD21";
-
-        // Locate the SFID chunk (skin file FDIDs).
-        let skin_fdids: Vec<u32> = m2
-            .chunks
-            .iter()
-            .find_map(|c| match c {
-                wow_alchemy_m2::model::M2Chunk::SFID(skins) => Some(skins.file_ids.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
-
-        // TXID chunk (texture FDIDs).
-        let texture_fdids: Vec<u32> = m2
-            .chunks
-            .iter()
-            .find_map(|c| match c {
-                wow_alchemy_m2::model::M2Chunk::TXID(ids) => Some(ids.clone()),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let is_chunked = m2.chunked;
+        let skin_fdids = &m2.skin_fdids;
+        let texture_fdids = &m2.texture_fdids;
 
         let mut text = format!(
             "M2 model  •  {filename}\n\
@@ -102,13 +88,19 @@ impl PreviewPlugin for M2Preview {
             } else {
                 "MD20 (legacy)"
             },
-            md20.name,
-            md20.vertices.len(),
-            md20.textures.len(),
-            md20.materials.len(),
-            md20.bones.len(),
+            m2.name,
+            m2.positions.len(),
+            m2.texture_count,
+            m2.material_count,
+            m2.bone_count,
             skin_fdids.len(),
         );
+
+        if m2.positions.is_empty() {
+            text.push_str(NO_MESH);
+            out.text = Some(text);
+            return out;
+        }
 
         // ── Pull SKIN 0 (highest-quality LOD) via the FDID fetcher ───────────
         let skin_bytes: Option<Vec<u8>> = if let Some(&id) = skin_fdids.first() {
@@ -137,16 +129,8 @@ impl PreviewPlugin for M2Preview {
         };
 
         // ── Build the CPU-side mesh ──────────────────────────────────────────
-        let positions: Vec<[f32; 3]> = md20
-            .vertices
-            .iter()
-            .map(|v| [v.position.x, v.position.y, v.position.z])
-            .collect();
-        let uvs: Vec<[f32; 2]> = md20
-            .vertices
-            .iter()
-            .map(|v| [v.tex_coords.x, v.tex_coords.y])
-            .collect();
+        let positions = m2.positions.clone();
+        let uvs = m2.uvs.clone();
 
         // Skin triangles index into `skin.indices` (the vertex lookup
         // table), which in turn indexes into the MD20 vertex array.
@@ -157,7 +141,7 @@ impl PreviewPlugin for M2Preview {
             .collect();
 
         if positions.is_empty() || indices.is_empty() {
-            text.push_str("\n\nModel has no geometry to render.");
+            text.push_str(NO_MESH);
             out.text = Some(text);
             return out;
         }
@@ -168,7 +152,7 @@ impl PreviewPlugin for M2Preview {
         let mut materials: Vec<MeshMaterial> = Vec::with_capacity(texture_fdids.len());
         let mut tex_loaded: u32 = 0;
         let mut tex_failed: u32 = 0;
-        for &fdid in &texture_fdids {
+        for &fdid in texture_fdids {
             if fdid == 0 {
                 // Slot 0 with FDID 0 = runtime-composited texture (skin,
                 // hair, etc).  Can't resolve statically.
@@ -233,11 +217,7 @@ impl PreviewPlugin for M2Preview {
                     // Resolve texture: skip combo_index entries in the
                     // lookup table, take texture_count, first is diffuse.
                     let combo_idx = tu.texture_combo_index as usize;
-                    let tex_idx = md20
-                        .texture_lookup_table
-                        .get(combo_idx)
-                        .copied()
-                        .unwrap_or(-1);
+                    let tex_idx = m2.texture_lookup.get(combo_idx).copied().unwrap_or(-1);
                     let material_id = if tex_idx >= 0 && (tex_idx as usize) < materials.len() {
                         tex_idx as u32
                     } else {
@@ -293,11 +273,7 @@ impl PreviewPlugin for M2Preview {
         text.push_str("\n\nTexture unit mapping:");
         for (i, tu) in skin.texture_units.iter().enumerate() {
             let combo_idx = tu.texture_combo_index as usize;
-            let tex_idx = md20
-                .texture_lookup_table
-                .get(combo_idx)
-                .copied()
-                .unwrap_or(-1);
+            let tex_idx = m2.texture_lookup.get(combo_idx).copied().unwrap_or(-1);
             text.push_str(&format!(
                 "\n  [{}] section={} layer={} combo_idx={} tex_count={} → tex_idx={} shader=0x{:04X}",
                 i,
