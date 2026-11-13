@@ -10,7 +10,7 @@ on its own: it only needs the bytes of a `.blp` file.
 
 ```toml
 [dependencies]
-rustydemon-blp2 = "0.5"
+rustydemon-blp2 = "0.6"
 ```
 
 ## Quick start
