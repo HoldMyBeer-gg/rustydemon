@@ -8,7 +8,8 @@
   ],
   "verified": {
     "linux": "2026-11-12",
-    "macos": "2026-11-12"
+    "macos": "2026-11-12",
+    "windows": "2026-11-12"
   },
   "phases": [
     {
@@ -78,7 +79,7 @@
         },
         {
           "present": {
-            "name": "Close"
+            "name": "Close window"
           }
         }
       ]
@@ -87,7 +88,7 @@
       "name": "about closes",
       "learn": {
         "close": {
-          "name": "Close"
+          "name": "Close window"
         }
       },
       "steps": [
@@ -111,7 +112,8 @@
             "name": "Copy Version"
           }
         }
-      ]
+      ],
+      "note": "About's own close box, named \"Close window\". Not the bottom \"Close\" button: on Windows the main window's title bar publishes a button with that exact name, it comes first in the tree, and clicking it quits the app."
     }
   ],
   "checks": [
@@ -119,5 +121,5 @@
       "windows": 1
     }
   ],
-  "notes": "About used to be a separate OS window with no accessibility tree; it is now drawn inside the main window. Linux run 2026-11-12 (SteamOS, KDE). macOS run 2026-11-12 (macOS 26, Metal) on the egui 0.37 build, passing as written. Not yet run on Windows."
+  "notes": "About used to be a separate OS window with no accessibility tree; it is now drawn inside the main window. Passing on the egui 0.37 build, 2026-11-12: Linux (SteamOS, KDE), macOS 26 (Metal), Windows 11. The macOS run predates the switch to About's own close box in the last phase; Linux and Windows ran it as it is now."
 }
