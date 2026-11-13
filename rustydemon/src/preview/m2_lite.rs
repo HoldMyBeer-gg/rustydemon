@@ -21,6 +21,11 @@ pub struct M2Lite {
     pub normals: Vec<[f32; 3]>,
     pub uvs: Vec<[f32; 2]>,
     pub texture_count: usize,
+    /// What each texture slot is: 0 for a texture named in the file, 11 to
+    /// 13 for the creature's "monster skin" 1 to 3, other values for
+    /// textures the game supplies at runtime.  Empty if the table is
+    /// unreadable.
+    pub texture_types: Vec<u32>,
     pub material_count: usize,
     pub bone_count: usize,
     pub animation_count: usize,
@@ -172,6 +177,17 @@ impl M2Lite {
             normals,
             uvs,
             texture_count: count(F_TEXTURES),
+            // Sixteen bytes per slot, the type first.  Only shown and used
+            // to pick creature skins, so a bad table costs nothing else.
+            texture_types: array(body, F_TEXTURES, 16, "textures")
+                .map(|t| {
+                    t.as_chunks::<16>()
+                        .0
+                        .iter()
+                        .map(|slot| u32::from_le_bytes([slot[0], slot[1], slot[2], slot[3]]))
+                        .collect()
+                })
+                .unwrap_or_default(),
             material_count: count(F_MATERIALS),
             bone_count: count(F_BONES),
             animation_count: count(F_ANIMATIONS),
@@ -245,7 +261,12 @@ mod tests {
             b[0xA0 + i * 4..0xA4 + i * 4].copy_from_slice(&f.to_le_bytes());
         }
         b[0x2C..0x30].copy_from_slice(&7u32.to_le_bytes()); // bones
-        b[0x50..0x54].copy_from_slice(&3u32.to_le_bytes()); // textures
+        let mut textures = Vec::new();
+        for kind in [0u32, 11, 12] {
+            textures.extend_from_slice(&kind.to_le_bytes());
+            textures.extend_from_slice(&[0u8; 12]); // flags, name
+        }
+        put(&mut b, 0x50, 3, &textures);
         b[0x70..0x74].copy_from_slice(&4u32.to_le_bytes()); // materials
         b
     }
@@ -275,6 +296,7 @@ mod tests {
     fn reads_what_the_command_line_inspector_prints() {
         let m = M2Lite::parse(&chunked()).unwrap();
         assert_eq!(m.animation_count, 9);
+        assert_eq!(m.texture_types, [0, 11, 12]);
         assert_eq!(m.normals, [[0.0, 0.0, 1.0]; 2]);
         assert_eq!(m.bounding_box, [[-1.0, -2.0, -3.0], [1.0, 2.0, 3.0]]);
         let tags: Vec<(&[u8; 4], usize)> = m.chunks.iter().map(|(t, n)| (t, *n)).collect();
@@ -337,6 +359,16 @@ mod tests {
         b[0x0C..0x10].copy_from_slice(&u32::MAX.to_le_bytes());
         let m = M2Lite::parse(&b).unwrap();
         assert_eq!(m.name, "");
+        assert_eq!(m.positions.len(), 2);
+    }
+
+    #[test]
+    fn a_texture_table_past_the_end_of_the_file_does_not_fail_the_model() {
+        let mut b = body();
+        b[0x54..0x58].copy_from_slice(&0x7FFF_FFF0u32.to_le_bytes());
+        let m = M2Lite::parse(&b).unwrap();
+        assert!(m.texture_types.is_empty());
+        assert_eq!(m.texture_count, 3);
         assert_eq!(m.positions.len(), 2);
     }
 

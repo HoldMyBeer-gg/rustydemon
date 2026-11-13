@@ -82,6 +82,7 @@ mod types;
 
 // ── Convenience re-exports ─────────────────────────────────────────────────────
 
+pub use blte::PartialDecode;
 pub use config::CascConfig;
 pub use entry::{CascFile, CascFolder};
 pub use error::CascError;

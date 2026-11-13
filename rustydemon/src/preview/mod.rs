@@ -14,6 +14,8 @@ pub mod adt;
 pub mod adt_lite;
 pub mod audio;
 pub mod blp;
+pub mod creature_skins;
+pub mod db2;
 pub mod m2;
 pub mod m2_lite;
 pub mod model3d;
@@ -144,6 +146,10 @@ pub struct SiblingFetcher<'a> {
     /// non-D4 archives or when the descriptor table couldn't be loaded.
     pub texture_info:
         &'a dyn Fn(&str) -> Option<rustydemon_lib::root::d4_texture::TextureDescriptor>,
+    /// FileDataIDs of the "monster skin" textures (slots 1 to 3, 0 for
+    /// none) that the game's creature tables give the file being previewed.
+    /// `None` when it is not a creature model or the tables are unreadable.
+    pub monster_skins: &'a dyn Fn() -> Option<[u32; 3]>,
 }
 
 /// Plug-in interface for format-specific preview panels.

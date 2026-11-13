@@ -22,6 +22,17 @@ pub(crate) const BLTE_MAGIC: u32 = 0x4554_4C42; // 'BLTE' LE
 /// [`CascError::HashMismatch`] on integrity check failures (only when `validate`
 /// is `true`).
 pub fn decode(data: &[u8], ekey: &Md5Hash, validate: bool) -> Result<Vec<u8>, CascError> {
+    decode_inner(data, ekey, validate, None)
+}
+
+/// `missing`: `None` to fail on a block whose key we lack; `Some` to fill
+/// such a block with zeros and record its key there.
+fn decode_inner(
+    data: &[u8],
+    ekey: &Md5Hash,
+    validate: bool,
+    mut missing: Option<&mut Vec<u64>>,
+) -> Result<Vec<u8>, CascError> {
     if data.len() < 8 {
         return Err(CascError::Blte("data too short for BLTE header".into()));
     }
@@ -94,10 +105,52 @@ pub fn decode(data: &[u8], ekey: &Md5Hash, validate: bool) -> Result<Vec<u8>, Ca
             }
         }
 
-        decode_block(block_data, idx, &mut out)?;
+        let start = out.len();
+        match decode_block(block_data, idx, &mut out) {
+            Ok(()) => {}
+            // Only a block table records how many bytes the block decodes to.
+            Err(CascError::MissingKey(key)) if has_header && missing.is_some() => {
+                out.truncate(start);
+                out.resize(start + block.decomp_size, 0);
+                if let Some(keys) = missing.as_deref_mut() {
+                    if !keys.contains(&key) {
+                        keys.push(key);
+                    }
+                }
+            }
+            Err(e) => return Err(e),
+        }
     }
 
     Ok(out)
+}
+
+/// A file decoded by [`decode_partial`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartialDecode {
+    /// The file, with zeros where a block could not be decrypted.
+    pub data: Vec<u8>,
+    /// TACT key names of the blocks that were filled with zeros, each once,
+    /// in the order met.  Empty when the whole file was decoded.
+    pub missing_keys: Vec<u64>,
+}
+
+/// [`decode`], but a block encrypted with a key we do not hold is replaced
+/// by zeros of the block's decoded size and decoding carries on.
+///
+/// Game data tables (`.db2`) keep rows for unreleased content in encrypted
+/// blocks; the rest of the table is readable, and readers of that format
+/// know to skip an all-zero section.  A file with no block table (a single
+/// implicit block) has no recorded size to fill, so a missing key there is
+/// still [`CascError::MissingKey`].
+pub fn decode_partial(
+    data: &[u8],
+    ekey: &Md5Hash,
+    validate: bool,
+) -> Result<PartialDecode, CascError> {
+    let mut missing_keys = Vec::new();
+    let data = decode_inner(data, ekey, validate, Some(&mut missing_keys))?;
+    Ok(PartialDecode { data, missing_keys })
 }
 
 // ── Block descriptor ───────────────────────────────────────────────────────────
@@ -335,6 +388,85 @@ mod tests {
             }
             other => panic!("expected MissingKey, got {other:?}"),
         }
+    }
+
+    /// The body of an 'E' block encrypted with a key nobody has.
+    fn encrypted_block(key_name_bytes: [u8; 8]) -> Vec<u8> {
+        make_blte_encrypted(key_name_bytes)[8..].to_vec()
+    }
+
+    /// A BLTE file with a block table: `(block bytes, decoded size)` each.
+    fn make_blte_framed(blocks: &[(Vec<u8>, u32)]) -> Vec<u8> {
+        let header_size = 12 + blocks.len() as u32 * 24;
+        let mut out = Vec::new();
+        out.extend_from_slice(&BLTE_MAGIC.to_le_bytes());
+        out.extend_from_slice(&header_size.to_be_bytes());
+        out.push(0x0F);
+        out.extend_from_slice(&(blocks.len() as u32).to_be_bytes()[1..]);
+        for (bytes, decoded) in blocks {
+            out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+            out.extend_from_slice(&decoded.to_be_bytes());
+            out.extend_from_slice(&[0u8; 16]); // no per-block hash
+        }
+        for (bytes, _) in blocks {
+            out.extend_from_slice(bytes);
+        }
+        out
+    }
+
+    const KEY_A: [u8; 8] = [0x0A, 0x50, 0x15, 0x37, 0x4C, 0x0F, 0x9F, 0xC7];
+    const KEY_A_ID: u64 = 0xC79F_0F4C_3715_500A;
+
+    fn mixed() -> Vec<u8> {
+        make_blte_framed(&[
+            (b"Nabc".to_vec(), 3),
+            (encrypted_block(KEY_A), 5),
+            (b"Nxyz".to_vec(), 3),
+            (encrypted_block(KEY_A), 2),
+        ])
+    }
+
+    #[test]
+    fn partial_decode_fills_undecryptable_blocks_with_zeros() {
+        let got = decode_partial(&mixed(), &Md5Hash::default(), false).unwrap();
+        assert_eq!(got.data, b"abc\0\0\0\0\0xyz\0\0");
+        assert_eq!(got.missing_keys, [KEY_A_ID], "each key named once");
+    }
+
+    #[test]
+    fn partial_decode_of_a_readable_file_matches_decode() {
+        let blte = make_blte_framed(&[(b"Nabc".to_vec(), 3), (b"Nxyz".to_vec(), 3)]);
+        let got = decode_partial(&blte, &Md5Hash::default(), false).unwrap();
+        assert_eq!(got.data, decode(&blte, &Md5Hash::default(), false).unwrap());
+        assert!(got.missing_keys.is_empty());
+    }
+
+    /// The strict decoder must keep refusing: callers rely on `MissingKey`.
+    #[test]
+    fn decode_still_refuses_a_file_with_an_undecryptable_block() {
+        assert!(matches!(
+            decode(&mixed(), &Md5Hash::default(), false),
+            Err(CascError::MissingKey(KEY_A_ID))
+        ));
+    }
+
+    /// With no block table there is no size to fill.
+    #[test]
+    fn partial_decode_cannot_fill_a_file_without_a_block_table() {
+        assert!(matches!(
+            decode_partial(&make_blte_encrypted(KEY_A), &Md5Hash::default(), false),
+            Err(CascError::MissingKey(KEY_A_ID))
+        ));
+    }
+
+    /// Only a missing key is forgiven; a damaged block is still an error.
+    #[test]
+    fn partial_decode_still_fails_on_a_broken_block() {
+        let blte = make_blte_framed(&[(b"Nabc".to_vec(), 3), (b"Qzzz".to_vec(), 3)]);
+        assert!(matches!(
+            decode_partial(&blte, &Md5Hash::default(), false),
+            Err(CascError::Blte(_))
+        ));
     }
 
     fn make_blte_z(payload: &[u8]) -> Vec<u8> {

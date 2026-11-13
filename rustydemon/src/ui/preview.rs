@@ -383,14 +383,14 @@ pub fn apply_preview_override(
 ) {
     // Snapshot everything we need before we take any borrows that
     // would conflict with `app.handler`.
-    let (data, filename) = {
+    let (data, filename, model_file) = {
         let Some(sel) = app.selected.as_ref() else {
             return;
         };
         let Some(data) = sel.data.clone() else {
             return;
         };
-        (data, sel.result.filename.clone())
+        (data, sel.result.filename.clone(), sel.result.file_data_id)
     };
 
     // Multi-file plugins (WMO → groups, M2 → textures) need a sibling
@@ -400,10 +400,18 @@ pub fn apply_preview_override(
     let by_name = |path: &str| -> Option<Vec<u8>> { handler_ref?.open_file_by_name(path).ok() };
     let by_fdid = |id: u32| -> Option<Vec<u8>> { handler_ref?.open_file_by_fdid(id).ok() };
     let texture_info = |path: &str| handler_ref?.texture_info_for_path(path);
+    let monster_skins = || {
+        crate::preview::creature_skins::lookup(
+            &app.creature_skins,
+            handler_ref.map(|h| h.as_ref()),
+            model_file,
+        )
+    };
     let siblings = crate::preview::SiblingFetcher {
         by_name: &by_name,
         by_fdid: &by_fdid,
         texture_info: &texture_info,
+        monster_skins: &monster_skins,
     };
 
     let new_preview = match new_override {
@@ -468,10 +476,12 @@ fn reload_current_pcx(app: &mut CascExplorerApp, ctx: &egui::Context) {
         let no_name = |_: &str| -> Option<Vec<u8>> { None };
         let no_fdid = |_: u32| -> Option<Vec<u8>> { None };
         let no_tex_info = |_: &str| None;
+        let no_skins = || None;
         let siblings = crate::preview::SiblingFetcher {
             by_name: &no_name,
             by_fdid: &no_fdid,
             texture_info: &no_tex_info,
+            monster_skins: &no_skins,
         };
         sel.preview = crate::preview::run(sel.result.filename.as_deref(), &data, ctx, &siblings);
     }

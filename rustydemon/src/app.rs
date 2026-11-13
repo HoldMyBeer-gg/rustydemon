@@ -129,6 +129,8 @@ struct ExportItem {
 pub struct CascExplorerApp {
     // ── CASC backend ──────────────────────────────────────────────────────────
     pub handler: Option<Arc<CascHandler>>,
+    /// Creature skin lookup for `handler`'s archive, built on first use.
+    pub creature_skins: crate::preview::creature_skins::Cache,
     /// Internal product UID (e.g. "fenris", "wow").  Editable in Tools menu.
     pub product: String,
     /// Products detected from the last directory's .build.info.
@@ -240,6 +242,7 @@ impl CascExplorerApp {
 
         Self {
             handler: None,
+            creature_skins: Default::default(),
             product: String::new(),
             detected_products: vec![],
             expanded: HashSet::new(),
@@ -339,6 +342,7 @@ impl CascExplorerApp {
                     handler.config.product,
                 );
                 self.handler = Some(Arc::new(handler));
+                self.creature_skins = Default::default();
                 self.search_results.clear();
                 self.selected = None;
                 self.expanded.clear();
@@ -406,10 +410,20 @@ impl CascExplorerApp {
                             handler_ref?.open_file_by_fdid(id).ok()
                         };
                         let texture_info = |path: &str| handler_ref?.texture_info_for_path(path);
+                        let skins_cache = &self.creature_skins;
+                        let model_file = result.file_data_id;
+                        let monster_skins = || {
+                            crate::preview::creature_skins::lookup(
+                                skins_cache,
+                                handler_ref.map(|h| h.as_ref()),
+                                model_file,
+                            )
+                        };
                         let siblings = crate::preview::SiblingFetcher {
                             by_name: &by_name,
                             by_fdid: &by_fdid,
                             texture_info: &texture_info,
+                            monster_skins: &monster_skins,
                         };
                         sel.preview =
                             crate::preview::run(result.filename.as_deref(), &data, ctx, &siblings);
@@ -471,6 +485,7 @@ impl CascExplorerApp {
         // Searches and selections become no-ops until the new handler
         // arrives in the `Opened` branch.
         self.handler = None;
+        self.creature_skins = Default::default();
         self.search_results.clear();
         self.selected = None;
         self.browsed_folder = None;

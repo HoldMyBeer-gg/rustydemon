@@ -27,6 +27,14 @@ use super::{ExportAction, Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, Pre
 
 pub struct M2Preview;
 
+/// Which monster skin (0 to 2) a texture slot of this type wears, if any.
+fn monster_skin_slot(texture_type: Option<u32>) -> Option<usize> {
+    match texture_type? {
+        t @ 11..=13 => Some(t as usize - 11),
+        _ => None,
+    }
+}
+
 const NO_MESH: &str = "\n\nThis model has no mesh to draw. Spell effects made only of \
                        particles and camera paths are stored as M2 files too.";
 
@@ -152,10 +160,23 @@ impl PreviewPlugin for M2Preview {
         let mut materials: Vec<MeshMaterial> = Vec::with_capacity(texture_fdids.len());
         let mut tex_loaded: u32 = 0;
         let mut tex_failed: u32 = 0;
-        for &fdid in texture_fdids {
+        // Texture slots the file leaves empty for a creature's skin are
+        // filled from the game's creature tables.
+        let monster_skins = (siblings.monster_skins)();
+        let mut skinned: u32 = 0;
+        for (slot, &fdid) in texture_fdids.iter().enumerate() {
+            let fdid = if fdid != 0 {
+                fdid
+            } else {
+                let skin = monster_skin_slot(m2.texture_types.get(slot).copied())
+                    .and_then(|i| monster_skins.map(|s| s[i]))
+                    .unwrap_or(0);
+                skinned += u32::from(skin != 0);
+                skin
+            };
             if fdid == 0 {
-                // Slot 0 with FDID 0 = runtime-composited texture (skin,
-                // hair, etc).  Can't resolve statically.
+                // Supplied by the game at runtime (character skin, hair,
+                // or a creature skin we could not look up).
                 tex_failed += 1;
                 materials.push(MeshMaterial {
                     rgba: None,
@@ -296,6 +317,11 @@ impl PreviewPlugin for M2Preview {
                     String::new()
                 },
             ));
+            if skinned > 0 {
+                text.push_str(&format!(
+                    "\n{skinned} from the creature's first display (other displays use other skins)"
+                ));
+            }
         }
         text.push_str(&format!(
             "\nLoaded SKIN with {} submesh(es), {} render batch(es)",
