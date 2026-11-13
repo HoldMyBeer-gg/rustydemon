@@ -131,9 +131,10 @@ pub struct CascExplorerApp {
     pub handler: Option<Arc<CascHandler>>,
     /// Creature skin lookup for `handler`'s archive, built on first use.
     pub creature_skins: crate::preview::creature_skins::Cache,
-    /// Installed games found in the usual places, looked up the first time
-    /// the File menu opens (the search walks the disk, so not every frame).
-    pub installs: Option<Vec<(String, std::path::PathBuf)>>,
+    /// The search for installed games in the usual places, started the
+    /// first time the File menu opens.  It walks the disk, so it runs once
+    /// and off the UI thread.
+    pub installs: Option<crate::installs::Search>,
     /// Internal product UID (e.g. "fenris", "wow").  Editable in Tools menu.
     pub product: String,
     /// Products detected from the last directory's .build.info.

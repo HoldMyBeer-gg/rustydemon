@@ -222,9 +222,56 @@ const PRODUCT_NAMES: &[(&str, &str)] = &[
     ("gryphon", "Call of Duty: BO6"),
 ];
 
+/// A search for installs running on its own thread.  Looking can stall for
+/// many seconds (a mapped network drive whose server is away), and the menu
+/// that shows the result must keep drawing meanwhile.
+#[derive(Clone)]
+pub struct Search(std::sync::Arc<std::sync::OnceLock<Vec<(String, PathBuf)>>>);
+
+impl Search {
+    /// Run `find` on a new thread, then call `done` (to ask for a repaint).
+    pub fn start(
+        find: impl FnOnce() -> Vec<(String, PathBuf)> + Send + 'static,
+        done: impl FnOnce() + Send + 'static,
+    ) -> Self {
+        let search = Search(Default::default());
+        let slot = search.0.clone();
+        std::thread::spawn(move || {
+            let _ = slot.set(find());
+            done();
+        });
+        search
+    }
+
+    /// What was found, or `None` while still looking.
+    pub fn found(&self) -> Option<&[(String, PathBuf)]> {
+        self.0.get().map(Vec::as_slice)
+    }
+}
+
+/// Stop Windows from putting up a "There is no disk in the drive" box when
+/// an empty card reader or optical drive is probed; the probe just fails.
+#[cfg(windows)]
+fn quiet_missing_media() {
+    const SEM_FAILCRITICALERRORS: u32 = 0x0001;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetErrorMode(mode: u32) -> u32;
+    }
+    // SAFETY: takes and returns a plain flag word; no pointers involved.
+    unsafe {
+        let old = SetErrorMode(SEM_FAILCRITICALERRORS);
+        SetErrorMode(old | SEM_FAILCRITICALERRORS);
+    }
+}
+
+#[cfg(not(windows))]
+fn quiet_missing_media() {}
+
 /// Installed games in the usual places for this system, as menu label and
 /// folder, sorted by label.
 pub fn detect() -> Vec<(String, PathBuf)> {
+    quiet_missing_media();
     let home =
         std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
     labelled(game_dirs(&places(Os::current(), home.as_deref())))
@@ -427,5 +474,25 @@ mod tests {
         assert_eq!(launcher(mac, "wow"), "Battle.net");
         assert_eq!(launcher(mac, "wowt"), "Battle.net");
         assert_eq!(launcher(mac, "wow_test"), "Battle.net PTR");
+    }
+
+    /// The search can stall for many seconds (a mapped network drive whose
+    /// server is away), so the menu must be able to draw while it runs.
+    #[test]
+    fn a_search_reports_nothing_until_it_finishes() {
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let (told, done) = std::sync::mpsc::channel::<()>();
+        let search = Search::start(
+            move || {
+                wait.recv().unwrap();
+                vec![("Game".to_owned(), PathBuf::from("/games/game"))]
+            },
+            move || told.send(()).unwrap(),
+        );
+        assert!(search.found().is_none());
+        release.send(()).unwrap();
+        done.recv().unwrap();
+        let found = search.found().expect("finished");
+        assert_eq!(found, [("Game".to_owned(), PathBuf::from("/games/game"))]);
     }
 }
