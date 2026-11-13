@@ -828,7 +828,8 @@ impl CascExplorerApp {
 // ── eframe::App ────────────────────────────────────────────────────────────────
 
 impl eframe::App for CascExplorerApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = &ui.ctx().clone();
         // Apply any viewer-override swap requested on the previous frame
         // BEFORE we start drawing.  Doing this at the top of update()
         // guarantees the old `PreviewOutput`'s texture handle is dropped
@@ -840,7 +841,7 @@ impl eframe::App for CascExplorerApp {
         publish_window_name(ctx);
         self.apply_pending_audio();
         self.poll_background(ctx);
-        crate::ui::draw(ctx, self);
+        crate::ui::draw(ui, self);
         crate::viewport3d::show_window(ctx, &mut self.viewport3d_open);
     }
 }
@@ -856,7 +857,7 @@ pub const APP_TITLE: &str = "Rusty Demon — CASC Explorer";
 /// window has an empty accessible name and can't be found by title.
 pub fn publish_window_name(ctx: &egui::Context) {
     ctx.accesskit_node_builder(egui::accesskit_root_id(), |node| {
-        node.set_name(APP_TITLE);
+        node.set_label(APP_TITLE);
     });
 }
 
@@ -1065,18 +1066,15 @@ mod window_name_tests {
     fn root_node_carries_the_window_title() {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
-        let out = ctx.run(egui::RawInput::default(), |ctx| {
-            publish_window_name(ctx);
+        let out = crate::ui::a11y::testing::frame(&ctx, |ui| {
+            publish_window_name(ui.ctx());
         });
-        let update = out
-            .platform_output
-            .accesskit_update
-            .expect("accesskit enabled");
+        let update = out;
         let root = update
             .nodes
             .iter()
             .find(|(_, n)| n.role() == egui::accesskit::Role::Window)
             .expect("root window node");
-        assert_eq!(root.1.name(), Some(APP_TITLE));
+        assert_eq!(root.1.label(), Some(APP_TITLE));
     }
 }

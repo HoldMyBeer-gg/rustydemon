@@ -615,11 +615,14 @@ pub(crate) fn meta_row(ui: &mut egui::Ui, label: &str, value: &str) {
     if is_technical {
         rt = rt.monospace();
     }
-    let resp = ui.label(rt);
-    if let Some(full) = tip {
+    match tip {
         // The screen shows a shortened value; a screen reader gets all of it.
-        super::a11y::name(ui.ctx(), resp.id, full);
-        resp.on_hover_text(full);
+        Some(full) => {
+            super::a11y::decorated(ui, rt, egui::Role::Label, full).on_hover_text(full);
+        }
+        None => {
+            ui.label(rt);
+        }
     }
     ui.end_row();
 }

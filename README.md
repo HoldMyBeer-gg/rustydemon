@@ -13,7 +13,7 @@ archives, written entirely in Rust.
 > **For personal and educational use only.**
 
 [![CI](https://github.com/HoldMyBeer-gg/rustydemon/actions/workflows/ci.yml/badge.svg)](https://github.com/HoldMyBeer-gg/rustydemon/actions/workflows/ci.yml)
-[![Rust](https://img.shields.io/badge/rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.95%2B-orange?logo=rust)](https://www.rust-lang.org)
 [![Edition](https://img.shields.io/badge/edition-2021-blue?logo=rust)](https://doc.rust-lang.org/edition-guide/rust-2021/index.html)
 [![License](https://img.shields.io/badge/license-AGPL--3.0%20%2B%20Commons%20Clause-green)](./LICENSE)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Steam%20Deck-lightgrey)](#preview-plugins)
@@ -140,7 +140,7 @@ gh attestation verify <downloaded file> --repo HoldMyBeer-gg/rustydemon
 
 | Platform | Requirement |
 |----------|-------------|
-| All | [Rust stable toolchain](https://rustup.rs) (1.80+) |
+| All | [Rust stable toolchain](https://rustup.rs) (1.95+) |
 | Linux / Steam Deck | `libgtk-3-dev` (or equivalent) - see below |
 | Windows / macOS | Nothing extra; eframe bundles everything |
 

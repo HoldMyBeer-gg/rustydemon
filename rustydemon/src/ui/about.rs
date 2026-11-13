@@ -46,7 +46,7 @@ pub fn show_window(ctx: &egui::Context, open: &mut bool, logo: &mut Option<egui:
         .default_size([400.0, 600.0])
         .min_size([360.0, 420.0])
         .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-        .frame(egui::Frame::window(&ctx.style()).inner_margin(0.0))
+        .frame(egui::Frame::window(&ctx.global_style()).inner_margin(0.0))
         .show(ctx, |ui| about_body(ui, &logo, &mut keep_open));
     if !keep_open {
         *open = false;
@@ -59,13 +59,13 @@ fn about_body(ui: &mut egui::Ui, logo: &Option<egui::TextureHandle>, open: &mut 
     let ctx = ui.ctx().clone();
     {
         // Footer pinned to the bottom; credits ScrollArea fills the rest.
-        egui::TopBottomPanel::bottom("about_footer")
+        egui::Panel::bottom("about_footer")
             .frame(
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(rd::FROST_050)
-                    .inner_margin(egui::Margin::symmetric(20.0, 12.0)),
+                    .inner_margin(egui::Margin::symmetric(20, 12)),
             )
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("© 2026 jabberwock · AGPL-3.0 + Commons Clause")
@@ -89,11 +89,11 @@ fn about_body(ui: &mut egui::Ui, logo: &Option<egui::TextureHandle>, open: &mut 
 
         egui::CentralPanel::default()
             .frame(
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(rd::FROST_100)
-                    .inner_margin(egui::Margin::symmetric(28.0, 24.0)),
+                    .inner_margin(egui::Margin::symmetric(28, 24)),
             )
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 // ── Hero ──────────────────────────────────────────────
                 ui.vertical_centered(|ui| {
                     if let Some(tex) = logo {
@@ -101,31 +101,35 @@ fn about_body(ui: &mut egui::Ui, logo: &Option<egui::TextureHandle>, open: &mut 
                         a11y::image(ui.ctx(), resp.id, "Rusty Demon logo");
                     }
                     ui.add_space(12.0);
-                    let resp = ui.label(
+                    a11y::decorated(
+                        ui,
                         egui::RichText::new("RUSTY  DEMON")
                             .size(28.0)
                             .strong()
                             .color(rd::FROST_900),
+                        egui::Role::Heading,
+                        "Rusty Demon",
                     );
-                    a11y::heading(ui.ctx(), resp.id, "Rusty Demon");
                     ui.add_space(6.0);
                     ui.label(egui::RichText::new(TAGLINE).size(12.5).color(rd::FROST_700));
                     ui.add_space(12.0);
 
                     // Version pill.
-                    egui::Frame::none()
+                    egui::Frame::NONE
                         .stroke(egui::Stroke::new(1.0_f32, rd::FROST_400))
-                        .rounding(egui::Rounding::same(999.0))
-                        .inner_margin(egui::Margin::symmetric(12.0, 3.0))
+                        .corner_radius(egui::CornerRadius::same(255))
+                        .inner_margin(egui::Margin::symmetric(12, 3))
                         .show(ui, |ui| {
                             let v = env!("CARGO_PKG_VERSION");
-                            let resp = ui.label(
+                            a11y::decorated(
+                                ui,
                                 egui::RichText::new(format!("● v{v} · lib {v}"))
                                     .monospace()
                                     .size(11.0)
                                     .color(rd::RUNE_400),
+                                egui::Role::Label,
+                                &format!("Version {v}, library {v}"),
                             );
-                            a11y::name(ui.ctx(), resp.id, &format!("Version {v}, library {v}"));
                         });
 
                     ui.add_space(14.0);
@@ -152,21 +156,23 @@ fn about_body(ui: &mut egui::Ui, logo: &Option<egui::TextureHandle>, open: &mut 
                 });
 
                 ui.add_space(20.0);
-                let resp = ui.label(
+                a11y::decorated(
+                    ui,
                     egui::RichText::new("A C K N O W L E D G E M E N T S   &   L I C E N S E")
                         .size(10.0)
                         .strong()
                         .color(rd::FROST_600),
+                    egui::Role::Heading,
+                    "Acknowledgements & License",
                 );
-                a11y::heading(ui.ctx(), resp.id, "Acknowledgements & License");
                 ui.add_space(6.0);
 
                 // ── Scrollable credits / license ──────────────────────
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(rd::FROST_200)
                     .stroke(egui::Stroke::new(1.0_f32, rd::FROST_400))
-                    .rounding(egui::Rounding::same(5.0))
-                    .inner_margin(egui::Margin::same(12.0))
+                    .corner_radius(egui::CornerRadius::same(5))
+                    .inner_margin(egui::Margin::same(12))
                     .show(ui, |ui| {
                         egui::ScrollArea::vertical()
                             .auto_shrink([false, false])
@@ -182,26 +188,36 @@ fn about_body(ui: &mut egui::Ui, logo: &Option<egui::TextureHandle>, open: &mut 
 /// (used for Sponsor — the single warm accent).
 fn link_card(ui: &mut egui::Ui, label: &str, url: &str, warm: bool) {
     let accent = if warm { rd::EMBER_600 } else { rd::RUNE_400 };
-    let resp = egui::Frame::none()
+    let resp = egui::Frame::NONE
         .fill(egui::Color32::from_rgba_premultiplied(255, 255, 255, 5))
         .stroke(egui::Stroke::new(1.0_f32, rd::FROST_400))
-        .rounding(egui::Rounding::same(5.0))
-        .inner_margin(egui::Margin::symmetric(6.0, 11.0))
+        .corner_radius(egui::CornerRadius::same(5))
+        .inner_margin(egui::Margin::symmetric(6, 11))
         .show(ui, |ui| {
             ui.vertical_centered(|ui| {
-                ui.label(egui::RichText::new(label).size(11.5).color(accent).strong());
+                // Painted, not a label widget: the card itself is the link
+                // and carries the name. A label here would be a second node
+                // and the name would be read twice.
+                let galley = ui.painter().layout_no_wrap(
+                    label.to_owned(),
+                    egui::FontId::proportional(11.5),
+                    accent,
+                );
+                let (_, rect) = ui.allocate_space(galley.size());
+                ui.painter().galley(rect.min, galley, accent);
             });
         })
         .response
         .interact(egui::Sense::click());
     // A framed label is not a control to a screen reader until it is told so.
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Link, true, label));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, true, label));
 
     if resp.hovered() {
         ui.painter().rect_stroke(
             resp.rect,
-            egui::Rounding::same(5.0),
+            egui::CornerRadius::same(5),
             egui::Stroke::new(1.0_f32, accent),
+            egui::StrokeKind::Inside,
         );
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -213,17 +229,28 @@ fn link_card(ui: &mut egui::Ui, label: &str, url: &str, warm: bool) {
 fn credits_body(ui: &mut egui::Ui) {
     let head = |ui: &mut egui::Ui, t: &str| {
         ui.add_space(4.0);
-        let resp = ui.label(
+        a11y::decorated(
+            ui,
             egui::RichText::new(t)
                 .size(11.0)
                 .strong()
                 .color(rd::RUNE_400),
+            egui::Role::Heading,
+            t,
         );
-        a11y::heading(ui.ctx(), resp.id, t);
         ui.add_space(2.0);
     };
     let body = |ui: &mut egui::Ui, t: &str| {
-        ui.label(egui::RichText::new(t).size(11.5).color(rd::FROST_800));
+        let shown = egui::RichText::new(t).size(11.5).color(rd::FROST_800);
+        // The bullet is drawn, not spoken.
+        match t.strip_prefix("• ") {
+            Some(plain) => {
+                a11y::decorated(ui, shown, egui::Role::Label, plain);
+            }
+            None => {
+                ui.label(shown);
+            }
+        }
     };
 
     head(ui, "LICENSE");
@@ -298,6 +325,25 @@ mod a11y_tests {
         assert!(
             !n.iter()
                 .any(|(_, s)| s.contains("A C K") || s.contains("RUSTY  DEMON")),
+            "{n:?}"
+        );
+    }
+
+    #[test]
+    fn each_link_card_is_announced_once() {
+        let n = about();
+        for name in ["Repository", "Sponsor", "Report a Bug"] {
+            let count = n.iter().filter(|(_, s)| s == name).count();
+            assert_eq!(count, 1, "{name}: {n:?}");
+        }
+    }
+
+    #[test]
+    fn decoration_glyphs_stay_out_of_names() {
+        let n = about();
+        assert!(
+            !n.iter()
+                .any(|(_, s)| s.starts_with('•') || s.starts_with('●')),
             "{n:?}"
         );
     }

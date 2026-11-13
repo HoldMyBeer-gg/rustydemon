@@ -1,36 +1,52 @@
 use std::sync::Arc;
 
 use crate::app::{detect_game_installs, CascExplorerApp};
-use egui::Context;
 
 /// Ctrl+O on Linux/Windows, ⌘+O on macOS — egui's `COMMAND` modifier maps
 /// to whichever the host platform uses.
 const OPEN_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);
 
-pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
+/// File → Open Game Directory…, with its shortcut drawn on the right.
+///
+/// egui publishes the shortcut as part of the button's name ("Open Game
+/// Directory… Ctrl+O"). The name is set back to the label alone, and the
+/// shortcut is published where assistive technology looks for one.
+fn open_dir_button(ui: &mut egui::Ui) -> egui::Response {
+    const LABEL: &str = "Open Game Directory…";
+    let shortcut = ui.ctx().format_shortcut(&OPEN_SHORTCUT);
+    let resp = ui.add(egui::Button::new(LABEL).shortcut_text(shortcut.clone()));
+    ui.ctx().accesskit_node_builder(resp.id, |node| {
+        node.set_label(LABEL);
+        node.set_keyboard_shortcut(shortcut);
+    });
+    resp
+}
+
+pub fn draw_menu(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
+    let ctx = &ui.ctx().clone();
     // Global Ctrl/⌘+O: pop the same folder picker as File → Open Game Directory.
     // Guarded against text-field focus so typing the letter in the search bar
     // doesn't trigger a dialog.
-    let typing = ctx.wants_keyboard_input();
+    let typing = ctx.egui_wants_keyboard_input();
     if !typing && ctx.input_mut(|i| i.consume_shortcut(&OPEN_SHORTCUT)) {
         if let Some(path) = rfd::FileDialog::new().pick_folder() {
             app.open_game_dir(path);
         }
     }
 
-    egui::TopBottomPanel::top("menu_bar")
+    egui::Panel::top("menu_bar")
         .frame(
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(crate::ui::theme::rd::FROST_150)
                 .stroke(egui::Stroke::new(
                     1.0_f32,
                     crate::ui::theme::rd::BORDER_SUBTLE,
                 ))
-                .inner_margin(egui::Margin::symmetric(12.0, 4.0)),
+                .inner_margin(egui::Margin::symmetric(12, 4)),
         )
-        .show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+        .show(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 // ── File ──────────────────────────────────────────────────────────
                 ui.menu_button("File", |ui| {
                     // Auto-detected game installs.
@@ -39,17 +55,15 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                         ui.menu_button("Open Game", |ui| {
                             for (name, path) in &installs {
                                 if ui.button(name).clicked() {
-                                    ui.close_menu();
+                                    ui.close();
                                     app.open_game_dir(path.clone());
                                 }
                             }
                         });
                     }
 
-                    let open_btn = egui::Button::new("Open Game Directory…")
-                        .shortcut_text(ctx.format_shortcut(&OPEN_SHORTCUT));
-                    if ui.add(open_btn).clicked() {
-                        ui.close_menu();
+                    if open_dir_button(ui).clicked() {
+                        ui.close();
                         if let Some(path) = rfd::FileDialog::new().pick_folder() {
                             app.open_game_dir(path);
                         }
@@ -71,7 +85,7 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                         listfile_btn
                     };
                     if listfile_btn.clicked() {
-                        ui.close_menu();
+                        ui.close();
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("Listfile", &["csv", "txt"])
                             .pick_file()
@@ -94,7 +108,7 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                             .unwrap_or_else(|| "Decryption keys for encrypted files.".into()),
                     );
                     if keys_btn.clicked() {
-                        ui.close_menu();
+                        ui.close();
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("TACT keys", &["keys", "txt"])
                             .pick_file()
@@ -115,7 +129,7 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                         )
                         .clicked()
                     {
-                        ui.close_menu();
+                        ui.close();
                         app.export_selected();
                     }
 
@@ -126,7 +140,7 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                         )
                         .clicked()
                     {
-                        ui.close_menu();
+                        ui.close();
                         app.export_folder();
                     }
 
@@ -140,13 +154,13 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                 // ── Edit ──────────────────────────────────────────────────────────
                 ui.menu_button("Edit", |ui| {
                     if ui.button("Copy Hash").clicked() {
-                        ui.close_menu();
+                        ui.close();
                         if let Some(sel) = &app.selected {
                             ctx.copy_text(format!("{:016X}", sel.result.hash));
                         }
                     }
                     if ui.button("Copy CKey").clicked() {
-                        ui.close_menu();
+                        ui.close();
                         if let Some(sel) = &app.selected {
                             ctx.copy_text(sel.result.ckey.to_hex());
                         }
@@ -156,7 +170,7 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                 // ── View ──────────────────────────────────────────────────────────
                 ui.menu_button("View", |ui| {
                     if ui.button("Expand All").clicked() {
-                        ui.close_menu();
+                        ui.close();
                         if let Some(handler) = &app.handler {
                             if let Some(root) = &handler.root_folder {
                                 collect_folder_paths(root, "", &mut app.expanded);
@@ -165,7 +179,7 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                         app.expansion_dirty = true;
                     }
                     if ui.button("Collapse All").clicked() {
-                        ui.close_menu();
+                        ui.close();
                         app.expanded.clear();
                         app.expansion_dirty = true;
                     }
@@ -207,7 +221,7 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                                 .clicked()
                             {
                                 app.product = product.to_string();
-                                ui.close_menu();
+                                ui.close();
                             }
                         }
                     });
@@ -227,7 +241,7 @@ pub fn draw_menu(ctx: &Context, app: &mut CascExplorerApp) {
                 // ── Help ──────────────────────────────────────────────────────────
                 ui.menu_button("Help", |ui| {
                     if ui.button("About").clicked() {
-                        ui.close_menu();
+                        ui.close();
                         app.about_open = true;
                     }
                 });
@@ -248,5 +262,28 @@ fn collect_folder_paths(
         };
         out.insert(path.clone());
         collect_folder_paths(sub, &path, out);
+    }
+}
+
+#[cfg(test)]
+mod a11y_tests {
+    use crate::ui::a11y::testing::nodes;
+    use egui::accesskit::Role;
+
+    /// The shortcut is drawn beside the label, but it is not part of the
+    /// item's name: a screen reader should say "Open Game Directory" and
+    /// offer the shortcut separately.
+    #[test]
+    fn open_item_name_does_not_include_its_shortcut() {
+        let all = nodes(|ui| {
+            super::open_dir_button(ui);
+        });
+        let item = all
+            .iter()
+            .find(|n| n.role() == Role::Button)
+            .expect("the menu item");
+        assert_eq!(item.label(), Some("Open Game Directory…"));
+        let shortcut = item.keyboard_shortcut().expect("a published shortcut");
+        assert!(shortcut.ends_with('O'), "{shortcut}");
     }
 }

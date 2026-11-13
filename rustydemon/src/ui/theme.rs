@@ -11,7 +11,7 @@
 //! View → Dyslexia-friendly type, which calls `set_fonts(ctx, true)`.
 
 use egui::{
-    Color32, Context, FontData, FontDefinitions, FontFamily, FontId, Rounding, Stroke, Style,
+    Color32, Context, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style,
     TextStyle, Visuals,
 };
 use std::sync::Arc;
@@ -99,26 +99,29 @@ pub mod rd {
 pub fn set_fonts(ctx: &Context, dyslexia_friendly: bool) {
     let mut fonts = FontDefinitions::default();
 
-    fonts
-        .font_data
-        .insert("rd_cinzel".into(), FontData::from_static(FONT_CINZEL));
+    fonts.font_data.insert(
+        "rd_cinzel".into(),
+        Arc::new(FontData::from_static(FONT_CINZEL)),
+    );
 
     if dyslexia_friendly {
         fonts.font_data.insert(
             "rd_proportional".into(),
-            FontData::from_static(FONT_DYSLEXIA_REG),
+            Arc::new(FontData::from_static(FONT_DYSLEXIA_REG)),
         );
         fonts.font_data.insert(
             "rd_monospace".into(),
-            FontData::from_static(FONT_DYSLEXIA_BOLD),
+            Arc::new(FontData::from_static(FONT_DYSLEXIA_BOLD)),
         );
     } else {
-        fonts
-            .font_data
-            .insert("rd_proportional".into(), FontData::from_static(FONT_INTER));
-        fonts
-            .font_data
-            .insert("rd_monospace".into(), FontData::from_static(FONT_JETBRAINS));
+        fonts.font_data.insert(
+            "rd_proportional".into(),
+            Arc::new(FontData::from_static(FONT_INTER)),
+        );
+        fonts.font_data.insert(
+            "rd_monospace".into(),
+            Arc::new(FontData::from_static(FONT_JETBRAINS)),
+        );
     }
 
     fonts
@@ -163,15 +166,15 @@ pub fn apply(ctx: &Context) {
     // Radii: 4px for controls, 6px for windows/menus.  The design
     // system reserves 10px+ for major panels — egui panels ignore
     // Rounding entirely, so the effective ceiling is 6px here.
-    let r_sm = Rounding::same(4.0);
-    let r_md = Rounding::same(6.0);
+    let r_sm = CornerRadius::same(4);
+    let r_md = CornerRadius::same(6);
 
     // Non-interactive surfaces (separators, labels, frames).
     visuals.widgets.noninteractive.bg_fill = rd::BG_PANEL;
     visuals.widgets.noninteractive.weak_bg_fill = rd::BG_PANEL;
     visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, rd::BORDER_SUBTLE);
     visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, rd::FG_SECONDARY);
-    visuals.widgets.noninteractive.rounding = r_sm;
+    visuals.widgets.noninteractive.corner_radius = r_sm;
     visuals.widgets.noninteractive.expansion = 0.0;
 
     // Inactive / default interactive (buttons at rest).
@@ -179,7 +182,7 @@ pub fn apply(ctx: &Context) {
     visuals.widgets.inactive.weak_bg_fill = rd::BG_RAISED;
     visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, rd::BORDER_DEFAULT);
     visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, rd::FG_PRIMARY);
-    visuals.widgets.inactive.rounding = r_sm;
+    visuals.widgets.inactive.corner_radius = r_sm;
     visuals.widgets.inactive.expansion = 0.0;
 
     // Hover: ember border takes over — the glow IS the affordance.
@@ -187,7 +190,7 @@ pub fn apply(ctx: &Context) {
     visuals.widgets.hovered.weak_bg_fill = rd::BG_HOVER;
     visuals.widgets.hovered.bg_stroke = Stroke::new(1.5_f32, rd::EMBER_600);
     visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, rd::FG_PRIMARY);
-    visuals.widgets.hovered.rounding = r_sm;
+    visuals.widgets.hovered.corner_radius = r_sm;
     visuals.widgets.hovered.expansion = 1.0;
 
     // Active / pressed: ember fill + near-black text.
@@ -195,7 +198,7 @@ pub fn apply(ctx: &Context) {
     visuals.widgets.active.weak_bg_fill = rd::EMBER_500;
     visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, rd::EMBER_600);
     visuals.widgets.active.fg_stroke = Stroke::new(1.5_f32, rd::FG_ON_EMBER);
-    visuals.widgets.active.rounding = r_sm;
+    visuals.widgets.active.corner_radius = r_sm;
     visuals.widgets.active.expansion = 0.0;
 
     // Open (combobox, collapsing header unfolded).
@@ -203,12 +206,12 @@ pub fn apply(ctx: &Context) {
     visuals.widgets.open.weak_bg_fill = rd::BG_HOVER;
     visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, rd::BORDER_STRONG);
     visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, rd::FG_PRIMARY);
-    visuals.widgets.open.rounding = r_sm;
+    visuals.widgets.open.corner_radius = r_sm;
     visuals.widgets.open.expansion = 0.0;
 
     // Windows, menus, popovers.
-    visuals.window_rounding = r_md;
-    visuals.menu_rounding = r_sm;
+    visuals.window_corner_radius = r_md;
+    visuals.menu_corner_radius = r_sm;
     visuals.window_stroke = Stroke::new(1.0_f32, rd::BORDER_DEFAULT);
     visuals.window_shadow.color = Color32::from_rgba_premultiplied(0, 0, 0, 160);
     visuals.popup_shadow.color = Color32::from_rgba_premultiplied(0, 0, 0, 160);
@@ -220,7 +223,7 @@ pub fn apply(ctx: &Context) {
     ctx.set_visuals(visuals);
 
     // Type scale (px sizes from the design system: 11/13/14/16/20).
-    let mut style: Style = (*ctx.style()).clone();
+    let mut style: Style = (*ctx.global_style()).clone();
     use egui::FontFamily::{Monospace, Proportional};
     style
         .text_styles
@@ -241,9 +244,9 @@ pub fn apply(ctx: &Context) {
     // 4-px spacing grid, tighter than egui's defaults.
     style.spacing.item_spacing = egui::vec2(6.0, 4.0);
     style.spacing.button_padding = egui::vec2(8.0, 4.0);
-    style.spacing.menu_margin = egui::Margin::same(6.0);
+    style.spacing.menu_margin = egui::Margin::same(6);
 
-    ctx.set_style(style);
+    ctx.set_global_style(style);
 }
 
 /// Format a section masthead as ENGRAVED UPPERCASE with wide tracking —
@@ -279,21 +282,25 @@ pub fn panel_header(ui: &mut egui::Ui, label: &str, pill: Option<&str>) {
         ui.add_space(4.0);
         // The engraved text is letter-spaced with thin spaces, which a
         // screen reader would spell out; publish the plain words.
-        let resp = ui.label(engraved(label));
-        super::a11y::heading(ui.ctx(), resp.id, label);
+        super::a11y::decorated(ui, engraved(label), egui::Role::Heading, label);
         if let Some(p) = pill {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(4.0);
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(egui::Color32::from_rgba_premultiplied(29, 142, 232, 40))
                     .stroke(egui::Stroke::new(1.0_f32, rd::RUNE_400))
-                    .rounding(egui::Rounding::same(2.0))
-                    .inner_margin(egui::Margin::symmetric(8.0, 2.0))
+                    .corner_radius(egui::CornerRadius::same(2))
+                    .inner_margin(egui::Margin::symmetric(8, 2))
                     .show(ui, |ui| {
-                        ui.label(
+                        // A lone dash is the "nothing here" placeholder.
+                        let spoken = if p == "—" { "No game loaded" } else { p };
+                        super::a11y::decorated(
+                            ui,
                             egui::RichText::new(p.to_uppercase())
                                 .small()
                                 .color(rd::FG_PRIMARY),
+                            egui::Role::Label,
+                            spoken,
                         );
                     });
             });
@@ -339,13 +346,15 @@ pub fn section_label(ui: &mut egui::Ui, text: &str) {
         .map(|c| c.to_string())
         .collect::<Vec<_>>()
         .join("\u{2009}");
-    let resp = ui.label(
+    // Publish the plain words, not the letter-spaced uppercase.
+    super::a11y::decorated(
+        ui,
         egui::RichText::new(spaced)
             .font(FontId::new(10.5, display_family()))
             .color(rd::RUNE_400),
+        egui::Role::Heading,
+        text,
     );
-    // Publish the plain words, not the letter-spaced uppercase.
-    super::a11y::heading(ui.ctx(), resp.id, text);
     let avail = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(egui::vec2(avail, 1.0), egui::Sense::hover());
     ui.painter().hline(
@@ -357,4 +366,48 @@ pub fn section_label(ui: &mut egui::Ui, text: &str) {
         ),
     );
     ui.add_space(4.0);
+}
+
+#[cfg(test)]
+mod glyph_tests {
+    use super::*;
+
+    /// Every symbol the UI draws must exist in the fonts it is drawn with.
+    /// A missing one renders as an empty box, and nothing else notices.
+    #[test]
+    fn every_ui_symbol_has_a_glyph() {
+        for dyslexia_friendly in [false, true] {
+            let ctx = Context::default();
+            set_fonts(&ctx, dyslexia_friendly);
+            crate::ui::a11y::testing::frame_plain(&ctx, |_| {});
+
+            let proportional = FontId::proportional(13.0);
+            let mut drawn: Vec<(FontId, &str)> = vec![
+                (crate::ui::tree::caret_font(), crate::ui::tree::CARET_OPEN),
+                (crate::ui::tree::caret_font(), crate::ui::tree::CARET_CLOSED),
+                (proportional.clone(), "📁"),
+                (proportional.clone(), "🔍"),
+                (proportional.clone(), "▶"),
+                (proportional.clone(), "⏸"),
+                (proportional.clone(), "⏹"),
+                (proportional.clone(), "●"),
+                (proportional.clone(), "•"),
+                (proportional.clone(), "→"),
+                (proportional.clone(), "…"),
+            ];
+            for name in [
+                "a.blp", "a.tex", "a.m2", "a.mdx", "a.pow", "a.mp3", "a.vid", "a.txt",
+            ] {
+                drawn.push((proportional.clone(), crate::ui::tree::file_icon(name)));
+                drawn.push((proportional.clone(), crate::ui::results::file_icon(name)));
+            }
+            for (font, symbol) in drawn {
+                let ok = ctx.fonts_mut(|f| f.has_glyphs(&font, symbol));
+                assert!(
+                    ok,
+                    "no glyph for {symbol:?} (dyslexia_friendly={dyslexia_friendly})"
+                );
+            }
+        }
+    }
 }

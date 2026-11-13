@@ -9,7 +9,7 @@ pub fn draw_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<Sear
     // widget is focused, so typing Ctrl+A in the search box still does
     // "select all text" inside that field instead of double-firing into
     // a select-all-results.
-    let typing = ui.ctx().wants_keyboard_input();
+    let typing = ui.ctx().egui_wants_keyboard_input();
     if !typing && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::A)) {
         if let Some(folder_path) = &app.browsed_folder {
             if let Some(handler) = app.handler.as_ref() {
@@ -292,9 +292,7 @@ fn draw_file_row(
         egui::Sense::click(),
     );
     // Hand-painted row: describe it so it reaches the accessibility tree.
-    resp.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, is_sel, name)
-    });
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, is_sel, name));
     let painter = ui.painter();
 
     if is_sel {
@@ -343,12 +341,12 @@ fn draw_file_row(
     resp
 }
 
-fn file_icon(name: &str) -> &'static str {
+pub(crate) fn file_icon(name: &str) -> &'static str {
     let lower = name.to_lowercase();
     if lower.ends_with(".blp") || lower.ends_with(".tex") {
         "🖼"
     } else if lower.ends_with(".m2") || lower.ends_with(".mdx") {
-        "🧊"
+        "📦"
     } else if lower.ends_with(".pow") || lower.ends_with(".gam") {
         "⚙"
     } else if lower.ends_with(".mp3")
@@ -372,18 +370,13 @@ mod a11y_tests {
     fn file_row_is_published_with_its_name() {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
-        let out = ctx.run(egui::RawInput::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                draw_file_row(ui, "core.lua", "FDID 1 · abc · —", "📄", false);
-            });
+        let out = crate::ui::a11y::testing::frame(&ctx, |ui| {
+            draw_file_row(ui, "core.lua", "FDID 1 · abc · —", "📄", false);
         });
         let names: Vec<String> = out
-            .platform_output
-            .accesskit_update
-            .expect("accesskit enabled")
             .nodes
             .iter()
-            .filter_map(|(_, n)| n.name().map(str::to_owned))
+            .filter_map(|(_, n)| n.label().map(str::to_owned))
             .collect();
         assert!(names.iter().any(|n| n == "core.lua"), "{names:?}");
     }

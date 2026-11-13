@@ -53,7 +53,7 @@ fn overflow_row(
     let label = overflow_label(hidden, noun, folder);
     let (rect, resp) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 20.0), egui::Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &label));
     let color = if resp.hovered() {
         rd::FG_PRIMARY
     } else {
@@ -259,10 +259,10 @@ fn tree_row(
         egui::Rect::from_min_max(egui::pos2(rect.left() + caret_w, rect.top()), rect.max);
 
     let caret_id = ui
-        .id()
+        .scope_id()
         .with(("caret", rect.min.x.to_bits(), rect.min.y.to_bits()));
     let body_id = ui
-        .id()
+        .scope_id()
         .with(("body", rect.min.x.to_bits(), rect.min.y.to_bits()));
     let caret_resp = if caret.is_some() {
         Some(ui.interact(caret_rect, caret_id, egui::Sense::click()))
@@ -275,17 +275,12 @@ fn tree_row(
     // unless we describe it.  Without this the whole file browser is
     // invisible to screen readers and UI automation.
     body_resp.widget_info(|| {
-        egui::WidgetInfo::selected(
-            egui::WidgetType::SelectableLabel,
-            true,
-            is_sel || is_browsed,
-            name,
-        )
+        egui::WidgetInfo::selected(egui::Role::Button, true, is_sel || is_browsed, name)
     });
     if let (Some(resp), Some(open)) = (&caret_resp, caret) {
         let verb = if open { "Collapse" } else { "Expand" };
         resp.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{verb} {name}"))
+            egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{verb} {name}"))
         });
     }
 
@@ -318,7 +313,7 @@ fn tree_row(
 
     // Caret. Highlights when its hit-zone is hovered.
     if let Some(open) = caret {
-        let ch = if open { "▾" } else { "▸" };
+        let ch = if open { CARET_OPEN } else { CARET_CLOSED };
         let caret_color = if caret_resp.as_ref().map(|r| r.hovered()).unwrap_or(false) {
             rd::FG_PRIMARY
         } else {
@@ -328,7 +323,7 @@ fn tree_row(
             egui::pos2(x, y),
             egui::Align2::LEFT_CENTER,
             ch,
-            egui::FontId::proportional(11.0),
+            caret_font(),
             caret_color,
         );
         x += 12.0;
@@ -367,12 +362,21 @@ fn apply_expansion_commands(_ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     app.expansion_dirty = false;
 }
 
-fn file_icon(name: &str) -> &'static str {
+/// The expand/collapse carets and the font they are drawn in.
+pub(crate) const CARET_OPEN: &str = "▾";
+pub(crate) const CARET_CLOSED: &str = "▸";
+pub(crate) fn caret_font() -> egui::FontId {
+    // Monospace: neither Inter nor the emoji fonts have these two triangles,
+    // so in the proportional family they came out as empty boxes.
+    egui::FontId::monospace(11.0)
+}
+
+pub(crate) fn file_icon(name: &str) -> &'static str {
     let lower = name.to_lowercase();
     if lower.ends_with(".blp") || lower.ends_with(".tex") {
         "🖼"
     } else if lower.ends_with(".m2") || lower.ends_with(".mdx") {
-        "🧊"
+        "📦"
     } else if lower.ends_with(".pow") || lower.ends_with(".gam") {
         "⚙"
     } else if lower.ends_with(".mp3")
@@ -397,15 +401,10 @@ mod a11y_tests {
         let mut add = add;
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
-        let out = ctx.run(egui::RawInput::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| add(ui));
-        });
-        out.platform_output
-            .accesskit_update
-            .expect("accesskit enabled")
-            .nodes
+        let out = crate::ui::a11y::testing::frame(&ctx, |ui| add(ui));
+        out.nodes
             .iter()
-            .filter_map(|(_, n)| n.name().map(str::to_owned))
+            .filter_map(|(_, n)| n.label().map(str::to_owned))
             .collect()
     }
 
@@ -475,18 +474,13 @@ mod overflow_tests {
     fn overflow_row_is_published() {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
-        let out = ctx.run(egui::RawInput::default(), |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                overflow_row(ui, 2, 54_489, "file", "head");
-            });
+        let out = crate::ui::a11y::testing::frame(&ctx, |ui| {
+            overflow_row(ui, 2, 54_489, "file", "head");
         });
         let names: Vec<String> = out
-            .platform_output
-            .accesskit_update
-            .expect("accesskit enabled")
             .nodes
             .iter()
-            .filter_map(|(_, n)| n.name().map(str::to_owned))
+            .filter_map(|(_, n)| n.label().map(str::to_owned))
             .collect();
         assert!(
             names
