@@ -5,10 +5,13 @@
 
 use std::sync::Arc;
 
-use super::grp_format::{grey_palette, palette_path, read_palette, Grp};
+use super::grp_format::{grey_palette, palette_path, read_palette, with_team_colour, Grp};
 use super::{ExportAction, PreviewOutput, PreviewPlugin};
 
 pub struct GrpPreview;
+
+/// The game's table of player colours.
+const TEAM_COLOURS: &str = "game/tunit.pcx";
 
 /// The most pixels a sheet may have.  A sheet is kept in memory twice (for
 /// the screen and for export), four bytes a pixel.
@@ -48,32 +51,56 @@ impl PreviewPlugin for GrpPreview {
             Some(_) => format!("Colours from {palette_file}."),
             None => format!("{palette_file} could not be read, so this is in shades of grey."),
         };
-        let palette = found.unwrap_or_else(grey_palette);
+        let mut palette = found.unwrap_or_else(grey_palette);
+
+        // Paint the team-colour slots as player one (red), as in a match.
+        // The table is a one-row image of palette colours, eight a player.
+        let team = found.is_some()
+            && (siblings.by_name)(TEAM_COLOURS)
+                .and_then(|pcx| super::pcx::decode_pcx_indices(&pcx).ok())
+                .is_some_and(|(table, ..)| with_team_colour(&mut palette, &table, 0));
 
         let total = grp.frames.len();
         let shown = grp.keep_what_fits(MAX_SHEET_PIXELS);
-        let (pixels, w, h) = grp.sheet(&palette);
+        let (sheet_w, sheet_h) = {
+            let (_, w, h) = grp.sheet(&palette);
+            (w, h)
+        };
+        let on_poster = grp.poster_frames().len();
+        let (pixels, w, h) = grp.poster(&palette);
 
         let mut text = format!(
             "GRP sprite  •  {total} frame{}  •  canvas {}×{}\n\
-             Sheet {w}×{h}, {} per row.\n{colours}\n\
-             The game recolours some of these colours per player and picks \
-             other palettes for menus and effects, so they may differ in play.",
+             Showing {on_poster} of them, enlarged. Export As PNG writes the whole \
+             sheet: {sheet_w}×{sheet_h}, {} per row.\n{colours}\n\
+             {team_note}\n\
+             The game picks other palettes for menus and effects, so those \
+             may differ in play.",
             if total == 1 { "" } else { "s" },
             grp.width,
             grp.height,
             grp.columns().max(1),
+            team_note = if team {
+                "Team colour: player one (red)."
+            } else {
+                "Team-colour parts are left in the palette's placeholder colours."
+            },
         );
         if shown < total {
             text.push_str(&format!(
-                "\n\nShowing the first {shown} frames; the whole sheet would be too large."
+                "\n\nThe exported sheet stops at {shown} frames; all of them would be too large."
             ));
         }
         out.text = Some(text);
 
         let image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &pixels);
         // Pixel art: keep the edges hard when the panel scales it up.
-        out.texture = Some(ctx.load_texture("grp_preview", image, egui::TextureOptions::NEAREST));
+        let hard_edges = egui::TextureOptions {
+            magnification: egui::TextureFilter::Nearest,
+            minification: egui::TextureFilter::Linear,
+            ..Default::default()
+        };
+        out.texture = Some(ctx.load_texture("grp_preview", image, hard_edges));
         out.texture_pixels = Some((pixels, w, h));
         out.extra_exports.push(ExportAction {
             label: "Export As PNG",
@@ -96,9 +123,10 @@ mod tests {
     use super::*;
 
     fn preview(name: &str, data: &[u8], palette: Option<Vec<u8>>) -> PreviewOutput {
-        let by_name = |path: &str| {
-            assert_eq!(path, "TileSet/badlands.wpe");
-            palette.clone()
+        let by_name = |path: &str| match path {
+            "TileSet/badlands.wpe" => palette.clone(),
+            "game/tunit.pcx" => None,
+            other => panic!("unexpected file asked for: {other}"),
         };
         let none = |_: u32| None;
         let no_info = |_: &str| None;
@@ -119,7 +147,8 @@ mod tests {
         wpe[5 * 4..5 * 4 + 3].copy_from_slice(&[200, 10, 20]);
         let out = preview("unit/zerg/zergling.grp", &data, Some(wpe));
         let (rgba, w, h) = out.texture_pixels.expect("an image");
-        assert_eq!((w, h), (2, 1));
+        // The picture on screen is the poster: the frame scaled up.
+        assert_eq!((w, h), (16, 8));
         assert_eq!(&rgba[..4], [200, 10, 20, 255]);
         let text = out.text.unwrap();
         assert!(text.contains("1 frame"), "{text}");

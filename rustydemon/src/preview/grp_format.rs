@@ -161,14 +161,60 @@ impl Grp {
     /// Every frame side by side as RGBA, with its width and height.  Each
     /// cell is the part of the canvas that some frame draws in.
     pub fn sheet(&self, palette: &Palette) -> (Vec<u8>, u32, u32) {
+        let all: Vec<usize> = (0..self.frames.len()).collect();
+        self.compose(&all, self.columns(), palette)
+    }
+
+    /// Which frames go on the poster.  For a unit: four facings, a quarter
+    /// turn apart, of each of its first four animation steps.  For anything
+    /// else: its first sixteen frames.
+    pub fn poster_frames(&self) -> Vec<usize> {
+        let n = self.frames.len();
+        if self.columns() == 17 && n >= 17 {
+            (0..(n / 17).min(4))
+                .flat_map(|step| [0, 4, 8, 12].map(|facing| step * 17 + facing))
+                .collect()
+        } else {
+            (0..n.min(16)).collect()
+        }
+    }
+
+    /// A picture for a narrow panel: [`poster_frames`](Self::poster_frames)
+    /// four to a row, scaled up in whole steps (so pixels stay square and
+    /// sharp) until it is about [`POSTER_WIDTH`] wide, eight times at most.
+    pub fn poster(&self, palette: &Palette) -> (Vec<u8>, u32, u32) {
+        let (small, w, h) = self.compose(&self.poster_frames(), 4, palette);
+        let (w, h) = (w as usize, h as usize);
+        // The whole step that lands nearest the target width.
+        let scale = ((POSTER_WIDTH + w / 2) / w.max(1)).clamp(1, 8);
+        if scale == 1 {
+            return (small, w as u32, h as u32);
+        }
+        let mut big = vec![0u8; small.len() * scale * scale];
+        for y in 0..h * scale {
+            for x in 0..w * scale {
+                let from = ((y / scale) * w + x / scale) * 4;
+                let to = (y * w * scale + x) * 4;
+                big[to..to + 4].copy_from_slice(&small[from..from + 4]);
+            }
+        }
+        (big, (w * scale) as u32, (h * scale) as u32)
+    }
+
+    /// The frames `picks`, `columns` to a row, as RGBA with its width and
+    /// height.
+    fn compose(&self, picks: &[usize], columns: usize, palette: &Palette) -> (Vec<u8>, u32, u32) {
         let Some((left, top, cell_w, cell_h)) = self.drawn_area() else {
             return (vec![0; 4], 1, 1);
         };
-        let columns = self.columns().max(1);
-        let rows = self.frames.len().div_ceil(columns);
+        if picks.is_empty() {
+            return (vec![0; 4], 1, 1);
+        }
+        let columns = columns.clamp(1, picks.len());
+        let rows = picks.len().div_ceil(columns);
         let (sheet_w, sheet_h) = (columns * cell_w, rows * cell_h);
         let mut rgba = vec![0u8; sheet_w * sheet_h * 4];
-        for (i, frame) in self.frames.iter().enumerate() {
+        for (i, frame) in picks.iter().filter_map(|&p| self.frames.get(p)).enumerate() {
             let (cell_x, cell_y) = ((i % columns) * cell_w, (i / columns) * cell_h);
             for (p, pixel) in frame.pixels.iter().enumerate() {
                 let Some(index) = pixel else { continue };
@@ -186,6 +232,9 @@ impl Grp {
         (rgba, sheet_w as u32, sheet_h as u32)
     }
 }
+
+/// How wide, in pixels, a poster is scaled up towards.
+pub const POSTER_WIDTH: usize = 448;
 
 /// Which palette file to colour a sprite with, going by where it lives.
 /// Doodads sit under their tileset's own folder; everything else borrows
@@ -211,6 +260,19 @@ pub fn read_palette(wpe: &[u8]) -> Option<Palette> {
         *slot = [c[0], c[1], c[2]];
     }
     Some(palette)
+}
+
+/// Colours 8 to 15 are the team-colour slots: the game repaints them per
+/// player.  `table` is the game's list of which palette colours each
+/// player gets, eight per player.  Returns false, changing nothing, when
+/// the table has no entry for `player`.
+pub fn with_team_colour(palette: &mut Palette, table: &[u8], player: usize) -> bool {
+    let Some(picks) = table.get(player * 8..player * 8 + 8) else {
+        return false;
+    };
+    let colours: Vec<[u8; 3]> = picks.iter().map(|&i| palette[i as usize]).collect();
+    palette[8..16].copy_from_slice(&colours);
+    true
 }
 
 /// Shades of grey, for when no palette file can be read.
@@ -469,6 +531,29 @@ pub(crate) mod tests {
         );
     }
 
+    /// The game repaints colours 8 to 15 per player.  Its table lists, for
+    /// each player in turn, the eight palette colours to use.
+    #[test]
+    fn team_colour_slots_take_a_players_colours() {
+        let mut p = palette();
+        let table: Vec<u8> = (100..132).collect(); // players 0 to 3
+        assert!(with_team_colour(&mut p, &table, 1));
+        // Player 1 uses table entries 8..16, which name colours 108..116.
+        assert_eq!(p[8], [108, 100, 200]);
+        assert_eq!(p[15], [115, 100, 200]);
+        // Nothing else moves.
+        assert_eq!(p[7], [7, 100, 200]);
+        assert_eq!(p[16], [16, 100, 200]);
+    }
+
+    #[test]
+    fn a_table_too_short_for_the_player_changes_nothing() {
+        let mut p = palette();
+        assert!(!with_team_colour(&mut p, &[1, 2, 3], 0));
+        assert!(!with_team_colour(&mut p, &[0; 8], 1));
+        assert_eq!(p, palette());
+    }
+
     #[test]
     fn reads_a_palette_file() {
         let mut wpe = vec![0u8; 1024];
@@ -485,6 +570,47 @@ pub(crate) mod tests {
         let (rgba, w, h) = g.sheet(&palette());
         assert_eq!((w, h), (1, 1));
         assert_eq!(rgba, [7, 100, 200, 255]);
+    }
+
+    fn frames(n: usize) -> Grp {
+        let one: (u8, u8, u8, &[&[u8]]) = (0, 0, 1, &[&[1, 5]]);
+        Grp::parse(&grp((1, 1), &vec![one; n])).unwrap()
+    }
+
+    /// The details panel is narrow, and a whole unit sheet in it is a grid
+    /// of specks.  The picture for the screen is a few frames, large.
+    #[test]
+    fn the_poster_of_a_unit_is_four_facings_of_its_first_four_steps() {
+        assert_eq!(frames(34).poster_frames(), [0, 4, 8, 12, 17, 21, 25, 29]);
+        let p = frames(296).poster_frames();
+        assert_eq!(p.len(), 16);
+        assert_eq!(&p[12..], [51, 55, 59, 63]);
+    }
+
+    #[test]
+    fn the_poster_of_anything_else_is_its_first_sixteen_frames() {
+        assert_eq!(frames(3).poster_frames(), [0, 1, 2]);
+        assert_eq!(frames(40).poster_frames(), (0..16).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn the_poster_is_scaled_up_in_whole_steps_with_hard_edges() {
+        // One 2x1 frame: colour 5, then colour 6.
+        let g = Grp::parse(&grp((4, 4), &[(1, 1, 2, &[&[2, 5, 6]])])).unwrap();
+        let (rgba, w, h) = g.poster(&palette());
+        // Small pictures stop at eight times their size.
+        assert_eq!((w, h), (16, 8));
+        let at = |x: usize, y: usize| rgba[(y * w as usize + x) * 4];
+        assert_eq!((at(0, 0), at(7, 7)), (5, 5));
+        assert_eq!((at(8, 0), at(15, 7)), (6, 6));
+    }
+
+    #[test]
+    fn a_wide_poster_is_not_scaled_at_all() {
+        let wide: (u8, u8, u8, &[&[u8]]) = (0, 0, 200, &[&[0x7f, 1, 0x7f, 1]]);
+        let g = Grp::parse(&grp((200, 1), &[wide; 4])).unwrap();
+        let (_, w, h) = g.poster(&palette());
+        assert_eq!((w, h), (800, 1));
     }
 
     #[test]

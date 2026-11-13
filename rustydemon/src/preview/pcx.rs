@@ -138,7 +138,7 @@ pub fn decode_pcx_with_palette(
 }
 
 /// Decode the RLE-encoded index stream. Returns `(raw_indices, width, height, bytes_per_line)`.
-fn decode_pcx_indices(data: &[u8]) -> Result<(Vec<u8>, u32, u32, u32), &'static str> {
+pub(crate) fn decode_pcx_indices(data: &[u8]) -> Result<(Vec<u8>, u32, u32, u32), &'static str> {
     if data.len() < 128 || data[0] != 0x0A {
         return Err("not a PCX file");
     }
