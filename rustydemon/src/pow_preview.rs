@@ -6,11 +6,14 @@
 //!
 //! Binary layout (discovered via binary analysis + d4data definitions):
 //! - 0x00: magic (0xDEADBEEF)
-//! - 0x10: power_id (u32)
-//! - 0x78: struct_size (u32) — PowerDefinition fixed struct size (typically 3232)
-//! - struct starts at 0x10, variable data follows at 0x10 + struct_size
-//! - First formula descriptor at struct+0x0258 points to contiguous formula data
-//! - Each formula entry: [text (4-byte aligned)][12-byte bytecode (type_tag + value)]
+//! - 0x10: power_id (u32); the fixed struct starts here
+//! - Current client: an (offset, size) pair at 0xBB8 locates the script
+//!   formula array, offsets relative to 0x10. Each 0x20-byte entry holds
+//!   the formula text's (offset, size) at +0x08 and its bytecode's at +0x18.
+//! - Original layout: 0x78 holds the fixed struct size (typically 3232),
+//!   variable data follows at 0x10 + struct_size, and struct+0x0258 holds
+//!   the absolute offset of the first formula text. Entries are contiguous:
+//!   [text (4-byte aligned)][12-byte bytecode (type_tag + value)]
 
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -206,8 +209,57 @@ impl PowPreview {
 
 // ── SF value extraction from formula data block ──────────────────────────────
 
-/// Walk the contiguous formula data block and extract SF values.
+/// Extract SF values: SF_n is the text of script formula n.
+///
+/// Reads the current client's formula array first. If it isn't there,
+/// falls back to the layout this parser was first written for.
 fn extract_sf_values(data: &[u8]) -> HashMap<u32, String> {
+    sf_values_from_formula_array(data).unwrap_or_else(|| sf_values_from_contiguous_block(data))
+}
+
+/// Where the current client keeps the script formula array: an
+/// (offset, size) pair in the fixed struct, offsets relative to 0x10.
+const FORMULA_ARRAY_PTR: usize = 0x0BB8;
+const STRUCT_START: usize = 0x10;
+const FORMULA_ENTRY_SIZE: usize = 0x20;
+
+/// Read the current client's script formula array. Each 0x20-byte entry
+/// holds the formula text's (offset, size) at +0x08 and its bytecode's
+/// (offset, size) at +0x18. Returns `None` when the pair at
+/// [`FORMULA_ARRAY_PTR`] doesn't describe a well-formed array of text
+/// entries, so an older file falls through to the other reader.
+fn sf_values_from_formula_array(data: &[u8]) -> Option<HashMap<u32, String>> {
+    let off = read_u32(data, FORMULA_ARRAY_PTR)? as usize;
+    let size = read_u32(data, FORMULA_ARRAY_PTR + 4)? as usize;
+    if size == 0 || !size.is_multiple_of(FORMULA_ENTRY_SIZE) {
+        return None;
+    }
+    let start = STRUCT_START.checked_add(off)?;
+    data.get(start..start.checked_add(size)?)?;
+
+    let mut values = HashMap::new();
+    for i in 0..size / FORMULA_ENTRY_SIZE {
+        let entry = start + i * FORMULA_ENTRY_SIZE;
+        let text_off = read_u32(data, entry + 0x08)? as usize;
+        let text_len = read_u32(data, entry + 0x0C)? as usize;
+        if text_len == 0 {
+            values.insert(i as u32, String::new());
+            continue;
+        }
+        let text_start = STRUCT_START.checked_add(text_off)?;
+        let bytes = data.get(text_start..text_start.checked_add(text_len)?)?;
+        let (last, text) = bytes.split_last()?;
+        if *last != 0 || !text.iter().all(|b| (32..127).contains(b)) {
+            return None;
+        }
+        values.insert(i as u32, String::from_utf8_lossy(text).into_owned());
+    }
+    Some(values)
+}
+
+/// The original layout: struct size at 0x78, an absolute offset to the
+/// first formula text at struct+0x258, then contiguous entries.
+fn sf_values_from_contiguous_block(data: &[u8]) -> HashMap<u32, String> {
     let mut values = HashMap::new();
 
     let struct_start = 0x10usize;
@@ -479,4 +531,87 @@ fn extract_printable_strings(data: &[u8], min_len: usize) -> Vec<(usize, String)
     }
 
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn put_u32(buf: &mut [u8], off: usize, v: u32) {
+        buf[off..off + 4].copy_from_slice(&v.to_le_bytes());
+    }
+
+    fn put_str(buf: &mut [u8], off: usize, s: &str) {
+        buf[off..off + s.len()].copy_from_slice(s.as_bytes());
+        buf[off + s.len()] = 0;
+    }
+
+    /// A power in the current client's layout: the fixed struct holds an
+    /// (offset, size) pair at file 0xBB8 for the script formula array.
+    /// Offsets are relative to the struct start at 0x10. Each array entry
+    /// is 0x20 bytes, with the formula text's (offset, size) at +0x08 and
+    /// its compiled bytecode's (offset, size) at +0x18. SF_n is entry n.
+    /// The word at 0x78 is 0, as in some real files.
+    fn current_layout_pow(sf_texts: &[&str], formula: &str) -> Vec<u8> {
+        let mut buf = vec![0u8; 0x1000];
+        put_u32(&mut buf, 0x00, POW_MAGIC);
+        put_u32(&mut buf, 0x10, 0x0006_13B2);
+        let array = 0xC00;
+        put_u32(&mut buf, 0xBB8, (array - 0x10) as u32);
+        put_u32(&mut buf, 0xBBC, (sf_texts.len() * 0x20) as u32);
+        let mut text = 0xD00;
+        for (i, s) in sf_texts.iter().enumerate() {
+            let entry = array + i * 0x20;
+            put_str(&mut buf, text, s);
+            put_u32(&mut buf, entry + 0x08, (text - 0x10) as u32);
+            put_u32(&mut buf, entry + 0x0C, (s.len() + 1) as u32);
+            // Bytecode: a float push of 0, as the game writes after a literal.
+            let code = text + ((s.len() + 1 + 3) & !3);
+            put_u32(&mut buf, code, 6);
+            put_u32(&mut buf, entry + 0x18, (code - 0x10) as u32);
+            put_u32(&mut buf, entry + 0x1C, 12);
+            text = code + 0x10;
+        }
+        put_str(&mut buf, 0xF00, formula);
+        buf
+    }
+
+    #[test]
+    fn current_layout_scaling_factors_resolve() {
+        let data = current_layout_pow(&["SF_1 * Table(34, sLevel)", "0.42"], "SF_1 * 2.5");
+        let pow = PowPreview::parse(&data).expect("parses");
+        assert_eq!(
+            pow.sf_values.get(&0).map(String::as_str),
+            Some("SF_1 * Table(34, sLevel)")
+        );
+        assert_eq!(pow.sf_values.get(&1).map(String::as_str), Some("0.42"));
+        let summary = pow.summary();
+        assert!(summary.contains("SF_1  = 0.42"), "{summary}");
+        assert!(!summary.contains("???"), "{summary}");
+    }
+
+    #[test]
+    fn current_layout_empty_formula_array_resolves_nothing() {
+        let data = current_layout_pow(&[], "SF_3 * 2");
+        let pow = PowPreview::parse(&data).expect("parses");
+        assert!(pow.sf_values.is_empty());
+    }
+
+    /// The layout this parser was first written for: struct size at 0x78,
+    /// and an absolute offset to the first formula text at file 0x268,
+    /// followed by [text, 4-byte aligned][12-byte bytecode] entries.
+    #[test]
+    fn older_layout_still_resolves() {
+        let mut data = vec![0u8; 0x300];
+        put_u32(&mut data, 0x00, POW_MAGIC);
+        put_u32(&mut data, 0x78, 0x100);
+        put_u32(&mut data, 0x268, 0x280);
+        put_str(&mut data, 0x280, "0.5");
+        put_u32(&mut data, 0x284, 6);
+        put_str(&mut data, 0x290, "7");
+        put_u32(&mut data, 0x294, 6);
+        let pow = PowPreview::parse(&data).expect("parses");
+        assert_eq!(pow.sf_values.get(&0).map(String::as_str), Some("0.5"));
+        assert_eq!(pow.sf_values.get(&1).map(String::as_str), Some("7"));
+    }
 }
