@@ -185,9 +185,9 @@ fn folder_bar(ui: &mut egui::Ui, folder_path: &str, sel_count: usize) -> Option<
     };
     ui.horizontal(|ui| {
         ui.add_space(4.0);
-        // Buttons first, from the right, so the path gets what is left and
-        // is cut short there. A cut-short label shows the whole path on
-        // hover and still publishes all of it.
+        // Buttons first, from the right, so the path gets what is left.
+        // A path too long for that loses its leading folders; it shows
+        // whole on hover and its accessible name is always the whole path.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if sel_count > 0 && ui.button(format!("Export {sel_count} Selected")).clicked() {
                 action = Some(FolderAction::ExportSelected);
@@ -202,14 +202,55 @@ fn folder_bar(ui: &mut egui::Ui, folder_path: &str, sel_count: usize) -> Option<
                 action = Some(FolderAction::ClearSelection);
             }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.add(
-                    egui::Label::new(egui::RichText::new(shown).monospace().color(rd::RUNE_400))
-                        .truncate(),
-                );
+                let (galley, cut) = path_text(ui, shown, ui.available_width());
+                let (rect, resp) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+                ui.painter().galley(rect.min, galley, rd::RUNE_400);
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, shown));
+                if cut {
+                    resp.on_hover_text(shown);
+                }
             });
         });
     });
     action
+}
+
+/// `path` with leading folders dropped until `fits` accepts it, marked with
+/// a leading `…/`.  The last folder is where the user is, so it is the part
+/// kept; if even `…/last` does not fit, that is returned for the caller to
+/// cut at the end.
+fn cut_front(path: &str, fits: impl Fn(&str) -> bool) -> String {
+    if fits(path) {
+        return path.to_owned();
+    }
+    let mut rest = path;
+    while let Some((_, tail)) = rest.split_once('/') {
+        rest = tail;
+        let shown = format!("…/{rest}");
+        if fits(&shown) || !rest.contains('/') {
+            return shown;
+        }
+    }
+    path.to_owned()
+}
+
+/// The folder path laid out for a row `width` wide, and whether any of it
+/// had to be left out.
+fn path_text(ui: &egui::Ui, path: &str, width: f32) -> (std::sync::Arc<egui::Galley>, bool) {
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let wide = |text: &str| {
+        ui.painter()
+            .layout_no_wrap(text.to_owned(), font.clone(), rd::RUNE_400)
+            .size()
+            .x
+    };
+    let shown = cut_front(path, |text| wide(text) <= width);
+    let cut = shown != path;
+    let mut job = egui::text::LayoutJob::simple_singleline(shown, font.clone(), rd::RUNE_400);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(0.0));
+    let galley = ui.painter().layout_job(job);
+    let cut = cut || galley.elided;
+    (galley, cut)
 }
 
 fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<SearchResult> {
@@ -433,6 +474,55 @@ mod layout_tests {
             let b = bounds_of(&all, button);
             assert!(!overlap(path, b), "{button} {b:?} covers {path:?}");
         }
+    }
+
+    fn fits_in(n: usize) -> impl Fn(&str) -> bool {
+        move |s: &str| s.chars().count() <= n
+    }
+
+    #[test]
+    fn a_path_that_fits_is_not_cut() {
+        assert_eq!(
+            super::cut_front("interface/icons", fits_in(40)),
+            "interface/icons"
+        );
+    }
+
+    #[test]
+    fn leading_folders_go_first_and_the_last_folder_stays() {
+        assert_eq!(
+            super::cut_front("interface/addons/blizzard_gamepad", fits_in(25)),
+            "…/addons/blizzard_gamepad"
+        );
+        assert_eq!(
+            super::cut_front("interface/addons/blizzard_gamepad", fits_in(20)),
+            "…/blizzard_gamepad"
+        );
+    }
+
+    #[test]
+    fn a_last_folder_too_long_on_its_own_is_still_what_is_kept() {
+        assert_eq!(
+            super::cut_front("interface/addons/blizzard_gamepad", fits_in(5)),
+            "…/blizzard_gamepad"
+        );
+        assert_eq!(
+            super::cut_front("blizzard_gamepad", fits_in(5)),
+            "blizzard_gamepad"
+        );
+    }
+
+    /// In a narrow row the drawn text still ends with the current folder.
+    #[test]
+    fn narrow_row_keeps_the_end_of_the_path_on_screen() {
+        let ctx = egui::Context::default();
+        crate::ui::theme::apply(&ctx);
+        let mut drawn = String::new();
+        crate::ui::a11y::testing::frame_plain(&ctx, |ui| {
+            drawn = super::path_text(ui, LONG, 160.0).0.text().to_owned();
+        });
+        assert!(drawn.starts_with('…'), "{drawn}");
+        assert!(drawn.ends_with("mainline"), "{drawn}");
     }
 
     #[test]
