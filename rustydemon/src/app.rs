@@ -557,7 +557,7 @@ impl CascExplorerApp {
         match rustydemon_lib::key_service::load_keys_from_file(&path) {
             Ok(0) => {
                 self.status = format!(
-                    "No keys found in {} — expected 'KEYNAME KEYVALUE' lines.",
+                    "No keys found in {}. Expected 'KEYNAME KEYVALUE' lines.",
                     path.display()
                 );
             }
@@ -869,7 +869,7 @@ impl eframe::App for CascExplorerApp {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /// Window title, shared by the native window and the accessibility root.
-pub const APP_TITLE: &str = "Rusty Demon — CASC Explorer";
+pub const APP_TITLE: &str = "Rusty Demon - CASC Explorer";
 
 /// Give the accessibility root node the window title.
 ///

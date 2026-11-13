@@ -293,7 +293,7 @@ pub fn panel_header(ui: &mut egui::Ui, label: &str, pill: Option<&str>) {
                     .inner_margin(egui::Margin::symmetric(8, 2))
                     .show(ui, |ui| {
                         // A lone dash is the "nothing here" placeholder.
-                        let spoken = if p == "—" { "No game loaded" } else { p };
+                        let spoken = if p == "-" { "No game loaded" } else { p };
                         super::a11y::decorated(
                             ui,
                             egui::RichText::new(p.to_uppercase())

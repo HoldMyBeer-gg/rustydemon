@@ -40,7 +40,7 @@ impl PreviewPlugin for VidPreview {
                  This is not the actual movie. D4 stores `.vid` SNOs as small\n\
                  redirection records in `base/child/Movie/` and `base/meta/Movie/`\n\
                  (the two are byte-identical), and there are NO `base/payload/Movie/`\n\
-                 entries — the real BK2 stream lives in a separate layer that the\n\
+                 entries: the real BK2 stream lives in a separate layer that the\n\
                  engine resolves at runtime via these stubs.\n\n\
                  Fetching the real movie from a stub isn't implemented (we don't\n\
                  yet know how the stub fields map to the streaming archive). See\n\
@@ -48,7 +48,7 @@ impl PreviewPlugin for VidPreview {
                  so far.\n\n\
                  (Separately, if you see 'index entry not found for ekey static\n\
                  container' errors on other .vid SNOs, those are stubs whose own\n\
-                 data file isn't on disk — usually a partial install.)"
+                 data file isn't on disk, usually a partial install.)"
             ));
             return out;
         }

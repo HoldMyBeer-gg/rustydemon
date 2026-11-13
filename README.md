@@ -7,7 +7,7 @@ archives, written entirely in Rust.
 > Diablo IV's CASC archives** alongside the existing Battle.net format. The
 > Steam build's key-layout flag bits, zlib-wrapped VFS roots, and split
 > meta.dat / payload.dat scheme are a layout the established Battle.net-era
-> libraries don't yet cover — rustydemon handles them natively. See
+> libraries don't yet cover. rustydemon handles them natively. See
 > [Steam D4 Support](#steam-d4-support) below.
 
 > **For personal and educational use only.**
@@ -103,8 +103,8 @@ Point **File → Open Game Directory…** at either
 > for the CASC ecosystem, and TACTLib's static-container handler in particular
 > guided rustydemon's understanding of the `key-layout-*` bit-extraction
 > scheme used by Overwatch. The Steam D4 build extends that scheme with a
-> few additional pieces — the 4th flag value in each `key-layout-*`, a
-> zlib-wrapped VFS root, and a split `meta.dat` / `payload.dat` path layout —
+> few additional pieces (the 4th flag value in each `key-layout-*`, a
+> zlib-wrapped VFS root, and a split `meta.dat` / `payload.dat` path layout),
 > which rustydemon's `static_container` module in `rustydemon-lib` adds on
 > top, verified against a real Steam install.
 
@@ -291,7 +291,7 @@ Some files in Blizzard archives are encrypted. If one fails to open you'll see:
 file is encrypted: missing TACT key C79F0F4C3715500A
 ```
 
-The file is present and intact — only the decryption key is missing. Rusty Demon
+The file is present and intact; only the decryption key is missing. Rusty Demon
 ships the public key set (Overwatch, WoW), but Blizzard streams keys for some
 titles at runtime and rotates them, so newer content may need keys you supply
 yourself.
@@ -316,7 +316,7 @@ Set `RUSTYDEMON_TACT_KEYS=/path/to/file` to override the location entirely.
 
 You can also load a key file at any time via **File → Load TACT Keys…** in the
 GUI, or `--tact-keys <FILE>` on the CLI. Keys loaded this way apply to the
-already-open archive immediately — no need to reopen it.
+already-open archive immediately, with no need to reopen it.
 
 ---
 

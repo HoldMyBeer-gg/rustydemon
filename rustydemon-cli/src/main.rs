@@ -36,7 +36,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use rustydemon_lib::{CascConfig, CascFile, CascHandler, GameType, PathQuery};
 
-/// Rusty Demon CLI — batch export and inspect CASC archive files.
+/// Rusty Demon CLI: batch export and inspect CASC archive files.
 #[derive(Debug, Parser)]
 #[command(name = "rustydemon-cli", version, about)]
 struct Cli {
@@ -92,7 +92,7 @@ struct ExportArgs {
     product: Option<String>,
 
     /// Community listfile (CSV or plain text).  Required for WoW and any
-    /// other game whose root manifest doesn't carry built-in path names —
+    /// other game whose root manifest doesn't carry built-in path names:
     /// without it, `--path` has no tree to resolve against.  D4 and other
     /// TVFS-based archives ignore this because they self-describe.
     ///
@@ -232,7 +232,7 @@ fn run_export(args: &ExportArgs) -> Result<()> {
         let path = args.path.as_deref().unwrap();
         let tree = casc.root_folder.as_ref().ok_or_else(|| {
             anyhow!(
-                "archive has no virtual file tree — for WoW, pass --listfile \
+                "archive has no virtual file tree. For WoW, pass --listfile \
                  <path> (download one from https://github.com/wowdev/wow-listfile), \
                  or use --fdid <id> to export a single file by FileDataID"
             )
@@ -252,7 +252,7 @@ fn run_export(args: &ExportArgs) -> Result<()> {
         for f in &matches {
             println!("{}", f.full_path);
         }
-        eprintln!("(dry run — nothing written)");
+        eprintln!("(dry run: nothing written)");
         return Ok(());
     }
 
@@ -380,7 +380,7 @@ fn run_probe(args: &ProbeArgs) -> Result<()> {
                 );
             }
             Err(e) => {
-                println!("[FAIL]  {}  —  {e:#}", archive.display());
+                println!("[FAIL]  {}: {e:#}", archive.display());
                 any_fail = true;
                 if args.fail_fast {
                     break;

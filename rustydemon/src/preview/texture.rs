@@ -277,7 +277,7 @@ impl PreviewPlugin for TextureDePreview {
 
         let Some((rgba, w, h, fmt)) = decode_mip0(data, filename) else {
             out.text = Some(format!(
-                "<DE( texture {}×{} (format code 0x{:02X}) — no BC decoder produced a valid image.",
+                "<DE( texture {}×{} (format code 0x{:02X}): no BC decoder produced a valid image.",
                 header.width, header.height, header.format_code
             ));
             return out;

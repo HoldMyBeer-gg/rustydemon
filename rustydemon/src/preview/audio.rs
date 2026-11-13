@@ -45,7 +45,7 @@ impl PreviewPlugin for AudioPreview {
         out.text = Some(match summary {
             Some(s) => format!("{s}\nFile size: {}", format_bytes(bytes)),
             None => format!(
-                "Audio file ({}), {} — header not recognised",
+                "Audio file ({}), {}: header not recognised",
                 lower.rsplit('.').next().unwrap_or("?"),
                 format_bytes(bytes)
             ),

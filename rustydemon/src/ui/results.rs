@@ -117,10 +117,10 @@ fn draw_folder_contents(
 
             let icon = file_icon(&file.name);
             let meta = format!(
-                "FDID {} · {} · —",
+                "FDID {} · {} · -",
                 file.file_data_id
                     .map(|x| x.to_string())
-                    .unwrap_or_else(|| "—".into()),
+                    .unwrap_or_else(|| "-".into()),
                 &format!("{:016x}", file.hash)[..12],
             );
 
@@ -355,11 +355,11 @@ fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<S
 
             let icon = file_icon(&display_name);
             let meta = format!(
-                "FDID {} · {} · —",
+                "FDID {} · {} · -",
                 result
                     .file_data_id
                     .map(|x| x.to_string())
-                    .unwrap_or_else(|| "—".into()),
+                    .unwrap_or_else(|| "-".into()),
                 &format!("{:016x}", result.hash)[..12],
             );
 
@@ -481,7 +481,7 @@ mod a11y_tests {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         let out = crate::ui::a11y::testing::frame(&ctx, |ui| {
-            draw_file_row(ui, "core.lua", "FDID 1 · abc · —", "📄", false);
+            draw_file_row(ui, "core.lua", "FDID 1 · abc · -", "📄", false);
         });
         let names: Vec<String> = out
             .nodes

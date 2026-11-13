@@ -76,7 +76,7 @@ if $UNIVERSAL; then
     info "Building universal (x86_64 + arm64) release binary …"
     for t in x86_64-apple-darwin aarch64-apple-darwin; do
         rustup target list --installed | grep -q "^$t$" \
-            || die "target $t not installed — run: rustup target add $t"
+            || die "target $t not installed. Run: rustup target add $t"
         cargo build --release -p "$BIN_NAME" --target "$t"
     done
     mkdir -p "$OUT"

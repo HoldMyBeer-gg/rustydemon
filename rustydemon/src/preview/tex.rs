@@ -64,8 +64,7 @@ impl PreviewPlugin for TexPreview {
 
         let mut out = PreviewOutput::new();
         out.text = Some(
-            ".tex header could not be decoded — unknown dimensions or unsupported BC format."
-                .into(),
+            ".tex header could not be decoded: unknown dimensions or unsupported BC format.".into(),
         );
         out
     }
@@ -106,7 +105,7 @@ fn build_from_descriptor(
     );
     if is_low {
         text.push_str(
-            "\n\nThis is the largest mip stored in the paylow tier — \
+            "\n\nThis is the largest mip stored in the paylow tier; \
              the higher-resolution mip 0 lives in the matching payload/ file.",
         );
     }
@@ -153,7 +152,7 @@ fn build_from_descriptor_or_brute(
     };
     let note = paylow_kind.map(|kind| {
         format!(
-            "{kind}/ couldn't be decoded directly — preview is from the matching \
+            "{kind}/ couldn't be decoded directly, so the preview is from the matching \
              payload/ variant. Export Raw still writes the original {kind} bytes."
         )
     });

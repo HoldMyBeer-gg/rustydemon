@@ -287,7 +287,7 @@ fn labelled(dirs: Vec<PathBuf>) -> Vec<(String, PathBuf)> {
             .to_string_lossy()
             .into_owned();
         if products.is_empty() {
-            found.push((format!("{dir_name}  —  {}", path.display()), path));
+            found.push((format!("{dir_name} ({})", path.display()), path));
             continue;
         }
         for product in &products {
