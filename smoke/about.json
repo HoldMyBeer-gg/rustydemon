@@ -7,7 +7,8 @@
     "windows"
   ],
   "verified": {
-    "linux": "2026-11-12"
+    "linux": "2026-11-12",
+    "macos": "2026-11-12"
   },
   "phases": [
     {
@@ -118,5 +119,5 @@
       "windows": 1
     }
   ],
-  "notes": "About used to be a separate OS window with no accessibility tree; it is now drawn inside the main window. Linux run 2026-11-12 (SteamOS, KDE). Written to be the same on macOS and Windows; not yet run there."
+  "notes": "About used to be a separate OS window with no accessibility tree; it is now drawn inside the main window. Linux run 2026-11-12 (SteamOS, KDE). macOS run 2026-11-12 (macOS 26, Metal) on the egui 0.37 build, passing as written. Not yet run on Windows."
 }

@@ -19,7 +19,7 @@ wow-wmo          = "0.6.4"
 wow-alchemy-m2   = "0.2.0"
 wow-alchemy-data = "0.2.0"
 texture2ddecoder = "0.1"
-wgpu             = "22"
+wgpu             = "30"
 bytemuck         = { version = "1", features = ["derive"] }
 glam             = "0.29"
 image            = { version = "0.25", default-features = false, features = ["png"] }
