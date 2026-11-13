@@ -78,13 +78,17 @@ mod exe_icon_tests {
 
     #[test]
     fn the_executable_carries_an_icon() {
+        // Windows takes a small integer in place of a name pointer for
+        // numbered resources (MAKEINTRESOURCE).  `without_provenance` says
+        // exactly that: an address that is a number, never dereferenced.
+        let id = |n: usize| core::ptr::without_provenance::<u16>(n);
+        const ICON_ID: usize = 1;
         const RT_GROUP_ICON: usize = 14;
-        // SAFETY: a null name asks for this executable; resource ids are
-        // passed as small integers in place of string pointers, as the API
-        // allows; nothing is dereferenced here.
+        // SAFETY: a null name asks for this executable; nothing here is
+        // dereferenced.
         let found = unsafe {
             let exe = GetModuleHandleW(core::ptr::null());
-            FindResourceW(exe, 1 as *const u16, RT_GROUP_ICON as *const u16)
+            FindResourceW(exe, id(ICON_ID), id(RT_GROUP_ICON))
         };
         assert!(!found.is_null(), "no icon group resource in the executable");
     }
