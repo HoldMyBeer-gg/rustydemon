@@ -265,20 +265,32 @@ impl CascHandler {
     /// - Otherwise it falls through to the existing case-insensitive
     ///   substring search over the root manifest, matching GUI behaviour
     ///   from before globs existed.
+    ///
+    /// Each file is returned once, as the variant the handler's locale
+    /// would open.  Use [`search`](Self::search) for every manifest entry.
     pub fn search_by_text(&self, text: &str, limit: usize) -> Vec<SearchResult> {
+        // The root manifest has an entry per locale or content variant of a
+        // file.  Someone typing a name is looking for files, so ask for
+        // more than `limit` entries, fold the variants, then cut.
+        let entries = limit.saturating_mul(4);
         let looks_like_glob = text.bytes().any(|b| matches!(b, b'*' | b'?' | b'{' | b'['));
-        if looks_like_glob {
+        let found = if looks_like_glob {
             match crate::query::PathQuery::parse(text) {
-                Ok(q) => self.search_by_path_query(&q, limit),
+                Ok(q) => self.search_by_path_query(&q, entries),
                 Err(_) => Vec::new(),
             }
         } else {
             let mut q = SearchQuery::new().filename(text);
             if limit > 0 {
-                q = q.limit(limit);
+                q = q.limit(entries);
             }
             self.search(q)
+        };
+        let mut files = one_per_file(found, self.locale());
+        if limit > 0 {
+            files.truncate(limit);
         }
+        files
     }
 
     /// Iterate every known hash in the root manifest.
@@ -292,5 +304,127 @@ impl CascHandler {
         self.root
             .all_entries()
             .filter_map(move |(h, _)| seen.insert(h).then_some(h))
+    }
+}
+
+/// One result per file.
+///
+/// The root manifest holds an entry per locale or content variant of a
+/// file, all under the same hash, so a search over it can return the same
+/// path several times.  The variant kept is the first whose locale overlaps
+/// `prefer`, and among those the normal file rather than its low-violence
+/// substitute (`ALTERNATE`); failing both, the first seen.  Order is kept.
+fn one_per_file(results: Vec<SearchResult>, prefer: LocaleFlags) -> Vec<SearchResult> {
+    // Locale first, then the normal file over its low-violence substitute.
+    let rank = |r: &SearchResult| {
+        (
+            r.locale.intersects(prefer),
+            !r.content.contains(ContentFlags::ALTERNATE),
+        )
+    };
+    let mut out: Vec<SearchResult> = Vec::with_capacity(results.len());
+    let mut at: std::collections::HashMap<u64, usize> = std::collections::HashMap::new();
+    for result in results {
+        match at.get(&result.hash) {
+            None => {
+                at.insert(result.hash, out.len());
+                out.push(result);
+            }
+            Some(&i) => {
+                if rank(&result) > rank(&out[i]) {
+                    out[i] = result;
+                }
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod one_per_file_tests {
+    use super::*;
+
+    fn hit(hash: u64, locale: LocaleFlags, ckey: u8) -> SearchResult {
+        SearchResult {
+            hash,
+            filename: Some(format!("file{hash}")),
+            file_data_id: Some(hash as u32),
+            locale,
+            content: ContentFlags::empty(),
+            ckey: Md5Hash([ckey; 16]),
+        }
+    }
+
+    fn summary(r: &[SearchResult]) -> Vec<(u64, u8)> {
+        r.iter().map(|x| (x.hash, x.ckey.0[0])).collect()
+    }
+
+    #[test]
+    fn variants_of_one_file_become_one_row() {
+        let got = one_per_file(
+            vec![
+                hit(1, LocaleFlags::EN_US, 10),
+                hit(1, LocaleFlags::EN_US, 11),
+                hit(2, LocaleFlags::EN_US, 20),
+            ],
+            LocaleFlags::EN_US,
+        );
+        assert_eq!(summary(&got), [(1, 10), (2, 20)]);
+    }
+
+    #[test]
+    fn the_variant_in_the_preferred_locale_is_the_one_kept() {
+        let got = one_per_file(
+            vec![
+                hit(1, LocaleFlags::DE_DE, 10),
+                hit(2, LocaleFlags::EN_US, 20),
+                hit(1, LocaleFlags::EN_US, 11),
+            ],
+            LocaleFlags::EN_US,
+        );
+        // File 1 keeps its place in the list but shows the en-US variant.
+        assert_eq!(summary(&got), [(1, 11), (2, 20)]);
+    }
+
+    #[test]
+    fn with_no_variant_in_the_preferred_locale_the_first_is_kept() {
+        let got = one_per_file(
+            vec![
+                hit(1, LocaleFlags::DE_DE, 10),
+                hit(1, LocaleFlags::DE_DE, 11),
+            ],
+            LocaleFlags::EN_US,
+        );
+        assert_eq!(summary(&got), [(1, 10)]);
+    }
+
+    /// `ALTERNATE` marks the low-violence substitute for a file (a
+    /// toned-down effect for regions that require one).  The normal file
+    /// is shown.
+    #[test]
+    fn the_normal_variant_is_kept_over_an_alternate_one() {
+        let mut alternate = hit(1, LocaleFlags::EN_US, 10);
+        alternate.content = ContentFlags::ALTERNATE;
+        let got = one_per_file(
+            vec![alternate.clone(), hit(1, LocaleFlags::EN_US, 11)],
+            LocaleFlags::EN_US,
+        );
+        assert_eq!(summary(&got), [(1, 11)]);
+        // But locale comes first: an alternate we can open beats a normal
+        // file in another language.
+        let got = one_per_file(
+            vec![hit(1, LocaleFlags::DE_DE, 12), alternate],
+            LocaleFlags::EN_US,
+        );
+        assert_eq!(summary(&got), [(1, 10)]);
+    }
+
+    #[test]
+    fn distinct_files_are_untouched() {
+        let got = one_per_file(
+            vec![hit(3, LocaleFlags::EN_US, 1), hit(1, LocaleFlags::EN_US, 2)],
+            LocaleFlags::EN_US,
+        );
+        assert_eq!(summary(&got), [(3, 1), (1, 2)]);
     }
 }
