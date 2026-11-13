@@ -232,10 +232,11 @@ impl Grp {
     }
 }
 
-/// The widest a poster is scaled up to, in pixels.  The details panel is
-/// about this wide and draws a picture at its own size when it fits, so a
-/// poster within it is shown pixel for pixel, never smoothed down.
-pub const POSTER_WIDTH: usize = 224;
+/// The widest a poster is scaled up to, in pixels.  The details panel
+/// draws a picture at its own size when it fits and was measured at 223
+/// points wide, so this stays a little under that: a poster within it is
+/// shown pixel for pixel.
+pub const POSTER_WIDTH: usize = 220;
 
 /// Which palette file to colour a sprite with, going by where it lives.
 /// Doodads sit under their tileset's own folder; everything else borrows
@@ -637,6 +638,14 @@ pub(crate) mod tests {
         // Two 30-pixel cells are 60 wide; three times is 180, four would be 240.
         let (_, w, _) = g.poster(&palette());
         assert_eq!(w, 180);
+        // 55 pixels a cell is 110 wide: twice is exactly the limit.
+        let cell: (u8, u8, u8, &[&[u8]]) = (0, 0, 55, &[&[0x77, 7]]);
+        let g = Grp::parse(&grp((55, 1), &[cell; 4])).unwrap();
+        assert_eq!(g.poster(&palette()).1, 220);
+        // 56 a cell is 112 wide: twice would be 224, a pixel past the panel.
+        let cell: (u8, u8, u8, &[&[u8]]) = (0, 0, 56, &[&[0x78, 7]]);
+        let g = Grp::parse(&grp((56, 1), &[cell; 4])).unwrap();
+        assert_eq!(g.poster(&palette()).1, 112);
     }
 
     #[test]
