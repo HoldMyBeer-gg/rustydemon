@@ -118,13 +118,16 @@ impl Grp {
         }
     }
 
-    /// The part of the canvas any frame draws in, as (left, top, width,
+    /// The part of the canvas that `frames` draw in, as (left, top, width,
     /// height).  Canvases are sized for the largest unit that might use
     /// them, so most of each one is empty margin.
-    fn drawn_area(&self) -> Option<(usize, usize, usize, usize)> {
+    fn drawn_area<'a>(
+        &self,
+        frames: impl Iterator<Item = &'a Frame>,
+    ) -> Option<(usize, usize, usize, usize)> {
         let (canvas_w, canvas_h) = (self.width as usize, self.height as usize);
         let mut area: Option<(usize, usize, usize, usize)> = None; // left, top, right, bottom
-        for f in self.frames.iter().filter(|f| f.width > 0 && f.height > 0) {
+        for f in frames.filter(|f| f.width > 0 && f.height > 0) {
             let (l, t) = (f.x as usize, f.y as usize);
             let (r, b) = (
                 (l + f.width as usize).min(canvas_w),
@@ -144,7 +147,7 @@ impl Grp {
     /// Drop frames from the end until the sheet has at most `max_pixels`,
     /// keeping whole rows.  Returns how many frames are left.
     pub fn keep_what_fits(&mut self, max_pixels: usize) -> usize {
-        let Some((_, _, cell_w, cell_h)) = self.drawn_area() else {
+        let Some((_, _, cell_w, cell_h)) = self.drawn_area(self.frames.iter()) else {
             return self.frames.len();
         };
         let columns = self.columns().max(1);
@@ -165,28 +168,26 @@ impl Grp {
         self.compose(&all, self.columns(), palette)
     }
 
-    /// Which frames go on the poster.  For a unit: four facings, a quarter
-    /// turn apart, of each of its first four animation steps.  For anything
-    /// else: its first sixteen frames.
+    /// Which frames go on the poster.  For a unit: its first animation
+    /// step seen from four sides, a quarter turn apart.  For anything
+    /// else: its first four frames.
     pub fn poster_frames(&self) -> Vec<usize> {
         let n = self.frames.len();
         if self.columns() == 17 && n >= 17 {
-            (0..(n / 17).min(4))
-                .flat_map(|step| [0, 4, 8, 12].map(|facing| step * 17 + facing))
-                .collect()
+            vec![0, 4, 8, 12]
         } else {
-            (0..n.min(16)).collect()
+            (0..n.min(4)).collect()
         }
     }
 
     /// A picture for a narrow panel: [`poster_frames`](Self::poster_frames)
-    /// four to a row, scaled up in whole steps (so pixels stay square and
-    /// sharp) until it is about [`POSTER_WIDTH`] wide, eight times at most.
+    /// two to a row, cut to what those frames draw in, and scaled up in
+    /// whole steps (so pixels stay square and sharp) as far as
+    /// [`POSTER_WIDTH`] allows, eight times at most.
     pub fn poster(&self, palette: &Palette) -> (Vec<u8>, u32, u32) {
-        let (small, w, h) = self.compose(&self.poster_frames(), 4, palette);
+        let (small, w, h) = self.compose(&self.poster_frames(), 2, palette);
         let (w, h) = (w as usize, h as usize);
-        // The whole step that lands nearest the target width.
-        let scale = ((POSTER_WIDTH + w / 2) / w.max(1)).clamp(1, 8);
+        let scale = (POSTER_WIDTH / w.max(1)).clamp(1, 8);
         if scale == 1 {
             return (small, w as u32, h as u32);
         }
@@ -204,12 +205,10 @@ impl Grp {
     /// The frames `picks`, `columns` to a row, as RGBA with its width and
     /// height.
     fn compose(&self, picks: &[usize], columns: usize, palette: &Palette) -> (Vec<u8>, u32, u32) {
-        let Some((left, top, cell_w, cell_h)) = self.drawn_area() else {
+        let shown = picks.iter().filter_map(|&p| self.frames.get(p));
+        let Some((left, top, cell_w, cell_h)) = self.drawn_area(shown) else {
             return (vec![0; 4], 1, 1);
         };
-        if picks.is_empty() {
-            return (vec![0; 4], 1, 1);
-        }
         let columns = columns.clamp(1, picks.len());
         let rows = picks.len().div_ceil(columns);
         let (sheet_w, sheet_h) = (columns * cell_w, rows * cell_h);
@@ -233,8 +232,10 @@ impl Grp {
     }
 }
 
-/// How wide, in pixels, a poster is scaled up towards.
-pub const POSTER_WIDTH: usize = 448;
+/// The widest a poster is scaled up to, in pixels.  The details panel is
+/// about this wide and draws a picture at its own size when it fits, so a
+/// poster within it is shown pixel for pixel, never smoothed down.
+pub const POSTER_WIDTH: usize = 224;
 
 /// Which palette file to colour a sprite with, going by where it lives.
 /// Doodads sit under their tileset's own folder; everything else borrows
@@ -578,19 +579,33 @@ pub(crate) mod tests {
     }
 
     /// The details panel is narrow, and a whole unit sheet in it is a grid
-    /// of specks.  The picture for the screen is a few frames, large.
+    /// of specks.  The picture for the screen is four frames, large.
     #[test]
-    fn the_poster_of_a_unit_is_four_facings_of_its_first_four_steps() {
-        assert_eq!(frames(34).poster_frames(), [0, 4, 8, 12, 17, 21, 25, 29]);
-        let p = frames(296).poster_frames();
-        assert_eq!(p.len(), 16);
-        assert_eq!(&p[12..], [51, 55, 59, 63]);
+    fn the_poster_of_a_unit_is_four_facings_a_quarter_turn_apart() {
+        assert_eq!(frames(34).poster_frames(), [0, 4, 8, 12]);
+        assert_eq!(frames(296).poster_frames(), [0, 4, 8, 12]);
     }
 
     #[test]
-    fn the_poster_of_anything_else_is_its_first_sixteen_frames() {
+    fn the_poster_of_anything_else_is_its_first_four_frames() {
         assert_eq!(frames(3).poster_frames(), [0, 1, 2]);
-        assert_eq!(frames(40).poster_frames(), (0..16).collect::<Vec<_>>());
+        assert_eq!(frames(16).poster_frames(), [0, 1, 2, 3]);
+    }
+
+    /// A later frame (an explosion, a death) is often far larger than the
+    /// unit standing still, and would shrink the poster to make room.
+    #[test]
+    fn the_poster_is_cut_to_the_frames_it_shows() {
+        let small: (u8, u8, u8, &[&[u8]]) = (10, 10, 2, &[&[2, 5, 5]]);
+        let large: (u8, u8, u8, &[&[u8]]) = (0, 0, 30, &[&[0x5e, 7]]);
+        let g = Grp::parse(&grp((30, 30), &[small, small, small, small, large])).unwrap();
+        // Four 2x1 cells, two to a row, at eight times: no room left for
+        // the fifth frame's 30 pixels.
+        let (_, w, h) = g.poster(&palette());
+        assert_eq!((w, h), (32, 16));
+        // The exported sheet still has room for everything.
+        let (_, w, _) = g.sheet(&palette());
+        assert_eq!(w, 3 * 30);
     }
 
     #[test]
@@ -610,7 +625,18 @@ pub(crate) mod tests {
         let wide: (u8, u8, u8, &[&[u8]]) = (0, 0, 200, &[&[0x7f, 1, 0x7f, 1]]);
         let g = Grp::parse(&grp((200, 1), &[wide; 4])).unwrap();
         let (_, w, h) = g.poster(&palette());
-        assert_eq!((w, h), (800, 1));
+        assert_eq!((w, h), (400, 2));
+    }
+
+    /// The panel draws a picture at its own size when it fits, so a poster
+    /// that never exceeds the panel's width is never smoothed down.
+    #[test]
+    fn the_poster_grows_to_the_panel_width_and_no_further() {
+        let cell: (u8, u8, u8, &[&[u8]]) = (0, 0, 30, &[&[0x5e, 7]]);
+        let g = Grp::parse(&grp((30, 1), &[cell; 4])).unwrap();
+        // Two 30-pixel cells are 60 wide; three times is 180, four would be 240.
+        let (_, w, _) = g.poster(&palette());
+        assert_eq!(w, 180);
     }
 
     #[test]
