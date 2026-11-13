@@ -101,11 +101,12 @@ async fn render_to_png_async(
             power_preference: wgpu::PowerPreference::default(),
             compatible_surface: None,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         })
         .await
         .context("no wgpu adapter available")?;
     let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor::default(), None)
+        .request_device(&wgpu::DeviceDescriptor::default())
         .await
         .context("failed to create wgpu device")?;
 
@@ -170,8 +171,8 @@ async fn render_to_png_async(
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("headless pl"),
-        bind_group_layouts: &[&uniform_bgl, &batch_bgl, &texture_bgl],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&uniform_bgl), Some(&batch_bgl), Some(&texture_bgl)],
+        immediate_size: 0,
     });
 
     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -179,17 +180,17 @@ async fn render_to_png_async(
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: "vs_main",
-            buffers: &[wgpu::VertexBufferLayout {
+            entry_point: Some("vs_main"),
+            buffers: &[Some(wgpu::VertexBufferLayout {
                 array_stride: (std::mem::size_of::<f32>() * 5) as wgpu::BufferAddress,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2],
-            }],
+            })],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format: color_format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -205,13 +206,13 @@ async fn render_to_png_async(
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: depth_format,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::Less,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Less),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
 
@@ -316,14 +317,14 @@ async fn render_to_png_async(
         view_formats: &[],
     });
     queue.write_texture(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: &fallback_tex,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
         &[255u8, 255, 255, 255],
-        wgpu::ImageDataLayout {
+        wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(4),
             rows_per_image: Some(1),
@@ -399,6 +400,7 @@ async fn render_to_png_async(
             label: Some("headless pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &color_view,
+                depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -420,6 +422,7 @@ async fn render_to_png_async(
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &uniform_bg, &[]);
@@ -444,15 +447,15 @@ async fn render_to_png_async(
     });
 
     encoder.copy_texture_to_buffer(
-        wgpu::ImageCopyTexture {
+        wgpu::TexelCopyTextureInfo {
             texture: &color_tex,
             mip_level: 0,
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        wgpu::ImageCopyBuffer {
+        wgpu::TexelCopyBufferInfo {
             buffer: &readback_buf,
-            layout: wgpu::ImageDataLayout {
+            layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(padded_row),
                 rows_per_image: Some(height),
@@ -473,12 +476,16 @@ async fn render_to_png_async(
     slice.map_async(wgpu::MapMode::Read, move |result| {
         tx.send(result).ok();
     });
-    device.poll(wgpu::Maintain::Wait);
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .context("device poll failed")?;
     rx.recv()
         .context("map channel closed")?
         .context("buffer map failed")?;
 
-    let data = slice.get_mapped_range();
+    let data = slice
+        .get_mapped_range()
+        .context("mapped range unavailable")?;
     // Strip row padding.
     let mut pixels = Vec::with_capacity((width * height * bytes_per_pixel) as usize);
     for row in 0..height {
@@ -500,4 +507,56 @@ async fn render_to_png_async(
 
     println!("Rendered {width}x{height} to {}", path.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A square facing the default camera, big enough to cover the middle
+    /// of the frame.
+    fn square() -> RenderMesh {
+        RenderMesh {
+            positions: vec![
+                [-1.0, -1.0, 0.0],
+                [1.0, -1.0, 0.0],
+                [1.0, 1.0, 0.0],
+                [-1.0, 1.0, 0.0],
+            ],
+            uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            // Both windings, so the square shows whichever way the camera
+            // ends up looking at it.
+            indices: vec![0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2],
+            bbox_min: [-1.0, -1.0, 0.0],
+            bbox_max: [1.0, 1.0, 0.0],
+        }
+    }
+
+    /// The headless renderer draws the mesh: the middle of the image is the
+    /// mesh, the corner is the background, and they differ.
+    ///
+    /// Skipped on machines with no GPU adapter (CI runners).  Set
+    /// `RUSTYDEMON_RENDER_TEST_OUT` to keep the image for comparison.
+    #[test]
+    fn renders_a_mesh_to_png() {
+        let dir = std::env::temp_dir().join(format!("rd-render-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = std::env::var_os("RUSTYDEMON_RENDER_TEST_OUT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| dir.join("square.png"));
+
+        if let Err(e) = render_to_png(&square(), &path, 64, 48) {
+            if format!("{e:#}").contains("no wgpu adapter") {
+                eprintln!("skipped: {e:#}");
+                return;
+            }
+            panic!("render failed: {e:#}");
+        }
+
+        let img = image::open(&path).expect("a readable PNG").to_rgba8();
+        assert_eq!(img.dimensions(), (64, 48));
+        let middle = img.get_pixel(32, 24);
+        let corner = img.get_pixel(1, 1);
+        assert_ne!(middle, corner, "the mesh is not visible");
+    }
 }
