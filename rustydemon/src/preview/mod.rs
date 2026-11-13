@@ -14,6 +14,7 @@ pub mod adt;
 pub mod audio;
 pub mod blp;
 pub mod m2;
+pub mod m2_lite;
 pub mod model3d;
 pub mod model_d2r;
 pub mod pcx;
