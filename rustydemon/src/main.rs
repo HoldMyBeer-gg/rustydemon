@@ -60,3 +60,32 @@ fn main() -> eframe::Result {
         }),
     )
 }
+
+/// The window icon is set at run time, which Windows only shows while the
+/// app is running. Explorer, the Start menu and pinned shortcuts read the
+/// icon stored in the executable itself.
+#[cfg(all(test, windows))]
+mod exe_icon_tests {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetModuleHandleW(name: *const u16) -> *mut core::ffi::c_void;
+        fn FindResourceW(
+            module: *mut core::ffi::c_void,
+            name: *const u16,
+            kind: *const u16,
+        ) -> *mut core::ffi::c_void;
+    }
+
+    #[test]
+    fn the_executable_carries_an_icon() {
+        const RT_GROUP_ICON: usize = 14;
+        // SAFETY: a null name asks for this executable; resource ids are
+        // passed as small integers in place of string pointers, as the API
+        // allows; nothing is dereferenced here.
+        let found = unsafe {
+            let exe = GetModuleHandleW(core::ptr::null());
+            FindResourceW(exe, 1 as *const u16, RT_GROUP_ICON as *const u16)
+        };
+        assert!(!found.is_null(), "no icon group resource in the executable");
+    }
+}

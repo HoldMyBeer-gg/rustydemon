@@ -12,6 +12,7 @@
 # Usage:
 #   ./scripts/macos-bundle.sh              # build for host arch, ad-hoc sign
 #   ./scripts/macos-bundle.sh --universal  # build x86_64 + arm64 fat binary
+#   ./scripts/macos-bundle.sh --where      # print the paths it would use; build nothing
 #
 # Real Dev ID signing + notarization hooks are marked TODO at the bottom.
 
@@ -30,11 +31,40 @@ VERSION="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' Cargo.toml 
 ICON_SRC="$ROOT/assets/icons/icon_1024.png"
 
 UNIVERSAL=false
-[[ "${1-}" == "--universal" ]] && UNIVERSAL=true
+WHERE=false
+for arg in "$@"; do
+    case "$arg" in
+        --universal) UNIVERSAL=true ;;
+        --where)     WHERE=true ;;
+        *) echo "[bundle] ERROR: unknown option: $arg" >&2; exit 2 ;;
+    esac
+done
 
-OUT="$ROOT/target/macos"
+# Cargo decides where builds go: ./target by default, but CARGO_TARGET_DIR or
+# a build.target-dir in a cargo config moves it. Ask cargo; don't assume.
+TARGET_DIR="$(cargo metadata --format-version 1 --no-deps \
+    | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
+[[ -n "$TARGET_DIR" ]] || { echo "[bundle] ERROR: cargo did not report a target directory" >&2; exit 1; }
+
+OUT="$TARGET_DIR/macos"
 APP="$OUT/$APP_NAME.app"
 DMG="$OUT/$APP_NAME-$VERSION.dmg"
+SLICES=(
+    "$TARGET_DIR/x86_64-apple-darwin/release/$BIN_NAME"
+    "$TARGET_DIR/aarch64-apple-darwin/release/$BIN_NAME"
+)
+if $UNIVERSAL; then
+    BIN="$OUT/$BIN_NAME-universal"
+else
+    BIN="$TARGET_DIR/release/$BIN_NAME"
+fi
+
+if $WHERE; then
+    echo "bin=$BIN"
+    echo "out=$OUT"
+    if $UNIVERSAL; then printf 'slice=%s\n' "${SLICES[@]}"; fi
+    exit 0
+fi
 
 info() { echo "[bundle] $*"; }
 die()  { echo "[bundle] ERROR: $*" >&2; exit 1; }
@@ -49,15 +79,11 @@ if $UNIVERSAL; then
             || die "target $t not installed — run: rustup target add $t"
         cargo build --release -p "$BIN_NAME" --target "$t"
     done
-    BIN="$OUT/$BIN_NAME-universal"
     mkdir -p "$OUT"
-    lipo -create -output "$BIN" \
-        "target/x86_64-apple-darwin/release/$BIN_NAME" \
-        "target/aarch64-apple-darwin/release/$BIN_NAME"
+    lipo -create -output "$BIN" "${SLICES[@]}"
 else
     info "Building release binary for host arch …"
     cargo build --release -p "$BIN_NAME"
-    BIN="target/release/$BIN_NAME"
 fi
 
 # ── 2. Generate the .icns from the 1024px PNG ─────────────────────────────────

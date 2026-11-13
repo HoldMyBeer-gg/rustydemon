@@ -117,6 +117,13 @@ jobs:
           fetch-depth: 0
       - run: scripts/aur-bump.test.sh
 
+  bundle-script:
+    name: macOS bundle script paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/macos-bundle.test.sh
+
   # ── Security audit ──────────────────────────────────────────────────────────
   audit:
     name: Security audit
