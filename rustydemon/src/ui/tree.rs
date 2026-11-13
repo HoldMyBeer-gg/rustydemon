@@ -225,6 +225,23 @@ fn draw_folder_rows(
     click
 }
 
+/// A row's name laid out on one line, cut short with `…` if it is wider
+/// than `width`.
+fn fit_name(
+    ui: &egui::Ui,
+    name: &str,
+    color: egui::Color32,
+    width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::simple_singleline(
+        name.to_owned(),
+        egui::FontId::proportional(13.0),
+        color,
+    );
+    job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(0.0));
+    ui.painter().layout_job(job)
+}
+
 /// Response from a tree row — body click vs caret click are separate.
 struct TreeRowResponse {
     body: egui::Response,
@@ -341,14 +358,17 @@ fn tree_row(
     );
     x += 18.0;
 
-    // Name.
-    painter.text(
-        egui::pos2(x, y),
-        egui::Align2::LEFT_CENTER,
-        name,
-        egui::FontId::proportional(13.0),
-        text_color,
-    );
+    // Name, cut short at the row's right edge. A cut-short name shows
+    // whole on hover; its accessible name is always the whole name.
+    let name_galley = fit_name(ui, name, text_color, rect.right() - x - 4.0);
+    let cut_short = name_galley.elided;
+    let name_pos = egui::pos2(x, y - name_galley.size().y / 2.0);
+    painter.galley(name_pos, name_galley, text_color);
+    let body_resp = if cut_short {
+        body_resp.on_hover_text(name)
+    } else {
+        body_resp
+    };
 
     TreeRowResponse {
         body: body_resp,
@@ -488,5 +508,34 @@ mod overflow_tests {
                 .any(|n| n == "… 54,489 more files. Click head to browse them"),
             "{names:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod fit_tests {
+    use super::*;
+
+    fn fit(name: &str, width: f32) -> (f32, bool) {
+        let ctx = egui::Context::default();
+        crate::ui::theme::apply(&ctx);
+        let mut got = None;
+        crate::ui::a11y::testing::frame_plain(&ctx, |ui| {
+            let g = fit_name(ui, name, egui::Color32::WHITE, width);
+            got = Some((g.size().x, g.elided));
+        });
+        got.unwrap()
+    }
+
+    #[test]
+    fn a_name_wider_than_the_row_is_cut_short_inside_it() {
+        let (drawn, elided) = fit("blizzard_accessibilitytemplates", 120.0);
+        assert!(drawn <= 120.0, "{drawn} wide in 120");
+        assert!(elided);
+    }
+
+    #[test]
+    fn a_name_that_fits_is_left_alone() {
+        let (_, elided) = fit("interface", 200.0);
+        assert!(!elided);
     }
 }
