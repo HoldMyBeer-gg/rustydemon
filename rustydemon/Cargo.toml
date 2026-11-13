@@ -60,3 +60,7 @@ texture2ddecoder = "0.1"
 # deps can re-enable it by dropping the target cfg.
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 rodio = { version = "0.19", default-features = false, features = ["mp3", "vorbis", "wav"] }
+
+# Embeds the icon in the Windows executable (see build.rs).
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
