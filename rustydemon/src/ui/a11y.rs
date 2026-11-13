@@ -350,9 +350,10 @@ mod tests {
     #[test]
     fn empty_game_pill_says_what_it_means() {
         let n = named(&nodes(|ui| {
-            crate::ui::theme::panel_header(ui, "File Browser", Some("-"));
+            let pill = crate::ui::tree::game_pill(None);
+            crate::ui::theme::panel_header(ui, "File Browser", Some(&pill));
         }));
-        assert!(n.iter().any(|(_, s)| s == "No game loaded"), "{n:?}");
+        assert!(n.iter().any(|(_, s)| s == "No game"), "{n:?}");
         assert!(!n.iter().any(|(_, s)| s == "-"), "{n:?}");
     }
 }

@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "ENCODING resolved: archive={} offset=0x{:x} size={} storage={}",
             e.index, e.offset, e.size, e.storage
         ),
-        None => println!("ENCODING: not in local index (expected — it's in file-index)"),
+        None => println!("ENCODING: not in local index (expected: it's in file-index)"),
     }
 
     Ok(())
