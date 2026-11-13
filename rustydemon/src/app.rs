@@ -841,8 +841,8 @@ impl eframe::App for CascExplorerApp {
         publish_window_name(ctx);
         self.apply_pending_audio();
         self.poll_background(ctx);
-        crate::ui::draw(ui, self);
-        crate::viewport3d::show_window(ctx, &mut self.viewport3d_open);
+        let content = crate::ui::draw(ui, self);
+        crate::viewport3d::show_window(ctx, &mut self.viewport3d_open, content);
     }
 }
 

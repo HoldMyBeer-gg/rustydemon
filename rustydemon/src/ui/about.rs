@@ -14,6 +14,7 @@ view models, inspect in-game stat powers, find hidden gems.";
 const REPO_URL: &str = "https://github.com/HoldMyBeer-gg/rustydemon";
 const SPONSOR_URL: &str = "https://github.com/sponsors/jabberwock";
 const BUG_URL: &str = "https://github.com/HoldMyBeer-gg/rustydemon/issues/new/choose";
+const COPYRIGHT: &str = "© 2026 jabberwock · AGPL-3.0 + Commons Clause";
 const AUTHOR_URL: &str = "https://github.com/jabberwock";
 
 /// Show the About window if `open`. Mutates `open` to false when the
@@ -66,12 +67,9 @@ fn about_body(ui: &mut egui::Ui, logo: &Option<egui::TextureHandle>, open: &mut 
                     .inner_margin(egui::Margin::symmetric(20, 12)),
             )
             .show(ui, |ui| {
+                // Buttons first, from the right; the copyright line wraps in
+                // whatever width is left.
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("© 2026 jabberwock · AGPL-3.0 + Commons Clause")
-                            .size(10.5)
-                            .color(rd::FROST_600),
-                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Close").clicked() {
                             *open = false;
@@ -83,6 +81,16 @@ fn about_body(ui: &mut egui::Ui, logo: &Option<egui::TextureHandle>, open: &mut 
                                 std::env::consts::OS
                             ));
                         }
+                        ui.with_layout(
+                            egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
+                            |ui| {
+                                ui.label(
+                                    egui::RichText::new(COPYRIGHT)
+                                        .size(10.5)
+                                        .color(rd::FROST_600),
+                                );
+                            },
+                        );
                     });
                 });
             });
@@ -346,5 +354,21 @@ mod a11y_tests {
                 .any(|(_, s)| s.starts_with('•') || s.starts_with('●')),
             "{n:?}"
         );
+    }
+
+    /// At the window's default width the copyright line and the two buttons
+    /// do not fit on one row; the line must give way, not be drawn under them.
+    #[test]
+    fn footer_text_is_not_drawn_under_the_buttons() {
+        use crate::ui::a11y::testing::{bounds_of, nodes_sized, overlap};
+        let all = nodes_sized([400.0, 600.0], |ui| {
+            let mut open = true;
+            super::about_body(ui, &None, &mut open);
+        });
+        let text = bounds_of(&all, super::COPYRIGHT);
+        for button in ["Close", "Copy Version"] {
+            let b = bounds_of(&all, button);
+            assert!(!overlap(text, b), "{button} {b:?} covers {text:?}");
+        }
     }
 }

@@ -23,6 +23,28 @@ fn open_dir_button(ui: &mut egui::Ui) -> egui::Response {
     resp
 }
 
+/// What an Edit menu item asks to be copied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Copy {
+    Hash,
+    CKey,
+}
+
+/// The Edit menu's items. Both copy from the selected file.
+fn edit_items(ui: &mut egui::Ui, has_selection: bool) -> Option<Copy> {
+    let mut item = |label: &str| {
+        ui.add_enabled(has_selection, egui::Button::new(label))
+            .clicked()
+    };
+    if item("Copy Hash") {
+        return Some(Copy::Hash);
+    }
+    if item("Copy CKey") {
+        return Some(Copy::CKey);
+    }
+    None
+}
+
 pub fn draw_menu(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     let ctx = &ui.ctx().clone();
     // Global Ctrl/⌘+O: pop the same folder picker as File → Open Game Directory.
@@ -153,17 +175,13 @@ pub fn draw_menu(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
 
                 // ── Edit ──────────────────────────────────────────────────────────
                 ui.menu_button("Edit", |ui| {
-                    if ui.button("Copy Hash").clicked() {
+                    let copy = edit_items(ui, app.selected.is_some());
+                    if let (Some(copy), Some(sel)) = (copy, &app.selected) {
                         ui.close();
-                        if let Some(sel) = &app.selected {
-                            ctx.copy_text(format!("{:016X}", sel.result.hash));
-                        }
-                    }
-                    if ui.button("Copy CKey").clicked() {
-                        ui.close();
-                        if let Some(sel) = &app.selected {
-                            ctx.copy_text(sel.result.ckey.to_hex());
-                        }
+                        ctx.copy_text(match copy {
+                            Copy::Hash => format!("{:016X}", sel.result.hash),
+                            Copy::CKey => sel.result.ckey.to_hex(),
+                        });
                     }
                 });
 
@@ -285,5 +303,27 @@ mod a11y_tests {
         assert_eq!(item.label(), Some("Open Game Directory…"));
         let shortcut = item.keyboard_shortcut().expect("a published shortcut");
         assert!(shortcut.ends_with('O'), "{shortcut}");
+    }
+
+    fn edit_item_disabled(has_selection: bool, name: &str) -> bool {
+        nodes(|ui| {
+            super::edit_items(ui, has_selection);
+        })
+        .iter()
+        .find(|n| n.label() == Some(name))
+        .unwrap_or_else(|| panic!("no {name}"))
+        .is_disabled()
+    }
+
+    #[test]
+    fn copy_items_are_disabled_with_nothing_selected() {
+        assert!(edit_item_disabled(false, "Copy Hash"));
+        assert!(edit_item_disabled(false, "Copy CKey"));
+    }
+
+    #[test]
+    fn copy_items_are_enabled_with_a_file_selected() {
+        assert!(!edit_item_disabled(true, "Copy Hash"));
+        assert!(!edit_item_disabled(true, "Copy CKey"));
     }
 }
