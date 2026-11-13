@@ -190,7 +190,8 @@
           The product icon is the graphic that appears in the Add/Remove
           Programs control panel for the application.
         -->
-        <Icon Id='ProductICO' SourceFile='..\assets\icons\windows\rustydemon.ico'/>
+        <!-- Relative to the workspace root, which is where cargo-wix runs the linker. -->
+        <Icon Id='ProductICO' SourceFile='assets\icons\windows\rustydemon.ico'/>
         <Property Id='ARPPRODUCTICON' Value='ProductICO' />
 
         <Property Id='ARPHELPLINK' Value='https://github.com/HoldMyBeer-gg/rustydemon'/>
