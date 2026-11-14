@@ -31,9 +31,9 @@ archives, written entirely in Rust.
 
 ## Preview Plugins
 
-| About modal | D4 `.tex` texture |
-|-------------|-------------------|
-| ![About modal](screenshots/about.png) | ![D4 texture preview](screenshots/d4_tex.png) |
+| Diablo Immortal mesh (macOS) | D4 `.tex` texture |
+|------------------------------|-------------------|
+| ![Diablo Immortal mesh preview on macOS](screenshots/di_mesh.png) | ![D4 texture preview](screenshots/d4_tex.png) |
 
 | D4 `.pow` skill data | WoW `.m2` model |
 |----------------------|-----------------|
