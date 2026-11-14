@@ -269,414 +269,88 @@ pub fn drawn_parts(app: &Appearance) -> Vec<usize> {
 
 // ── glTF export ──────────────────────────────────────────────────────────
 
-/// D3 is Z-up, glTF is Y-up.
-fn y_up(v: [f32; 3]) -> [f32; 3] {
-    [v[0], v[2], -v[1]]
-}
-
-fn y_up_rotation(q: [f32; 4]) -> [f32; 4] {
-    [q[0], q[2], -q[1], q[3]]
-}
-
-type Mat = [[f32; 4]; 4];
-
-fn matrix(q: [f32; 4], t: [f32; 3]) -> Mat {
-    let [x, y, z, w] = q;
-    [
-        [
-            1.0 - 2.0 * (y * y + z * z),
-            2.0 * (x * y - z * w),
-            2.0 * (x * z + y * w),
-            t[0],
-        ],
-        [
-            2.0 * (x * y + z * w),
-            1.0 - 2.0 * (x * x + z * z),
-            2.0 * (y * z - x * w),
-            t[1],
-        ],
-        [
-            2.0 * (x * z - y * w),
-            2.0 * (y * z + x * w),
-            1.0 - 2.0 * (x * x + y * y),
-            t[2],
-        ],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-}
-
-fn mul(a: &Mat, b: &Mat) -> Mat {
-    let mut m = [[0.0; 4]; 4];
-    for (i, row) in m.iter_mut().enumerate() {
-        for (j, cell) in row.iter_mut().enumerate() {
-            *cell = (0..4).map(|k| a[i][k] * b[k][j]).sum();
-        }
-    }
-    m
-}
-
-/// Inverse of a rotation plus translation.
-fn rigid_inverse(m: &Mat) -> Mat {
-    let mut r = [[0.0; 4]; 4];
-    for i in 0..3 {
-        for j in 0..3 {
-            r[i][j] = m[j][i];
-        }
-        r[i][3] = -(0..3).map(|k| m[k][i] * m[k][3]).sum::<f32>();
-    }
-    r[3][3] = 1.0;
-    r
-}
-
-fn num(v: f32) -> String {
-    if v == 0.0 || !v.is_finite() {
-        "0".into()
-    } else {
-        format!("{v}")
-    }
-}
-
-fn nums(v: &[f32]) -> String {
-    v.iter().map(|&x| num(x)).collect::<Vec<_>>().join(",")
-}
-
-fn quote(s: &str) -> String {
-    let mut o = String::from("\"");
-    for c in s.chars() {
-        match c {
-            '"' => o.push_str("\\\""),
-            '\\' => o.push_str("\\\\"),
-            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
-            c => o.push(c),
-        }
-    }
-    o.push('"');
-    o
-}
-
-struct Bin {
-    data: Vec<u8>,
-    views: Vec<String>,
-    accessors: Vec<String>,
-}
-
-impl Bin {
-    fn view(&mut self, bytes: &[u8], target: Option<u32>) -> usize {
-        while !self.data.len().is_multiple_of(4) {
-            self.data.push(0);
-        }
-        let target = target
-            .map(|t| format!(",\"target\":{t}"))
-            .unwrap_or_default();
-        self.views.push(format!(
-            "{{\"buffer\":0,\"byteOffset\":{},\"byteLength\":{}{target}}}",
-            self.data.len(),
-            bytes.len()
-        ));
-        self.data.extend_from_slice(bytes);
-        self.views.len() - 1
-    }
-    fn accessor(
-        &mut self,
-        bytes: &[u8],
-        component: u32,
-        count: usize,
-        kind: &str,
-        target: Option<u32>,
-        bounds: Option<(&[f32], &[f32])>,
-    ) -> usize {
-        let view = self.view(bytes, target);
-        let bounds = bounds
-            .map(|(lo, hi)| format!(",\"min\":[{}],\"max\":[{}]", nums(lo), nums(hi)))
-            .unwrap_or_default();
-        self.accessors.push(format!(
-            "{{\"bufferView\":{view},\"componentType\":{component},\"count\":{count},\"type\":\"{kind}\"{bounds}}}"
-        ));
-        self.accessors.len() - 1
-    }
-}
-
-const FLOAT: u32 = 5126;
-const USHORT: u32 = 5123;
-const UINT: u32 = 5125;
-const ARRAY: u32 = 34962;
-const ELEMENTS: u32 = 34963;
-
-fn floats(v: impl IntoIterator<Item = f32>) -> Vec<u8> {
-    v.into_iter().flat_map(f32::to_le_bytes).collect()
-}
-
-/// Every part as its own skinned mesh on the model's skeleton, with the
-/// given PNG colour maps (by material name) embedded, as binary glTF.
+/// The model, and the animation when given, in the shared glTF writer's
+/// terms.
 pub fn to_glb(
     app: &Appearance,
     textures: &[(String, Vec<u8>)],
     anim: Option<&super::d3_ani::Animation>,
 ) -> Vec<u8> {
-    let mut bin = Bin {
-        data: Vec::new(),
-        views: Vec::new(),
-        accessors: Vec::new(),
-    };
-    let skinned = !app.bones.is_empty();
-
-    // Bones, converted to Y-up, and their inverse bind matrices.
-    let mut world: Vec<Mat> = Vec::with_capacity(app.bones.len());
-    let mut nodes: Vec<String> = Vec::new();
-    for b in &app.bones {
-        let (q, t) = (y_up_rotation(b.rotation), y_up(b.translation));
-        let local = matrix(q, t);
-        let w = match usize::try_from(b.parent).ok().and_then(|p| world.get(p)) {
-            Some(parent) => mul(parent, &local),
-            None => local,
-        };
-        world.push(w);
-        nodes.push(format!(
-            "{{\"name\":{},\"rotation\":[{}],\"translation\":[{}]",
-            quote(&b.name),
-            nums(&q),
-            nums(&t)
-        ));
-    }
-    let mut children: Vec<Vec<usize>> = vec![Vec::new(); app.bones.len()];
-    for (i, b) in app.bones.iter().enumerate() {
-        if let Some(p) = usize::try_from(b.parent)
-            .ok()
-            .filter(|&p| p < app.bones.len())
-        {
-            children[p].push(i);
-        }
-    }
-    for (n, kids) in nodes.iter_mut().zip(&children) {
-        if !kids.is_empty() {
-            let list: Vec<String> = kids.iter().map(usize::to_string).collect();
-            n.push_str(&format!(",\"children\":[{}]", list.join(",")));
-        }
-        n.push('}');
-    }
-    let ibm = skinned.then(|| {
-        let bytes = floats(world.iter().flat_map(|m| {
-            let inv = rigid_inverse(m);
-            (0..16).map(move |k| inv[k % 4][k / 4])
-        }));
-        bin.accessor(&bytes, FLOAT, app.bones.len(), "MAT4", None, None)
-    });
-
-    // Materials with a colour map.
-    let mut images = Vec::new();
-    let mut materials = Vec::new();
-    for (name, png) in textures {
-        let view = bin.view(png, None);
-        images.push(format!(
-            "{{\"bufferView\":{view},\"mimeType\":\"image/png\"}}"
-        ));
-        materials.push(format!(
-            "{{\"name\":{},\"pbrMetallicRoughness\":{{\"baseColorTexture\":{{\"index\":{}}},\"metallicFactor\":0,\"roughnessFactor\":0.9}}}}",
-            quote(name),
-            images.len() - 1
-        ));
-    }
-
-    let mut meshes = Vec::new();
-    let mut mesh_nodes = Vec::new();
-    for part in &app.parts {
-        let pos: Vec<[f32; 3]> = part.positions.iter().map(|&p| y_up(p)).collect();
-        let mut lo = [f32::MAX; 3];
-        let mut hi = [f32::MIN; 3];
-        for p in &pos {
-            for k in 0..3 {
-                lo[k] = lo[k].min(p[k]);
-                hi[k] = hi[k].max(p[k]);
-            }
-        }
-        if pos.is_empty() {
-            lo = [0.0; 3];
-            hi = [0.0; 3];
-        }
-        let n = pos.len();
-        let a_pos = bin.accessor(
-            &floats(pos.iter().flatten().copied()),
-            FLOAT,
-            n,
-            "VEC3",
-            Some(ARRAY),
-            Some((&lo, &hi)),
-        );
-        let a_uv = bin.accessor(
-            &floats(part.uvs.iter().flatten().copied()),
-            FLOAT,
-            n,
-            "VEC2",
-            Some(ARRAY),
-            None,
-        );
-        let mut attrs = format!("\"POSITION\":{a_pos},\"TEXCOORD_0\":{a_uv}");
-        if skinned && part.weights.len() == n {
-            let mut joints = Vec::with_capacity(n * 8);
-            let mut weights = Vec::with_capacity(n * 4);
-            for w in &part.weights {
-                let total: f32 = w.iter().map(|p| p.1.max(0.0)).sum();
-                let total = if total > 0.0 { total } else { 1.0 };
-                for k in 0..4 {
-                    let (bone, wt) = w.get(k).copied().unwrap_or((0, 0.0));
-                    let bone = if (bone as usize) < app.bones.len() {
-                        bone
-                    } else {
-                        0
-                    };
-                    joints.extend_from_slice(&(bone as u16).to_le_bytes());
-                    weights.push(wt.max(0.0) / total);
-                }
-            }
-            let a_j = bin.accessor(&joints, USHORT, n, "VEC4", Some(ARRAY), None);
-            let a_w = bin.accessor(&floats(weights), FLOAT, n, "VEC4", Some(ARRAY), None);
-            attrs.push_str(&format!(",\"JOINTS_0\":{a_j},\"WEIGHTS_0\":{a_w}"));
-        }
-        let idx: Vec<u8> = part.indices.iter().flat_map(|i| i.to_le_bytes()).collect();
-        let a_idx = bin.accessor(
-            &idx,
-            UINT,
-            part.indices.len(),
-            "SCALAR",
-            Some(ELEMENTS),
-            None,
-        );
-        let material = textures
-            .iter()
-            .position(|(name, _)| *name == part.material)
-            .map(|m| format!(",\"material\":{m}"))
-            .unwrap_or_default();
-        meshes.push(format!(
-            "{{\"name\":{},\"primitives\":[{{\"attributes\":{{{attrs}}},\"indices\":{a_idx}{material}}}]}}",
-            quote(&part.material)
-        ));
-        let skin = if skinned { ",\"skin\":0" } else { "" };
-        nodes.push(format!(
-            "{{\"name\":{},\"mesh\":{}{skin}}}",
-            quote(&part.material),
-            meshes.len() - 1
-        ));
-        mesh_nodes.push(nodes.len() - 1);
-    }
-
-    let mut animations = Vec::new();
-    if let Some(anim) = anim {
-        let mut channels = Vec::new();
-        let mut samplers = Vec::new();
-        for track in &anim.bones {
-            let Some(node) = app.bones.iter().position(|b| b.name == track.name) else {
-                continue;
-            };
-            let times = |frames: &mut dyn Iterator<Item = u32>| -> Vec<f32> {
-                frames
-                    .map(|f| f as f32 / super::d3_ani::KEYS_PER_SECOND)
-                    .collect()
-            };
-            let mut channel =
-                |bin: &mut Bin, t: Vec<f32>, values: Vec<u8>, kind: &str, path: &str| {
-                    if t.is_empty() {
-                        return;
-                    }
-                    let lo = t.iter().copied().fold(f32::MAX, f32::min);
-                    let hi = t.iter().copied().fold(f32::MIN, f32::max);
-                    let input = bin.accessor(
-                        &floats(t.iter().copied()),
-                        FLOAT,
-                        t.len(),
-                        "SCALAR",
-                        None,
-                        Some((&[lo], &[hi])),
-                    );
-                    let output = bin.accessor(&values, FLOAT, t.len(), kind, None, None);
-                    samplers.push(format!(
-                        "{{\"input\":{input},\"output\":{output},\"interpolation\":\"LINEAR\"}}"
-                    ));
-                    channels.push(format!(
-                        "{{\"sampler\":{},\"target\":{{\"node\":{node},\"path\":\"{path}\"}}}}",
-                        samplers.len() - 1
-                    ));
-                };
-            let t = times(&mut track.translation.iter().map(|k| k.0));
-            let v = floats(track.translation.iter().flat_map(|k| y_up(k.1)));
-            channel(&mut bin, t, v, "VEC3", "translation");
-            let t = times(&mut track.rotation.iter().map(|k| k.0));
-            let v = floats(track.rotation.iter().flat_map(|k| y_up_rotation(k.1)));
-            channel(&mut bin, t, v, "VEC4", "rotation");
-            let t = times(&mut track.scale.iter().map(|k| k.0));
-            let v = floats(track.scale.iter().flat_map(|k| [k.1; 3]));
-            channel(&mut bin, t, v, "VEC3", "scale");
-        }
-        if !channels.is_empty() {
-            animations.push(format!(
-                "{{\"name\":\"animation\",\"channels\":[{}],\"samplers\":[{}]}}",
-                channels.join(","),
-                samplers.join(",")
-            ));
-        }
-    }
-
-    let mut scene: Vec<String> = app
+    use super::gltf;
+    let bones: Vec<gltf::Bone> = app
         .bones
         .iter()
-        .enumerate()
-        .filter(|(_, b)| b.parent < 0 || b.parent as usize >= app.bones.len())
-        .map(|(i, _)| i.to_string())
+        .map(|b| gltf::Bone {
+            name: b.name.clone(),
+            parent: usize::try_from(b.parent).ok(),
+            rotation: b.rotation,
+            translation: b.translation,
+            scale: [1.0; 3],
+        })
         .collect();
-    scene.extend(mesh_nodes.iter().map(usize::to_string));
-
-    let mut json = format!(
-        "{{\"asset\":{{\"version\":\"2.0\",\"generator\":\"rustydemon\"}},\"scene\":0,\"scenes\":[{{\"nodes\":[{}]}}],\"nodes\":[{}],\"meshes\":[{}]",
-        scene.join(","),
-        nodes.join(","),
-        meshes.join(",")
-    );
-    if let Some(ibm) = ibm {
-        let joints: Vec<String> = (0..app.bones.len()).map(|i| i.to_string()).collect();
-        json.push_str(&format!(
-            ",\"skins\":[{{\"joints\":[{}],\"inverseBindMatrices\":{ibm}}}]",
-            joints.join(",")
-        ));
+    let parts = app
+        .parts
+        .iter()
+        .map(|p| gltf::Part {
+            name: p.material.clone(),
+            material: Some(p.material.clone()),
+            positions: p.positions.clone(),
+            uvs: p.uvs.clone(),
+            skin: p
+                .weights
+                .iter()
+                .map(|w| {
+                    let pair = |k: usize| (w[k].0.min(u16::MAX as u32) as u16, w[k].1);
+                    [pair(0), pair(1), pair(2), (0, 0.0)]
+                })
+                .collect(),
+            indices: p.indices.clone(),
+        })
+        .collect();
+    let mut animations = Vec::new();
+    if let Some(anim) = anim {
+        let secs = |f: u32| f as f32 / super::d3_ani::KEYS_PER_SECOND;
+        let mut channels = Vec::new();
+        for track in &anim.bones {
+            let Some(bone) = app.bones.iter().position(|b| b.name == track.name) else {
+                continue;
+            };
+            if !track.translation.is_empty() {
+                channels.push(gltf::Channel {
+                    bone,
+                    times: track.translation.iter().map(|k| secs(k.0)).collect(),
+                    values: gltf::Values::Translation(
+                        track.translation.iter().map(|k| k.1).collect(),
+                    ),
+                });
+            }
+            if !track.rotation.is_empty() {
+                channels.push(gltf::Channel {
+                    bone,
+                    times: track.rotation.iter().map(|k| secs(k.0)).collect(),
+                    values: gltf::Values::Rotation(track.rotation.iter().map(|k| k.1).collect()),
+                });
+            }
+            if !track.scale.is_empty() {
+                channels.push(gltf::Channel {
+                    bone,
+                    times: track.scale.iter().map(|k| secs(k.0)).collect(),
+                    values: gltf::Values::Scale(track.scale.iter().map(|k| [k.1; 3]).collect()),
+                });
+            }
+        }
+        animations.push(gltf::Animation {
+            name: "animation".into(),
+            channels,
+        });
     }
-    if !images.is_empty() {
-        let tex: Vec<String> = (0..images.len())
-            .map(|i| format!("{{\"source\":{i}}}"))
-            .collect();
-        json.push_str(&format!(
-            ",\"images\":[{}],\"textures\":[{}],\"materials\":[{}]",
-            images.join(","),
-            tex.join(","),
-            materials.join(",")
-        ));
-    }
-    if !animations.is_empty() {
-        json.push_str(&format!(",\"animations\":[{}]", animations.join(",")));
-    }
-    while !bin.data.len().is_multiple_of(4) {
-        bin.data.push(0);
-    }
-    json.push_str(&format!(
-        ",\"accessors\":[{}],\"bufferViews\":[{}],\"buffers\":[{{\"byteLength\":{}}}]}}",
-        bin.accessors.join(","),
-        bin.views.join(","),
-        bin.data.len()
-    ));
-    let mut json = json.into_bytes();
-    while !json.len().is_multiple_of(4) {
-        json.push(b' ');
-    }
-
-    let total = 12 + 8 + json.len() + 8 + bin.data.len();
-    let mut out = Vec::with_capacity(total);
-    out.extend_from_slice(b"glTF");
-    out.extend_from_slice(&2u32.to_le_bytes());
-    out.extend_from_slice(&(total as u32).to_le_bytes());
-    out.extend_from_slice(&(json.len() as u32).to_le_bytes());
-    out.extend_from_slice(b"JSON");
-    out.extend_from_slice(&json);
-    out.extend_from_slice(&(bin.data.len() as u32).to_le_bytes());
-    out.extend_from_slice(b"BIN\0");
-    out.extend_from_slice(&bin.data);
-    out
+    gltf::to_glb(&gltf::Model {
+        bones,
+        parts,
+        textures: textures.to_vec(),
+        animations,
+        z_up: true,
+    })
 }
 
 // ── Preview ──────────────────────────────────────────────────────────────
