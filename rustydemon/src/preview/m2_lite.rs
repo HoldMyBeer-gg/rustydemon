@@ -42,12 +42,41 @@ pub struct M2Lite {
     pub skin_fdids: Vec<u32>,
     /// `TXID` chunk: one texture file per texture slot, 0 for none.
     pub texture_fdids: Vec<u32>,
+    /// Four bone weights per vertex, 0 to 255, in vertex order.
+    pub bone_weights: Vec<[u8; 4]>,
+    /// The four bones each weight applies to, in vertex order.
+    pub bone_indices: Vec<[u8; 4]>,
+    /// The skeleton, in bone order.  Empty if the table is unreadable:
+    /// the preview draws without it and only the rigged export needs it.
+    pub bones: Vec<M2Bone>,
+    /// Bone lookup table: a skin section's bone combo index plus a bone
+    /// number within the section gives an index into this table, whose
+    /// entry is the bone.
+    pub bone_lookup: Vec<u16>,
+}
+
+/// What the rigged export needs from one bone.  Animation tracks are
+/// left in the file for now.
+#[derive(Debug, Clone, PartialEq)]
+pub struct M2Bone {
+    /// Back-reference to the key bone lookup, -1 for none.
+    pub key_bone_id: i32,
+    pub flags: u32,
+    /// Index of the parent bone, -1 for a root.
+    pub parent: i16,
+    /// Rest position of the bone in model space; children are placed
+    /// relative to it.
+    pub pivot: [f32; 3],
 }
 
 /// Oldest header layout this reads (Wrath of the Lich King).  Older files
 /// have extra fields before the vertices and embed their skins.
 const MIN_VERSION: u32 = 264;
 const VERTEX_SIZE: usize = 48;
+/// A bone record since Wrath: key bone, flags, parent, submesh, name
+/// CRC, three 20-byte animation tracks and the pivot.
+const BONE_SIZE: usize = 88;
+const BONE_PIVOT: usize = 0x4C;
 
 // Header fields, as offsets into the MD20 body.  Arrays are a `(count,
 // offset)` pair of `u32`s; the offset is from the start of the body.
@@ -57,6 +86,7 @@ const F_BONES: usize = 0x2C;
 const F_VERTICES: usize = 0x3C;
 const F_TEXTURES: usize = 0x50;
 const F_MATERIALS: usize = 0x70;
+const F_BONE_LOOKUP: usize = 0x78;
 const F_TEXTURE_LOOKUP: usize = 0x80;
 /// Six floats: minimum corner, then maximum corner.
 const F_BOUNDING_BOX: usize = 0xA0;
@@ -156,6 +186,43 @@ impl M2Lite {
             .iter()
             .map(|v| [f32_at(v, 32), f32_at(v, 36)])
             .collect();
+        let bone_weights = vertices
+            .as_chunks::<VERTEX_SIZE>()
+            .0
+            .iter()
+            .map(|v| [v[12], v[13], v[14], v[15]])
+            .collect();
+        let bone_indices = vertices
+            .as_chunks::<VERTEX_SIZE>()
+            .0
+            .iter()
+            .map(|v| [v[16], v[17], v[18], v[19]])
+            .collect();
+        // Only the rigged export needs the skeleton, so a bad table costs
+        // the model nothing else.
+        let bones = array(body, F_BONES, BONE_SIZE, "bones")
+            .map(|t| {
+                t.as_chunks::<BONE_SIZE>()
+                    .0
+                    .iter()
+                    .map(|b| M2Bone {
+                        key_bone_id: i32::from_le_bytes([b[0], b[1], b[2], b[3]]),
+                        flags: u32::from_le_bytes([b[4], b[5], b[6], b[7]]),
+                        parent: i16::from_le_bytes([b[8], b[9]]),
+                        pivot: [0, 4, 8].map(|axis| f32_at(b, BONE_PIVOT + axis)),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let bone_lookup = array(body, F_BONE_LOOKUP, 2, "bone lookups")
+            .map(|t| {
+                t.as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|c| u16::from_le_bytes(*c))
+                    .collect()
+            })
+            .unwrap_or_default();
         let texture_lookup = array(body, F_TEXTURE_LOOKUP, 2, "texture lookups")?
             .as_chunks::<2>()
             .0
@@ -209,6 +276,10 @@ impl M2Lite {
             texture_lookup,
             skin_fdids,
             texture_fdids,
+            bone_weights,
+            bone_indices,
+            bones,
+            bone_lookup,
         })
     }
 }
@@ -234,11 +305,16 @@ pub(crate) mod tests {
     }
 
     fn vertex(pos: [f32; 3], uv: [f32; 2]) -> Vec<u8> {
+        skinned_vertex(pos, uv, [0; 4], [0; 4])
+    }
+
+    fn skinned_vertex(pos: [f32; 3], uv: [f32; 2], weights: [u8; 4], bones: [u8; 4]) -> Vec<u8> {
         let mut v = Vec::with_capacity(VERTEX_SIZE);
         for f in pos {
             v.extend_from_slice(&f.to_le_bytes());
         }
-        v.extend_from_slice(&[0u8; 8]); // bone weights, bone indices
+        v.extend_from_slice(&weights);
+        v.extend_from_slice(&bones);
         for f in [0.0f32, 0.0, 1.0] {
             v.extend_from_slice(&f.to_le_bytes()); // normal
         }
@@ -288,11 +364,104 @@ pub(crate) mod tests {
         b
     }
 
+    /// One 88-byte bone record: key bone, flags, parent, three empty
+    /// tracks (interpolation, global sequence, two empty arrays each) and
+    /// the pivot.
+    fn bone(key: i32, flags: u32, parent: i16, pivot: [f32; 3]) -> Vec<u8> {
+        let mut b = Vec::with_capacity(BONE_SIZE);
+        b.extend_from_slice(&key.to_le_bytes());
+        b.extend_from_slice(&flags.to_le_bytes());
+        b.extend_from_slice(&parent.to_le_bytes());
+        b.extend_from_slice(&[0u8; 2]); // submesh id
+        b.extend_from_slice(&[0u8; 4]); // name crc
+        b.extend_from_slice(&[0u8; 60]); // translation, rotation, scale tracks
+        for f in pivot {
+            b.extend_from_slice(&f.to_le_bytes());
+        }
+        assert_eq!(b.len(), BONE_SIZE);
+        b
+    }
+
+    /// `body()` with two skinned vertices, a three-bone skeleton and a
+    /// bone lookup table.
+    fn rigged() -> Vec<u8> {
+        let mut b = body();
+        let mut verts = skinned_vertex([1.0, 2.0, 3.0], [0.25, 0.5], [255, 0, 0, 0], [1, 0, 0, 0]);
+        verts.extend(skinned_vertex(
+            [4.0, 5.0, 6.0],
+            [0.75, 1.0],
+            [128, 127, 0, 0],
+            [1, 2, 0, 0],
+        ));
+        put(&mut b, F_VERTICES, 2, &verts);
+        let mut bones = bone(0, 0, -1, [0.0, 0.0, 1.0]);
+        bones.extend(bone(-1, 0x200, 0, [0.0, 0.0, 2.5]));
+        bones.extend(bone(5, 0x8, 1, [0.5, 0.0, 3.0]));
+        put(&mut b, F_BONES, 3, &bones);
+        put(&mut b, F_BONE_LOOKUP, 4, &[2, 0, 1, 0, 0, 0, 2, 0]); // 2, 1, 0, 2
+        b
+    }
+
     pub(crate) fn chunked() -> Vec<u8> {
         let mut f = chunk(b"MD21", &body());
         f.extend(chunk(b"SFID", &le(&[111, 222])));
         f.extend(chunk(b"TXID", &le(&[0, 333])));
         f
+    }
+
+    #[test]
+    fn reads_bone_weights_and_indices_from_each_vertex() {
+        let m = M2Lite::parse(&rigged()).unwrap();
+        assert_eq!(m.bone_weights, [[255, 0, 0, 0], [128, 127, 0, 0]]);
+        assert_eq!(m.bone_indices, [[1, 0, 0, 0], [1, 2, 0, 0]]);
+    }
+
+    #[test]
+    fn reads_the_bone_table() {
+        let m = M2Lite::parse(&rigged()).unwrap();
+        assert_eq!(m.bone_count, 3);
+        assert_eq!(
+            m.bones,
+            [
+                M2Bone {
+                    key_bone_id: 0,
+                    flags: 0,
+                    parent: -1,
+                    pivot: [0.0, 0.0, 1.0]
+                },
+                M2Bone {
+                    key_bone_id: -1,
+                    flags: 0x200,
+                    parent: 0,
+                    pivot: [0.0, 0.0, 2.5]
+                },
+                M2Bone {
+                    key_bone_id: 5,
+                    flags: 0x8,
+                    parent: 1,
+                    pivot: [0.5, 0.0, 3.0]
+                },
+            ]
+        );
+        assert_eq!(m.bone_lookup, [2, 1, 0, 2]);
+    }
+
+    #[test]
+    fn a_model_without_a_bone_table_has_no_bones() {
+        let m = M2Lite::parse(&chunked()).unwrap();
+        assert_eq!(m.bone_count, 7); // the header count stays what the file says
+        assert!(m.bones.is_empty());
+        assert!(m.bone_lookup.is_empty());
+        assert_eq!(m.bone_weights.len(), 2);
+    }
+
+    #[test]
+    fn a_bone_table_past_the_end_of_the_file_does_not_fail_the_model() {
+        let mut b = rigged();
+        b[F_BONES..F_BONES + 4].copy_from_slice(&1000u32.to_le_bytes());
+        let m = M2Lite::parse(&b).unwrap();
+        assert!(m.bones.is_empty());
+        assert_eq!(m.positions.len(), 2);
     }
 
     #[test]
