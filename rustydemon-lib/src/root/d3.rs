@@ -37,6 +37,9 @@
 //!
 //! Sub-roots for locales that are not installed cannot be read; they are
 //! skipped.
+//!
+//! Every SNO also opens as `sno/<id>` (the `Base` copy first), for formats
+//! that refer to other files by SNO ID. Those aliases are not listed.
 
 use std::collections::HashMap;
 
@@ -193,6 +196,10 @@ pub fn group_folders(toc: &CoreToc, packages: &[String]) -> HashMap<u32, (String
 pub struct D3RootHandler {
     entries_by_hash: HashMap<u64, Vec<RootEntry>>,
     paths: HashMap<u64, String>,
+    /// `sno/<id>` aliases, so a file that refers to another by SNO ID
+    /// (a model naming its texture) can open it. Kept apart from the
+    /// paths so they never show in the tree or the file count.
+    by_sno: HashMap<u64, Vec<RootEntry>>,
 }
 
 impl D3RootHandler {
@@ -234,6 +241,7 @@ impl D3RootHandler {
         let mut h = D3RootHandler {
             entries_by_hash: HashMap::new(),
             paths: HashMap::new(),
+            by_sno: HashMap::new(),
         };
         // (folder, name) of a SNO, as a path below the sub-root.
         let sno_path = |sno: u32| -> (String, Option<&str>) {
@@ -253,6 +261,10 @@ impl D3RootHandler {
                     None => format!("{dir}/{stem}"),
                 };
                 h.add(path, *key);
+                h.by_sno
+                    .entry(jenkins96(&format!("sno/{sno}")))
+                    .or_default()
+                    .push(entry(*key));
             }
             for (key, sno, n) in &sub.subs {
                 let (stem, _) = sno_path(*sno);
@@ -276,12 +288,16 @@ impl D3RootHandler {
         self.entries_by_hash
             .entry(hash)
             .or_default()
-            .push(RootEntry {
-                ckey,
-                locale: LocaleFlags::ALL,
-                content: ContentFlags::NONE,
-            });
+            .push(entry(ckey));
         self.paths.entry(hash).or_insert(path);
+    }
+}
+
+fn entry(ckey: Md5Hash) -> RootEntry {
+    RootEntry {
+        ckey,
+        locale: LocaleFlags::ALL,
+        content: ContentFlags::NONE,
     }
 }
 
@@ -293,6 +309,7 @@ impl RootHandler for D3RootHandler {
     fn get_all_entries(&self, hash: u64) -> &[RootEntry] {
         self.entries_by_hash
             .get(&hash)
+            .or_else(|| self.by_sno.get(&hash))
             .map(Vec::as_slice)
             .unwrap_or(&[])
     }

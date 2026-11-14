@@ -197,6 +197,41 @@ fn handler_names_every_file_by_folder_and_locale() {
 }
 
 #[test]
+fn snos_open_by_id_without_showing_in_the_tree() {
+    let toc = core_toc(&[(1, 305, "Zombie")]);
+    let pk = packages(&["Actor\\Zombie.acr"]);
+    let files: Vec<(Md5Hash, Vec<u8>)> = vec![
+        (key(10), root(&[(11, "Base"), (12, "enUS")])),
+        (
+            key(11),
+            subdir(
+                &[(20, 305)],
+                &[],
+                &[(30, "CoreTOC.dat"), (31, "Data_D3\\PC\\Misc\\Packages.dat")],
+            ),
+        ),
+        (key(12), subdir(&[(21, 305)], &[], &[])),
+        (key(30), toc),
+        (key(31), pk),
+    ];
+    let open = |k: &Md5Hash| -> Result<Vec<u8>, CascError> {
+        files
+            .iter()
+            .find(|f| f.0 == *k)
+            .map(|f| f.1.clone())
+            .ok_or_else(|| CascError::FileNotFound(k.to_hex()))
+    };
+    let h = D3RootHandler::load(&files[0].1, open).unwrap();
+    // Base wins over a locale copy of the same SNO.
+    assert_eq!(h.get_all_entries(jenkins96("sno/305"))[0].ckey, key(20));
+    assert!(h
+        .builtin_paths()
+        .iter()
+        .all(|(_, p)| !p.starts_with("sno/")));
+    assert_eq!(h.count(), 4);
+}
+
+#[test]
 fn sno_without_a_toc_name_is_listed_by_id() {
     let files: Vec<(Md5Hash, Vec<u8>)> = vec![
         (key(10), root(&[(11, "Base")])),
