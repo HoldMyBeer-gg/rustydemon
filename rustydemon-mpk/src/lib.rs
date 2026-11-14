@@ -47,6 +47,13 @@ pub enum MpkError {
     NotAnArchive(PathBuf),
     #[error("LZ4 payload did not decompress: {0}")]
     Decompress(String),
+    /// A data archive the index points at could not be opened, as with a
+    /// partial copy of the game or a network mount that dropped.
+    #[error("could not open {}: {source}", path.display())]
+    DataFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 /// One file in a package index.
@@ -264,7 +271,10 @@ impl MpkArchive {
             .get(index)
             .ok_or_else(|| MpkError::Malformed(format!("no entry {index}")))?;
         let path = self.data_file(index).expect("entry exists");
-        let mut file = fs::File::open(&path)?;
+        let mut file = fs::File::open(&path).map_err(|source| MpkError::DataFile {
+            path: path.clone(),
+            source,
+        })?;
         let end = u64::from(entry.offset) + u64::from(entry.size);
         if end > file.metadata()?.len() {
             return Err(MpkError::Malformed(format!(
