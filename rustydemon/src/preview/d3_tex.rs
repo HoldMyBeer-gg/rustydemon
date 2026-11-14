@@ -2,8 +2,8 @@
 //!
 //! ```text
 //! 0x00  u32  0xDEADBEEF          SNO header
-//! 0x04  u32  0x2F                every texture carries this; other SNO
-//!                                types carry other values
+//! 0x04  u32  0x2F                every texture carries this, and so does
+//!                                EffectGroup, so it is not a type tag
 //! 0x10  u32  SNO ID
 //! 0x20  u32  format
 //! 0x24  u32  width
@@ -43,6 +43,13 @@ pub struct Image {
 
 fn u32_at(data: &[u8], o: usize) -> Option<u32> {
     Some(u32::from_le_bytes(data.get(o..o + 4)?.try_into().ok()?))
+}
+
+/// Whether the preview takes this file. The word after the magic is shared
+/// with other SNO types (EffectGroup carries 0x2F too), so the name must
+/// end in `.tex` as well.
+pub fn claims(filename: &str, data: &[u8]) -> bool {
+    filename.to_ascii_lowercase().ends_with(".tex") && looks_like_d3_texture(data)
 }
 
 pub fn looks_like_d3_texture(data: &[u8]) -> bool {
@@ -162,8 +169,8 @@ impl super::PreviewPlugin for D3TexPreview {
         "Diablo III texture"
     }
 
-    fn can_preview(&self, _filename: &str, data: &[u8]) -> bool {
-        looks_like_d3_texture(data)
+    fn can_preview(&self, filename: &str, data: &[u8]) -> bool {
+        claims(filename, data)
     }
 
     fn build(
