@@ -200,7 +200,9 @@ pub fn show(ui: &mut egui::Ui) {
     let Some(pose) = visit else { return };
 
     // One node for a screen reader; the status text itself is left alone.
-    let (_, node) = ui.allocate_exact_size(egui::Vec2::ZERO, egui::Sense::hover());
+    // One point square, not zero: a node with no size is dropped before it
+    // reaches a screen reader on macOS.
+    let (_, node) = ui.allocate_exact_size(egui::Vec2::splat(1.0), egui::Sense::hover());
     node.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, SPOKEN));
 
     // Painted over everything, walking along the top edge of the status
@@ -296,8 +298,8 @@ const UP: [&str; 19] = [
     ".ssrRkkkkkkRrss.w.w...c.......",
     "..rRkkoooookkRr.e.e...c.......",
     "..rRkooOOOookRr.c.c...c.......",
-    ".ssRkooOOOookRsccccc..........",
-    "..rRkooOOOookRcCCCCCc.........",
+    ".ssRkooOOOookRsccccc.c........",
+    "..rRkooOOOookRcCCCCCccc.......",
     "..rRkkoooookkcCCCCCCCc........",
     ".ssrRkkkkkkRrcCCCCCCCc........",
     "..srRRRRRRRRrsccccccc.........",
@@ -318,8 +320,8 @@ const SHUT: [&str; 19] = [
     ".ssrRkkkkkkRrss.w.w...c.......",
     "..rRkkoooookkRr.e.e...c.......",
     "..rRkooOOOookRr.c.c...c.......",
-    ".ssRkooOOOookRsccccc..........",
-    "..rRkooOOOookRcCCCCCc.........",
+    ".ssRkooOOOookRsccccc.c........",
+    "..rRkooOOOookRcCCCCCccc.......",
     "..rRkkoooookkcCCCCCCCc........",
     ".ssrRkkkkkkRrcCCCCCCCc........",
     "..srRRRRRRRRrsccccccc.........",
@@ -544,5 +546,25 @@ mod tests {
             ui.text_edit_singleline(&mut text).request_focus();
         });
         assert!(!names.iter().any(|n| n == SPOKEN), "{names:?}");
+    }
+
+    /// A node with no size is dropped before it reaches a screen reader on
+    /// macOS, however well it is named.
+    #[test]
+    fn the_spoken_node_has_a_size() {
+        use crate::ui::a11y::testing::{bounds_of, frame_in};
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut last = None;
+        for k in KONAMI.iter().map(|&k| Some(k)).chain([None]) {
+            let input = egui::RawInput {
+                events: k.map(tap).unwrap_or_default(),
+                ..Default::default()
+            };
+            last = Some(frame_in(&ctx, input, show));
+        }
+        let nodes: Vec<_> = last.unwrap().nodes.into_iter().map(|(_, n)| n).collect();
+        let b = bounds_of(&nodes, SPOKEN);
+        assert!(b.x1 - b.x0 >= 1.0 && b.y1 - b.y0 >= 1.0, "{b:?}");
     }
 }
