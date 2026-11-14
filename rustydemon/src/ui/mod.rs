@@ -307,6 +307,29 @@ mod copy_tests {
         assert!(has_word("Maybe not", "maybe"));
     }
 
+    /// Text files hold no raw control bytes.  One NUL typed into a string
+    /// makes grep treat the whole file as binary and hide its matches;
+    /// write such bytes as `\x00` escapes.
+    #[test]
+    fn no_raw_control_bytes_in_text_files() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let mut files = Vec::new();
+        text_files(root, &mut files);
+        let mut found = Vec::new();
+        for path in files {
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let rel = path.strip_prefix(root).unwrap().display().to_string();
+            for (i, line) in text.lines().enumerate() {
+                if line.chars().any(|c| c.is_control() && c != '\t') {
+                    found.push(format!("{rel}:{}", i + 1));
+                }
+            }
+        }
+        assert!(found.is_empty(), "raw control bytes at: {found:#?}");
+    }
+
     /// Everything in the repository reads as plain prose: no long dashes and
     /// none of the filler words below, in code, comments, docs or scripts.
     #[test]
