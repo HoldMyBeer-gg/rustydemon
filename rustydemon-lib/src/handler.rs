@@ -282,7 +282,7 @@ impl CascHandler {
             let tvfs = TvfsRootHandler::load(&vfs_ekey, &vfs_list, &opener)?;
             Box::new(tvfs) as Box<dyn RootHandler>
         } else {
-            // Traditional root manifest (WoW, D3, etc.).
+            // Traditional root manifest (WoW, D3 and others).
             let root_ckey = config
                 .root_ckey()
                 .ok_or_else(|| CascError::Config("build config missing root ckey".into()))?;
@@ -294,7 +294,24 @@ impl CascHandler {
             let root_data = read_metadata_blob(&root_ekey)?;
 
             let root_decoded = blte::decode(&root_data, &root_ekey, false)?;
-            let mut handler = root::load(root_decoded)?;
+
+            // Diablo III: the root only names sub-roots, so loading it needs
+            // to open further files by content key. Those are read from local
+            // storage only: sub-roots for locales that are not installed are
+            // missing there, and asking the CDN for each one costs seconds
+            // apiece only to be skipped.
+            let mut handler = if root::d3::is_d3_root(&root_decoded) {
+                let open = |ckey: &Md5Hash| -> Result<Vec<u8>, CascError> {
+                    let ekey = encoding
+                        .best_ekey(ckey)
+                        .ok_or_else(|| CascError::EncodingNotFound(ckey.to_hex()))?;
+                    blte::decode(&local_index.read_block(&ekey)?, &ekey, false)
+                };
+                Box::new(root::d3::D3RootHandler::load(&root_decoded, open)?)
+                    as Box<dyn RootHandler>
+            } else {
+                root::load(root_decoded)?
+            };
 
             // Fallback 1: D2R 3.1.2+ ships a non-zero `root` that's a
             // legacy stub no current root handler recognises, plus a real
