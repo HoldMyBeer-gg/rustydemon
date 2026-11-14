@@ -39,10 +39,13 @@
 //! W bone weights, I bone indices), a component count, and a type letter
 //! (F f32, H f16, B byte).
 
+pub mod glossary;
 pub mod material;
 pub mod repository;
 pub mod texture;
 
+#[cfg(test)]
+mod glossary_tests;
 #[cfg(test)]
 mod material_tests;
 #[cfg(test)]

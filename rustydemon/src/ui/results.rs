@@ -12,6 +12,23 @@ fn row_meta(file_data_id: Option<u32>, hash: u64) -> String {
     }
 }
 
+/// [`row_meta`], plus English for the romanised words in a Diablo Immortal
+/// name. `name` is `None` for other games.
+fn row_meta_glossed(file_data_id: Option<u32>, hash: u64, name: Option<&str>) -> String {
+    let meta = row_meta(file_data_id, hash);
+    match name.and_then(rustydemon_messiah::glossary::gloss) {
+        Some(gloss) => format!("{meta} · {gloss}"),
+        None => meta,
+    }
+}
+
+/// Whether the open archive is Diablo Immortal, whose names get glossed.
+fn is_immortal(app: &CascExplorerApp) -> bool {
+    app.handler
+        .as_ref()
+        .is_some_and(|h| h.config.game_type == rustydemon_lib::GameType::Anbs)
+}
+
 /// Draw the center panel: shows either search results or browsed folder contents.
 /// Returns the clicked [`SearchResult`], if any.
 pub fn draw_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<SearchResult> {
@@ -116,6 +133,7 @@ fn draw_folder_contents(
         }
 
         // Files.
+        let immortal = is_immortal(app);
         let truncated = total_files > files.len();
         for file in &files {
             let is_multi = app.multi_selected.contains(&file.hash);
@@ -126,7 +144,11 @@ fn draw_folder_contents(
                 .unwrap_or(false);
 
             let icon = file_icon(&file.name);
-            let meta = row_meta(file.file_data_id, file.hash);
+            let meta = row_meta_glossed(
+                file.file_data_id,
+                file.hash,
+                immortal.then_some(file.name.as_str()),
+            );
 
             let resp = ui.push_id(file.hash, |ui| {
                 draw_file_row(ui, &file.name, &meta, icon, is_multi || is_preview)
@@ -338,6 +360,7 @@ fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<S
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         let results: Vec<SearchResult> = app.search_results.clone();
+        let immortal = is_immortal(app);
         let ctrl_held = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
 
         for result in results {
@@ -358,7 +381,11 @@ fn draw_search_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<S
                 .to_string();
 
             let icon = file_icon(&display_name);
-            let meta = row_meta(result.file_data_id, result.hash);
+            let meta = row_meta_glossed(
+                result.file_data_id,
+                result.hash,
+                immortal.then_some(display_name.as_str()),
+            );
 
             let resp = ui.push_id(result.hash, |ui| {
                 draw_file_row(ui, &display_name, &meta, icon, is_multi || is_preview)
@@ -608,5 +635,23 @@ mod layout_tests {
         );
         // Games without file IDs show the hash alone.
         assert_eq!(super::row_meta(None, 0x00000000deadbeef), "00000000dead");
+    }
+
+    /// Diablo Immortal names are romanised Chinese; the line under them
+    /// says what the words mean.
+    #[test]
+    fn immortal_names_are_glossed() {
+        assert_eq!(
+            super::row_meta_glossed(
+                None,
+                0x00000000deadbeef,
+                Some("Mesh_m_crusader_toukui_sz06_009.mesh")
+            ),
+            "00000000dead · helmet, cosmetic"
+        );
+        assert_eq!(
+            super::row_meta_glossed(None, 0x00000000deadbeef, Some("a_drink.anim")),
+            "00000000dead"
+        );
     }
 }
