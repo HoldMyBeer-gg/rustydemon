@@ -120,7 +120,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo package -p rustydemon-blp2 -p rustydemon-gr2 -p rustydemon-lib
+      - run: cargo package -p rustydemon-blp2 -p rustydemon-gr2 -p rustydemon-mpk -p rustydemon-lib
       # The LICENSE must travel in each tarball, named by license-file.
       - run: scripts/check-crate-license.sh
 
