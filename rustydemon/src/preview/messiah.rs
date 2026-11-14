@@ -103,6 +103,15 @@ impl PreviewPlugin for MessiahMeshPreview {
             filter_name: "Wavefront OBJ",
             build: Arc::new(move |_raw, _path| Ok(super::encode_obj(&for_obj))),
         });
+        if cpu.materials.iter().any(|m| m.rgba.is_some()) {
+            let for_mtl = Arc::clone(&cpu);
+            out.extra_exports.push(ExportAction {
+                label: "Export As OBJ + MTL",
+                default_extension: "obj",
+                filter_name: "Wavefront OBJ",
+                build: Arc::new(move |_raw, path| super::encode_obj_with_materials(&for_mtl, path)),
+            });
+        }
         out.mesh3d = Some(cpu);
         out
     }
@@ -291,6 +300,8 @@ mod tests {
         assert_eq!(mesh.indices, vec![0, 1, 2]);
         assert_eq!(mesh.batches.len(), 1);
         assert!(out.text.unwrap().contains("Triangles         1"));
+        // Without textures there is nothing for an MTL to point at.
+        assert_eq!(out.extra_exports.len(), 1);
     }
 
     /// One 4x4 BC7 texture: a single all-zero block.
@@ -411,6 +422,8 @@ cAlpha=1
         assert_eq!(mesh.materials[0].width, 4);
         assert!(mesh.materials[0].rgba.is_some());
         assert_eq!(mesh.batches[0].material_id, 0);
+        let labels: Vec<&str> = out.extra_exports.iter().map(|e| e.label).collect();
+        assert_eq!(labels, vec!["Export As OBJ", "Export As OBJ + MTL"]);
     }
 
     #[test]
