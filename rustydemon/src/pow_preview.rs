@@ -512,8 +512,11 @@ fn render(e: &Expr, ctx: u8) -> String {
             }
             let mut parts: Vec<String> = Vec::new();
             match weapon {
-                // Weapon damage takes every number as one percentage.
-                Some(level) => {
+                // Level-scaled weapon damage takes every number as one
+                // percentage. At a fixed level what the product means is
+                // not known (often a tooltip value times 100), so it stays
+                // plain arithmetic.
+                Some(level) if level.is_none() => {
                     let pct = num / den * 100.0;
                     den = 1.0;
                     if pct == 100.0 && !times.is_empty() {
@@ -528,11 +531,14 @@ fn render(e: &Expr, ctx: u8) -> String {
                         ));
                     }
                 }
-                None => {
+                other => {
                     if num != 1.0 || times.is_empty() {
                         parts.push(format_number(num));
                     }
                     parts.extend(times);
+                    if let Some(level) = other {
+                        parts.push(format!("weapon damage{}", at_level(level)));
+                    }
                 }
             }
             let mut s = parts.join(" × ");
@@ -1008,7 +1014,7 @@ mod tests {
     fn plain_line_names_a_fixed_table_level() {
         assert_eq!(
             plain_of("SF_1 * 120 * Table(34, 3)", &[(1, "0.42")]).as_deref(),
-            Some("5040% weapon damage at level 3")
+            Some("50.4 × weapon damage at level 3")
         );
     }
 
