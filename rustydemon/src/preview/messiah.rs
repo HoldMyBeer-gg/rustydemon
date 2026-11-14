@@ -65,37 +65,13 @@ impl PreviewPlugin for MessiahMeshPreview {
         let painted = materials.iter().filter(|m| m.rgba.is_some()).count();
         if !materials.is_empty() {
             text.push_str(&format!(
-                "Textures          {painted} of {} submeshes
-",
+                "Textures          {painted} of {} submeshes\n",
                 mesh.submeshes.len()
             ));
         }
         out.text = Some(text);
 
-        let batches = mesh
-            .submeshes
-            .iter()
-            .enumerate()
-            .map(|(i, s)| MeshBatch {
-                start_index: s.start_index,
-                index_count: s.index_count,
-                material_id: if i < materials.len() {
-                    i as u32
-                } else {
-                    u32::MAX
-                },
-                blend: Default::default(),
-            })
-            .collect();
-        let cpu = Arc::new(Mesh3dCpu {
-            positions: mesh.positions,
-            uvs: mesh.uvs,
-            indices: mesh.indices,
-            bbox_min: mesh.bbox_min,
-            bbox_max: mesh.bbox_max,
-            batches,
-            materials,
-        });
+        let cpu = Arc::new(cpu_mesh(mesh, materials));
         let for_obj = Arc::clone(&cpu);
         out.extra_exports.push(ExportAction {
             label: "Export As OBJ",
@@ -115,6 +91,68 @@ impl PreviewPlugin for MessiahMeshPreview {
         out.mesh3d = Some(cpu);
         out
     }
+}
+
+/// Viewport mesh with one batch per submesh, painted by `materials[i]`.
+fn cpu_mesh(mesh: Mesh, materials: Vec<MeshMaterial>) -> Mesh3dCpu {
+    let batches = mesh
+        .submeshes
+        .iter()
+        .enumerate()
+        .map(|(i, s)| MeshBatch {
+            start_index: s.start_index,
+            index_count: s.index_count,
+            material_id: if i < materials.len() {
+                i as u32
+            } else {
+                u32::MAX
+            },
+            blend: Default::default(),
+        })
+        .collect();
+    Mesh3dCpu {
+        positions: mesh.positions,
+        uvs: mesh.uvs,
+        indices: mesh.indices,
+        bbox_min: mesh.bbox_min,
+        bbox_max: mesh.bbox_max,
+        batches,
+        materials,
+    }
+}
+
+/// Batch export: beside a raw Diablo Immortal file written at `raw_path`,
+/// write a mesh as OBJ (plus MTL and PNG textures when its textures are
+/// found) or a texture as PNG. Returns the converted file's path, or `None`
+/// for files that are neither.
+pub fn convert_for_export(
+    filename: &str,
+    data: &[u8],
+    fetch: &SiblingFetcher<'_>,
+    raw_path: &std::path::Path,
+) -> Result<Option<std::path::PathBuf>, String> {
+    if looks_like_texture(data) {
+        let (rgba, w, h) = decode_texture(data)?;
+        let png = raw_path.with_extension("png");
+        std::fs::write(&png, super::encode_png(&rgba, w, h)?).map_err(|e| e.to_string())?;
+        return Ok(Some(png));
+    }
+    if !looks_like_mesh(data) {
+        return Ok(None);
+    }
+    let mesh = Mesh::parse(data).map_err(|e| e.to_string())?;
+    let materials = (fetch.messiah_repo)()
+        .map(|repo| submesh_materials(&repo, filename, mesh.submeshes.len(), fetch))
+        .unwrap_or_default();
+    let cpu = cpu_mesh(mesh, materials);
+    let obj = raw_path.with_extension("obj");
+    let bytes = if cpu.materials.iter().any(|m| m.rgba.is_some()) {
+        super::encode_obj_with_materials(&cpu, &obj)?
+    } else {
+        super::encode_obj(&cpu)
+    };
+    std::fs::write(&obj, bytes).map_err(|e| e.to_string())?;
+    Ok(Some(obj))
 }
 
 /// Base texture for each submesh, found through the model that uses the
@@ -386,9 +424,7 @@ mod tests {
     fn a_registered_mesh_is_painted_with_its_base_texture() {
         let repo = Arc::new(repository());
         let material = format!(
-            ".MESSIAH      crab_mat PBR    @ tBaseMap={TEX}
-cAlpha=1
-"
+            ".MESSIAH\x02\x00\x00\x00\x00\x00\x01\x08\x00crab_mat\x03\x00PBR\x00\x00\x00\x00@\x00tBaseMap={TEX}\ncAlpha=1\n"
         );
         let tex = texture();
         let by_name = |path: &str| {
@@ -424,6 +460,86 @@ cAlpha=1
         assert_eq!(mesh.batches[0].material_id, 0);
         let labels: Vec<&str> = out.extra_exports.iter().map(|e| e.label).collect();
         assert_eq!(labels, vec!["Export As OBJ", "Export As OBJ + MTL"]);
+    }
+
+    fn scratch(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("rd-di-export-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn batch_export_writes_a_textured_mesh_as_obj_and_mtl() {
+        let repo = Arc::new(repository());
+        let material = format!(
+            ".MESSIAH\x02\x00\x00\x00\x00\x00\x01\x08\x00crab_mat\x03\x00PBR\x00\x00\x00\x00@\x00tBaseMap={TEX}\ncAlpha=1\n"
+        );
+        let tex = texture();
+        let by_name = |path: &str| {
+            if path == package_path(MAT) {
+                Some(material.clone().into_bytes())
+            } else if path == format!("{}.6", package_path(TEX)) {
+                Some(tex.clone())
+            } else {
+                None
+            }
+        };
+        let none = |_: u32| None;
+        let no_info = |_: &str| None;
+        let no_skins = || None;
+        let with_repo = || Some(Arc::clone(&repo));
+        let siblings = SiblingFetcher {
+            by_name: &by_name,
+            by_fdid: &none,
+            texture_info: &no_info,
+            monster_skins: &no_skins,
+            messiah_repo: &with_repo,
+        };
+        let dir = scratch("mesh");
+        let raw = dir.join("Mesh_crab.mesh");
+        let made =
+            convert_for_export("Char/crab/Mesh_crab.mesh", &triangle(0), &siblings, &raw).unwrap();
+        assert_eq!(made, Some(dir.join("Mesh_crab.obj")));
+        assert!(dir.join("Mesh_crab.obj").is_file());
+        assert!(dir.join("Mesh_crab.mtl").is_file());
+        assert!(dir.join("Mesh_crab_tex0.png").is_file());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn batch_export_writes_a_texture_as_png_and_skips_other_files() {
+        let by_name = |_: &str| None;
+        let none = |_: u32| None;
+        let no_info = |_: &str| None;
+        let no_skins = || None;
+        let no_repo = || None;
+        let siblings = SiblingFetcher {
+            by_name: &by_name,
+            by_fdid: &none,
+            texture_info: &no_info,
+            monster_skins: &no_skins,
+            messiah_repo: &no_repo,
+        };
+        let dir = scratch("tex");
+        let made = convert_for_export(
+            "crab_d.texture2d",
+            &texture(),
+            &siblings,
+            &dir.join("crab_d.texture2d"),
+        )
+        .unwrap();
+        assert_eq!(made, Some(dir.join("crab_d.png")));
+        assert!(dir.join("crab_d.png").is_file());
+        let other = convert_for_export(
+            "a_drink.anim",
+            b"eN\xa1BCHAR::ANIM",
+            &siblings,
+            &dir.join("a_drink.anim"),
+        )
+        .unwrap();
+        assert_eq!(other, None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

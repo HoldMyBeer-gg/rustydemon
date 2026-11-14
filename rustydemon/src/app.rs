@@ -109,6 +109,8 @@ enum BgResult {
         fail: usize,
         /// Requested files the archive couldn't resolve at all.
         missing: usize,
+        /// Diablo Immortal files also written as OBJ or PNG.
+        converted: usize,
         label: String,
     },
     /// A text search completed.
@@ -385,9 +387,10 @@ impl CascExplorerApp {
                 ok,
                 fail,
                 missing,
+                converted,
                 label,
             }) => {
-                self.status = export_status(ok, fail, missing, &label);
+                self.status = export_status_converted(ok, fail, missing, converted, &label);
                 self.bg_rx = None;
                 self.loading = false;
             }
@@ -751,13 +754,15 @@ impl CascExplorerApp {
         let cancel = self.cancel.clone();
         self.bg_rx = Some(rx);
 
+        let owned = self.handler.clone();
         std::thread::spawn(move || {
-            let (ok, fail) = run_export(&items, &dest, &cancel);
+            let (ok, fail, converted) = run_export(&items, &dest, &cancel, owned.as_deref());
             if !cancel.load(Ordering::Relaxed) {
                 let _ = tx.send(BgResult::ExportComplete {
                     ok,
                     fail,
                     missing,
+                    converted,
                     label: format!("{total} selected files"),
                 });
             }
@@ -812,13 +817,15 @@ impl CascExplorerApp {
         let cancel = self.cancel.clone();
         self.bg_rx = Some(rx);
 
+        let owned = self.handler.clone();
         std::thread::spawn(move || {
-            let (ok, fail) = run_export(&items, &dest, &cancel);
+            let (ok, fail, converted) = run_export(&items, &dest, &cancel, owned.as_deref());
             if !cancel.load(Ordering::Relaxed) {
                 let _ = tx.send(BgResult::ExportComplete {
                     ok,
                     fail,
                     missing,
+                    converted,
                     label: folder_path,
                 });
             }
@@ -887,6 +894,21 @@ pub fn publish_window_name(ctx: &egui::Context) {
 ///
 /// `missing` counts requested files the archive couldn't resolve (not in the
 /// root manifest, or no local data), which never reach the export thread.
+fn export_status_converted(
+    ok: usize,
+    fail: usize,
+    missing: usize,
+    converted: usize,
+    label: &str,
+) -> String {
+    let base = export_status(ok, fail, missing, label);
+    if converted == 0 {
+        base
+    } else {
+        format!("{base}, {converted} also as OBJ or PNG")
+    }
+}
+
 fn export_status(ok: usize, fail: usize, missing: usize, label: &str) -> String {
     if missing == 0 {
         format!("Exported {ok} files from {label} ({fail} failed)")
@@ -896,9 +918,31 @@ fn export_status(ok: usize, fail: usize, missing: usize, label: &str) -> String 
 }
 
 /// Execute a batch of prepared exports on a background thread.
-fn run_export(items: &[ExportItem], dest: &std::path::Path, cancel: &AtomicBool) -> (usize, usize) {
+fn run_export(
+    items: &[ExportItem],
+    dest: &std::path::Path,
+    cancel: &AtomicBool,
+    handler: Option<&CascHandler>,
+) -> (usize, usize, usize) {
     let mut ok = 0usize;
     let mut fail = 0usize;
+    let mut converted = 0usize;
+
+    // Diablo Immortal meshes and textures are also written as OBJ or PNG,
+    // which needs the registry and sibling files.
+    let repo = handler.and_then(CascHandler::mpk_repository);
+    let by_name = |path: &str| handler?.open_file_by_name(path).ok();
+    let none = |_: u32| None;
+    let no_info = |_: &str| None;
+    let no_skins = || None;
+    let messiah_repo = || repo.clone();
+    let siblings = crate::preview::SiblingFetcher {
+        by_name: &by_name,
+        by_fdid: &none,
+        texture_info: &no_info,
+        monster_skins: &no_skins,
+        messiah_repo: &messiah_repo,
+    };
 
     for item in items {
         if cancel.load(Ordering::Relaxed) {
@@ -911,21 +955,38 @@ fn run_export(items: &[ExportItem], dest: &std::path::Path, cancel: &AtomicBool)
         }
 
         match read_and_write_export(&item.prepared, &out_path) {
-            Ok(()) => ok += 1,
+            Ok(data) => {
+                ok += 1;
+                if repo.is_some()
+                    && matches!(
+                        crate::preview::messiah::convert_for_export(
+                            &item.filename,
+                            &data,
+                            &siblings,
+                            &out_path,
+                        ),
+                        Ok(Some(_))
+                    )
+                {
+                    converted += 1;
+                }
+            }
             Err(_) => fail += 1,
         }
     }
 
-    (ok, fail)
+    (ok, fail, converted)
 }
 
 /// Read a file from CASC archives and write it to disk.
+/// Read a file from the archive, write it to disk, and hand back its bytes.
 fn read_and_write_export(
     prepared: &PreparedLoad,
     out_path: &std::path::Path,
-) -> Result<(), String> {
+) -> Result<Vec<u8>, String> {
     let data = prepared.execute_ref().map_err(|e| format!("{e}"))?;
-    std::fs::write(out_path, &data).map_err(|e| format!("{e}"))
+    std::fs::write(out_path, &data).map_err(|e| format!("{e}"))?;
+    Ok(data)
 }
 
 fn collect_file_hashes(folder: &rustydemon_lib::CascFolder, out: &mut Vec<u64>) {
@@ -939,13 +1000,26 @@ fn collect_file_hashes(folder: &rustydemon_lib::CascFolder, out: &mut Vec<u64>) 
 
 #[cfg(test)]
 mod export_status_tests {
-    use super::export_status;
+    use super::{export_status, export_status_converted};
 
     #[test]
     fn plain_when_everything_resolved() {
         assert_eq!(
             export_status(5, 1, 0, "6 selected files"),
             "Exported 5 files from 6 selected files (1 failed)"
+        );
+    }
+
+    /// Diablo Immortal meshes and textures also get an OBJ or PNG.
+    #[test]
+    fn says_how_many_were_converted() {
+        assert_eq!(
+            export_status_converted(5, 0, 0, 3, "5 selected files"),
+            "Exported 5 files from 5 selected files (0 failed), 3 also as OBJ or PNG"
+        );
+        assert_eq!(
+            export_status_converted(5, 0, 0, 0, "5 selected files"),
+            "Exported 5 files from 5 selected files (0 failed)"
         );
     }
 
