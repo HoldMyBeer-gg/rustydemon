@@ -123,6 +123,26 @@ pub fn pose(t: f32) -> Option<Pose> {
     })
 }
 
+/// How many art pixels a drawing is raised: every other step lifts the
+/// whole crab by one, so the walk bobs.
+pub fn lift(frame: Frame) -> f32 {
+    if frame == Frame::WalkB {
+        1.0
+    } else {
+        0.0
+    }
+}
+
+/// Where the top-left corner of a drawing of `size` goes: feet on
+/// `ground`, just out of sight to the left at `across` 0 and just out of
+/// sight to the right at 1.
+pub fn place(across: f32, left: f32, right: f32, ground: f32, size: egui::Vec2) -> egui::Pos2 {
+    egui::pos2(
+        left - size.x + across * (right - left + size.x),
+        ground - size.y,
+    )
+}
+
 /// What a screen reader is told while Hermi is on screen.
 pub const SPOKEN: &str = "Hermi the hermit crab scuttles by and clicks a claw: peench peench.";
 
@@ -183,13 +203,15 @@ pub fn show(ui: &mut egui::Ui) {
     let (_, node) = ui.allocate_exact_size(egui::Vec2::ZERO, egui::Sense::hover());
     node.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, SPOKEN));
 
-    // Painted over everything, standing on the bottom edge of the window.
+    // Painted over everything, walking along the top edge of the status
+    // bar like a ledge, so the status text under it stays readable.
     const PIXEL: f32 = 2.0;
     let rows = pose.frame.rows();
     let size = egui::vec2(rows[0].len() as f32, rows.len() as f32) * PIXEL;
     let screen = ctx.content_rect();
-    let left = screen.left() - size.x + pose.across * (screen.width() + size.x);
-    let top = screen.bottom() - size.y;
+    let ground = ui.clip_rect().top();
+    let corner = place(pose.across, screen.left(), screen.right(), ground, size);
+    let (left, top) = (corner.x, corner.y - lift(pose.frame) * PIXEL);
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, id));
     for (y, row) in rows.iter().enumerate() {
         for (x, letter) in row.chars().enumerate() {
@@ -205,7 +227,7 @@ pub fn show(ui: &mut egui::Ui) {
     }
     if pose.speaking {
         painter.text(
-            egui::pos2(left + size.x + 6.0, top + size.y * 0.25),
+            egui::pos2(left + size.x + 6.0, top + size.y * 0.3),
             egui::Align2::LEFT_CENTER,
             "peench peench",
             egui::FontId::proportional(13.0),
@@ -410,6 +432,30 @@ mod tests {
         // Legs move while walking.
         assert!(poses.iter().any(|p| p.frame == Frame::WalkA));
         assert!(poses.iter().any(|p| p.frame == Frame::WalkB));
+    }
+
+    /// A glide is not a scuttle: every other step the whole crab rises a
+    /// pixel.
+    #[test]
+    fn hermi_bobs_as_it_walks() {
+        assert_eq!(lift(Frame::WalkA), 0.0);
+        assert_eq!(lift(Frame::WalkB), 1.0);
+        assert_eq!(lift(Frame::ClawOpen), 0.0);
+        assert_eq!(lift(Frame::ClawShut), 0.0);
+    }
+
+    /// Hermi walks along the top edge of the status bar, like a ledge, so
+    /// the status text under it stays readable.
+    #[test]
+    fn hermi_stands_on_the_ground_line_and_starts_and_ends_out_of_sight() {
+        let size = egui::vec2(60.0, 38.0);
+        let (left, right, ground) = (0.0, 1000.0, 700.0);
+        let start = place(0.0, left, right, ground, size);
+        assert_eq!(start, egui::pos2(-60.0, 662.0));
+        let end = place(1.0, left, right, ground, size);
+        assert_eq!(end, egui::pos2(1000.0, 662.0));
+        let middle = place(0.5, left, right, ground, size);
+        assert_eq!(middle, egui::pos2(470.0, 662.0));
     }
 
     #[test]
