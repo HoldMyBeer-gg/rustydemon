@@ -424,11 +424,13 @@ impl CascExplorerApp {
                                 model_file,
                             )
                         };
+                        let messiah_repo = || handler_ref?.mpk_repository();
                         let siblings = crate::preview::SiblingFetcher {
                             by_name: &by_name,
                             by_fdid: &by_fdid,
                             texture_info: &texture_info,
                             monster_skins: &monster_skins,
+                            messiah_repo: &messiah_repo,
                         };
                         sel.preview =
                             crate::preview::run(result.filename.as_deref(), &data, ctx, &siblings);

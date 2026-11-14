@@ -12,3 +12,7 @@ categories           = ["parser-implementations", "game-development"]
 
 [dependencies]
 thiserror = "2"
+rustydemon-mpk = { version = "0.6.0", path = "../rustydemon-mpk" }
+
+[dev-dependencies]
+lz4_flex = "0.11"

@@ -27,8 +27,18 @@
 //! W bone weights, I bone indices), a component count, and a type letter
 //! (F f32, H f16, B byte).
 
+pub mod material;
+pub mod repository;
+pub mod texture;
+
+#[cfg(test)]
+mod material_tests;
+#[cfg(test)]
+mod repo_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod texture_tests;
 
 /// Errors from reading a Messiah asset.
 #[derive(Debug, thiserror::Error)]

@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 
+use rustydemon_messiah::repository::{parse_uuid, Repository};
 use rustydemon_mpk::MpkArchive;
 
 use crate::{
@@ -39,17 +40,30 @@ pub struct MpkRootHandler {
 }
 
 impl MpkRootHandler {
-    pub fn new(archive: &MpkArchive) -> Self {
+    /// Index every entry by its package path and, when the resource
+    /// registry names it, by its readable path as well.
+    pub fn new(archive: &MpkArchive, repo: Option<&Repository>) -> Self {
         let mut entries_by_hash: HashMap<u64, Vec<RootEntry>> = HashMap::new();
         let mut file_paths = HashMap::new();
-        for (i, e) in archive.entries().iter().enumerate() {
-            let hash = jenkins96(&e.path);
+        let mut add = |path: &str, i: usize| {
+            let hash = jenkins96(path);
             entries_by_hash.entry(hash).or_default().push(RootEntry {
                 ckey: key_for(i),
                 locale: LocaleFlags::ALL,
                 content: ContentFlags::NONE,
             });
-            file_paths.entry(hash).or_insert_with(|| e.path.clone());
+            file_paths.entry(hash).or_insert_with(|| path.to_owned());
+        };
+        for (i, e) in archive.entries().iter().enumerate() {
+            add(&e.path, i);
+            let named = repo.and_then(|r| {
+                let file = e.path.strip_prefix("Package/")?.rsplit('/').next()?;
+                let guid = parse_uuid(file.split('.').next()?)?;
+                r.get_raw(&guid).map(|res| r.readable_path(res))
+            });
+            if let Some(path) = named {
+                add(&path, i);
+            }
         }
         Self {
             entries_by_hash,
