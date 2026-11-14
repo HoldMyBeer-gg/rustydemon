@@ -1,7 +1,10 @@
-# Rusty Demon - Cross-Platform CASC Explorer
+# Rusty Demon - Cross-Platform CASC and MPK Explorer
 
-A fast, cross-platform explorer for CASC (Content-Addressable Storage Container)
-archives, written entirely in Rust.
+A fast, cross-platform explorer for Blizzard game archives, written entirely in
+Rust. It reads CASC (Content-Addressable Storage Container) storage for World
+of Warcraft, Diablo IV, StarCraft, Overwatch and the rest of the Battle.net
+catalogue, and the Messiah engine's MPK packages that Diablo Immortal ships
+instead ([details](#usage-guide)).
 
 > **Rusty Demon adds first-class support for the Steam distribution of
 > Diablo IV's CASC archives** alongside the existing Battle.net format. The
