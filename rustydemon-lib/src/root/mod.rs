@@ -1,3 +1,6 @@
+pub mod d3;
+#[cfg(test)]
+mod d3_tests;
 pub mod d4;
 pub mod d4_texture;
 pub mod install;
@@ -95,7 +98,10 @@ pub trait RootHandler: Send + Sync {
 ///
 /// Supports:
 /// - MNDX format (SC1, SC2, Heroes of the Storm)
-/// - WoW MFST format (WoW, D3, and legacy flat format)
+/// - WoW MFST format (WoW, and the legacy flat format)
+///
+/// Diablo III roots need further files opened while loading; the handler
+/// sends them to [`d3::D3RootHandler`] instead.
 ///
 /// Other games fall back to [`DummyRootHandler`].
 pub fn load(data: Vec<u8>) -> Result<Box<dyn RootHandler>, CascError> {

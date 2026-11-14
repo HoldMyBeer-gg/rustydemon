@@ -203,6 +203,11 @@ The product UID is detected automatically:
 | Overwatch | `pro` |
 | Diablo Immortal | `anbs` (MPK packages, see below) |
 
+Diablo III names every file from the game's own tables (`CoreTOC.dat` and
+`Packages.dat`), so the tree fills in without a listfile, under paths such as
+`Base/Actor/a2dun_Zolt_Pedestal.acr` and `enUS/StringList/Items.stl`. Locales
+that are not installed are skipped.
+
 Diablo Immortal installs through Battle.net but keeps its files in the
 Messiah engine's MPK packages under `Package/MPK/`, not in CASC. Rusty Demon
 reads those directly: every file has a path, so the tree fills in without a
