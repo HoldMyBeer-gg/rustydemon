@@ -136,14 +136,84 @@ fn skinned_mesh_reads_uvs_from_the_second_stream() {
     assert_eq!(mesh.submeshes[1].start_index, 3);
 }
 
+/// Pack values least significant bit first, `bits` each.
+fn pack(values: &[u32], bits: u8) -> Vec<u8> {
+    let mut out = Vec::new();
+    let (mut acc, mut n) = (0u64, 0u32);
+    for &v in values {
+        acc |= u64::from(v) << n;
+        n += u32::from(bits);
+        while n >= 8 {
+            out.push(acc as u8);
+            acc >>= 8;
+            n -= 8;
+        }
+    }
+    if n > 0 {
+        out.push(acc as u8);
+    }
+    out
+}
+
+/// One quantised element: count, range and minimum (float types), bits, data.
+fn element(values: &[u32], bits: u8, range_min: Option<(f32, f32)>) -> Vec<u8> {
+    let mut b = (values.len() as u32).to_le_bytes().to_vec();
+    if let Some((range, min)) = range_min {
+        b.extend(range.to_le_bytes());
+        b.extend(min.to_le_bytes());
+    }
+    b.push(bits);
+    b.extend(pack(values, bits));
+    b
+}
+
+/// A quad stored with flag 2, the way large character meshes are.
+fn compressed_quad() -> Vec<u8> {
+    let mut b = b".MESSIAH".to_vec();
+    b.extend(8u32.to_le_bytes());
+    b.extend(0u32.to_le_bytes());
+    b.extend(2u16.to_le_bytes());
+    b.extend(1u16.to_le_bytes());
+    b.extend(4u32.to_le_bytes());
+    b.extend(6u32.to_le_bytes());
+    for f in ["P3F_N4B_T2F", "None", "None", "None"] {
+        b.extend((f.len() as u16).to_le_bytes());
+        b.extend(f.as_bytes());
+    }
+    for v in [-2.0f32, -2.0, 0.0, 2.0, 2.0, 0.0, 0.0, 0.0, 0.0, 2.9] {
+        b.extend(v.to_le_bytes());
+    }
+    for v in [0u32, 6, 0, 4] {
+        b.extend(v.to_le_bytes());
+    }
+    // Indices: count, bits, packed.
+    b.extend(element(&[0, 2, 1, 2, 0, 3], 2, None));
+    // Positions span -2..2 on x and y: min -2, range 4, 16 bits.
+    let corners = [[0, 0, 0], [65535, 0, 0], [65535, 65535, 0], [0, 65535, 0]];
+    let flat: Vec<u32> = corners.iter().flatten().copied().collect();
+    b.extend(element(&flat, 16, Some((4.0, -2.0))));
+    b.extend(element(&[127, 127, 255, 0].repeat(4), 8, None));
+    // UVs 0..1 at 11 bits.
+    let uv = [0, 0, 2047, 0, 2047, 2047, 0, 2047];
+    b.extend(element(&uv, 11, Some((1.0, 0.0))));
+    b.extend([0u8; 52]);
+    b
+}
+
 #[test]
-fn compressed_mesh_is_reported_as_such() {
-    let mut f = static_triangle();
-    f.flag = 2;
-    assert!(matches!(
-        Mesh::parse(&f.bytes()),
-        Err(MessiahError::Compressed)
-    ));
+fn compressed_mesh_decodes() {
+    let mesh = Mesh::parse(&compressed_quad()).unwrap();
+    assert_eq!(mesh.indices, vec![0, 2, 1, 2, 0, 3]);
+    assert_eq!(mesh.positions[0], [-2.0, -2.0, -2.0]);
+    assert_eq!(mesh.positions[2], [2.0, 2.0, -2.0]);
+    assert_eq!(mesh.uvs[2], [1.0, 1.0]);
+    assert_eq!(mesh.formats, vec!["P3F_N4B_T2F".to_owned()]);
+}
+
+#[test]
+fn truncated_compressed_mesh_is_rejected() {
+    let b = compressed_quad();
+    assert!(Mesh::parse(&b[..b.len() - 60]).is_err());
 }
 
 #[test]

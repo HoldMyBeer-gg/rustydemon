@@ -209,8 +209,7 @@ reads those directly: every file has a path, so the tree fills in without a
 listfile. The game's resource registry also names every resource, so files
 appear under readable paths too, such as
 `Char/new_dl_f_warlock/Mesh_warlock_yuanchuemo_body.mesh`. Meshes open in the
-3D viewer painted with their base textures (all but the ones stored with a
-compression codec that is not decoded yet), and textures preview as images.
+3D viewer painted with their base textures, and textures preview as images.
 
 ### 2 -Load a listfile *(optional but recommended)*
 

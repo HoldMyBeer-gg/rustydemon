@@ -12,7 +12,7 @@ use rustydemon_messiah::{
     material::Material,
     repository::{package_path, Repository},
     texture::{looks_like_texture, Texture, FORMAT_BC7},
-    Mesh, MessiahError,
+    Mesh,
 };
 
 use super::{
@@ -40,14 +40,6 @@ impl PreviewPlugin for MessiahMeshPreview {
         let mut out = PreviewOutput::new();
         let mesh = match Mesh::parse(data) {
             Ok(m) => m,
-            Err(MessiahError::Compressed) => {
-                out.text = Some(
-                    "Messiah mesh\n\nThis mesh's data is compressed with a codec that is \
-                     not decoded yet, so it cannot be drawn."
-                        .into(),
-                );
-                return out;
-            }
             Err(e) => {
                 out.text = Some(format!("Messiah mesh\n\nCould not read it: {e}"));
                 return out;
@@ -422,9 +414,10 @@ cAlpha=1
     }
 
     #[test]
-    fn a_compressed_mesh_says_so_instead_of_drawing() {
+    fn an_unreadable_mesh_says_so_instead_of_drawing() {
+        // Flag 2 with plain data is not a valid quantised mesh.
         let out = preview(&triangle(2));
         assert!(out.mesh3d.is_none());
-        assert!(out.text.unwrap().contains("compressed"));
+        assert!(out.text.unwrap().contains("Could not read it"));
     }
 }
