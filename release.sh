@@ -10,7 +10,7 @@
 #
 # Publish order:
 # Published library crates (none depends on another, so order is free):
-#   rustydemon-blp2, rustydemon-gr2, rustydemon-lib
+#   rustydemon-blp2, rustydemon-gr2, rustydemon-mpk, rustydemon-messiah, rustydemon-lib
 #
 # The GUI (rustydemon) and CLI (rustydemon-cli) ship as release binaries, not
 # through crates.io.
@@ -64,12 +64,14 @@ cargo test --workspace
 # ── Commit and tag ────────────────────────────────────────────────────────────
 info "Committing version bump …"
 git add Cargo.toml Cargo.lock
-git commit -m "chore: release v${NEW_VERSION}"
+git commit -m "Release v${NEW_VERSION}"
 git tag "v${NEW_VERSION}"
 
 # ── Publish ───────────────────────────────────────────────────────────────────
 publish rustydemon-blp2
 publish rustydemon-gr2
+publish rustydemon-mpk
+publish rustydemon-messiah
 publish rustydemon-lib
 
 info "Done. Push the commit and tag with:"
