@@ -1,5 +1,6 @@
 pub(crate) mod a11y;
 mod about;
+mod egg;
 mod menu;
 pub(crate) mod preview;
 pub(crate) mod results;
@@ -182,6 +183,7 @@ fn draw_status_bar(ui: &mut egui::Ui, app: &CascExplorerApp) {
                 // ("Opening…", "Loading…", "Searching…") read as hot while
                 // idle status stays calm.
                 status_line(ui, &app.status);
+                egg::show(ui);
             });
         });
 }
