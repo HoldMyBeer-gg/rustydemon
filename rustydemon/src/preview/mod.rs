@@ -15,6 +15,9 @@ pub mod adt_lite;
 pub mod audio;
 pub mod blp;
 pub mod creature_skins;
+pub mod d3_tex;
+#[cfg(test)]
+mod d3_tex_tests;
 pub mod db2;
 pub mod grp;
 pub mod grp_format;
@@ -227,6 +230,7 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         // extension-only `.tex` plugin to claim D2R textures before a
         // name collision could matter.
         Box::new(texture::TextureDePreview),
+        Box::new(d3_tex::D3TexPreview),
         Box::new(tex::TexPreview),
         // Structured-data format summaries.
         Box::new(model3d::Model3dPreview),
