@@ -15,7 +15,7 @@ path = "src/main.rs"
 rustydemon-lib  = { path = "../rustydemon-lib", features = ["cdn"] }
 rustydemon-blp2 = { path = "../rustydemon-blp2" }
 rustydemon-gr2  = { path = "../rustydemon-gr2" }
-rustydemon-messiah = { version = "0.6.0", path = "../rustydemon-messiah" }
+rustydemon-messiah = { version = "0.7.0", path = "../rustydemon-messiah" }
 eframe = { version = "0.37", default-features = false, features = [
     "default_fonts",
     "wgpu",
