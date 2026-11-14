@@ -128,11 +128,13 @@ mod tests {
         let none = |_: u32| None;
         let no_info = |_: &str| None;
         let no_skins = || None;
+        let no_repo = || None;
         let siblings = super::super::SiblingFetcher {
             by_name: &by_name,
             by_fdid: &none,
             texture_info: &no_info,
             monster_skins: &no_skins,
+            messiah_repo: &no_repo,
         };
         GrpPreview.build(name, data, &egui::Context::default(), &siblings)
     }

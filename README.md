@@ -206,8 +206,10 @@ The product UID is detected automatically:
 Diablo Immortal installs through Battle.net but keeps its files in the
 Messiah engine's MPK packages under `Package/MPK/`, not in CASC. Rusty Demon
 reads those directly: every file has a path, so the tree fills in without a
-listfile. Meshes open in the 3D viewer (all but the ones stored with a compression
-codec that is not decoded yet); other Messiah formats open as hex.
+listfile. The game's resource registry also names every resource, so files
+appear under readable paths too, such as
+`Char/new_dl_f_warlock/Mesh_warlock_yuanchuemo_body.mesh`. Meshes open in the
+3D viewer painted with their base textures, and textures preview as images.
 
 ### 2 -Load a listfile *(optional but recommended)*
 

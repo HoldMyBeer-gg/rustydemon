@@ -3991,6 +3991,7 @@ dependencies = [
  "globset",
  "hex-literal",
  "md-5",
+ "rustydemon-messiah",
  "rustydemon-mpk",
  "thiserror 2.0.18",
  "ureq",
@@ -4000,6 +4001,8 @@ dependencies = [
 name = "rustydemon-messiah"
 version = "0.6.0"
 dependencies = [
+ "lz4_flex",
+ "rustydemon-mpk",
  "thiserror 2.0.18",
 ]
 

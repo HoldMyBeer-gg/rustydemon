@@ -83,6 +83,18 @@ fn zzz4_with_a_wrong_size_is_an_error() {
     assert!(decode_payload(&z).is_err());
 }
 
+/// The package's resource registry wraps its ZZZ4 payload in a `CCCC` tag.
+#[test]
+fn cccc_wrapped_payload_decompresses() {
+    let plain = b"Texture2D;ParticleSystem;LodModel;Model;Mesh;Material".repeat(8);
+    let mut wrapped = b"CCCC".to_vec();
+    wrapped.extend(zzz4(&plain));
+    assert_eq!(decode_payload(&wrapped).unwrap(), plain);
+    // The live registry has stray bytes after its last LZ4 sequence.
+    wrapped.extend([0x1f, 0x00]);
+    assert_eq!(decode_payload(&wrapped).unwrap(), plain);
+}
+
 #[test]
 fn archive_reads_files_from_both_packages() {
     let dir = std::env::temp_dir().join(format!("mpk-test-{}", std::process::id()));

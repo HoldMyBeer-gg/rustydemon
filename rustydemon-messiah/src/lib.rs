@@ -9,7 +9,7 @@
 //! [8]  ".MESSIAH"
 //! u32  version (8)
 //! u32  unknown
-//! u16  flag: 0 plain, 2 compressed (not decoded yet)
+//! u16  flag: 0 plain, 2 quantised (see below)
 //! u16  submesh count
 //! u32  vertex count
 //! u32  index count
@@ -22,21 +22,44 @@
 //! submesh count * 52 bytes of per-submesh bounds
 //! ```
 //!
+//! With flag 2 the indices and streams are quantised instead. The indices,
+//! then each element of each stream in layout order, are stored as
+//!
+//! ```text
+//! u32  value count
+//! f32  range, f32 minimum        (F and H elements only)
+//! u8   bits per value
+//! values packed least significant bit first, rounded up to whole bytes
+//! ```
+//!
+//! and a float element's value is `minimum + q / (2^bits - 1) * range`.
+//!
 //! A layout name is elements joined by `_`: a letter for the meaning
 //! (P position, N normal, T texture coordinate, Q tangent frame, C colour,
 //! W bone weights, I bone indices), a component count, and a type letter
 //! (F f32, H f16, B byte).
 
+pub mod glossary;
+pub mod material;
+pub mod repository;
+pub mod texture;
+
+#[cfg(test)]
+mod glossary_tests;
+#[cfg(test)]
+mod material_tests;
+#[cfg(test)]
+mod repo_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod texture_tests;
 
 /// Errors from reading a Messiah asset.
 #[derive(Debug, thiserror::Error)]
 pub enum MessiahError {
     #[error("not a Messiah mesh object")]
     NotAMesh,
-    #[error("mesh data is compressed, which is not decoded yet")]
-    Compressed,
     #[error("mesh object is malformed: {0}")]
     Malformed(String),
 }
@@ -143,10 +166,7 @@ impl Mesh {
         let submesh_count = r.u16()? as usize;
         let vertex_count = r.u32()? as usize;
         let index_count = r.u32()? as usize;
-        if flag == 2 {
-            return Err(MessiahError::Compressed);
-        }
-        if flag != 0 {
+        if flag != 0 && flag != 2 {
             return Err(MessiahError::Malformed(format!("unknown flag {flag}")));
         }
 
@@ -175,69 +195,29 @@ impl Mesh {
             });
         }
 
-        let wide = vertex_count > 0xFFFF;
-        let index_bytes = r.take(index_count * if wide { 4 } else { 2 })?;
-        let indices: Vec<u32> = if wide {
-            index_bytes
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .map(|c| u32::from_le_bytes(*c))
-                .collect()
+        let (indices, positions, uvs) = if flag == 2 {
+            read_quantised(&mut r, &layouts, vertex_count, index_count)?
         } else {
-            index_bytes
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .map(|c| u32::from(u16::from_le_bytes(*c)))
-                .collect()
+            read_plain(&mut r, &layouts, vertex_count, index_count)?
         };
+        if indices.len() != index_count {
+            return Err(MessiahError::Malformed(format!(
+                "{} indices, header says {index_count}",
+                indices.len()
+            )));
+        }
         if let Some(&bad) = indices.iter().find(|&&i| i as usize >= vertex_count) {
             return Err(MessiahError::Malformed(format!(
                 "index {bad} past {vertex_count} vertices"
             )));
         }
-
-        let mut positions = None;
-        let mut uvs = None;
-        for (_, elements, stride) in &layouts {
-            let stream = r.take(stride * vertex_count)?;
-            let vertices = stream.chunks_exact(*stride);
-            for e in elements {
-                match (e.meaning, e.count, e.kind) {
-                    (b'P', 3, b'F') if positions.is_none() => {
-                        positions = Some(
-                            vertices
-                                .clone()
-                                .map(|v| {
-                                    [
-                                        f32_at(v, e.offset),
-                                        f32_at(v, e.offset + 4),
-                                        f32_at(v, e.offset + 8),
-                                    ]
-                                })
-                                .collect::<Vec<_>>(),
-                        );
-                    }
-                    (b'T', 2, kind) if uvs.is_none() => {
-                        let read = |v: &[u8], o: usize| {
-                            if kind == b'H' {
-                                f16_at(v, o)
-                            } else {
-                                f32_at(v, o)
-                            }
-                        };
-                        let step = e.size() / 2;
-                        uvs = Some(
-                            vertices
-                                .clone()
-                                .map(|v| [read(v, e.offset), read(v, e.offset + step)])
-                                .collect::<Vec<_>>(),
-                        );
-                    }
-                    _ => {}
-                }
-            }
+        if positions.as_ref().is_some_and(|p| p.len() != vertex_count) {
+            return Err(MessiahError::Malformed(
+                "position count does not match".into(),
+            ));
+        }
+        if uvs.as_ref().is_some_and(|u| u.len() != vertex_count) {
+            return Err(MessiahError::Malformed("UV count does not match".into()));
         }
 
         let expected_end = r.pos + SUBMESH_BOUNDS * submesh_count;
@@ -261,6 +241,167 @@ impl Mesh {
             formats: layouts.into_iter().map(|(name, _, _)| name).collect(),
         })
     }
+}
+
+type Layout = (String, Vec<Element>, usize);
+type Decoded = (Vec<u32>, Option<Vec<[f32; 3]>>, Option<Vec<[f32; 2]>>);
+
+/// Indices and streams stored as plain arrays (flag 0).
+fn read_plain(
+    r: &mut Reader<'_>,
+    layouts: &[Layout],
+    vertex_count: usize,
+    index_count: usize,
+) -> Result<Decoded, MessiahError> {
+    let wide = vertex_count > 0xFFFF;
+    let index_bytes = r.take(index_count * if wide { 4 } else { 2 })?;
+    let indices: Vec<u32> = if wide {
+        index_bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
+            .collect()
+    } else {
+        index_bytes
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u32::from(u16::from_le_bytes(*c)))
+            .collect()
+    };
+
+    let mut positions = None;
+    let mut uvs = None;
+    for (_, elements, stride) in layouts {
+        let stream = r.take(stride * vertex_count)?;
+        let vertices = stream.chunks_exact(*stride);
+        for e in elements {
+            match (e.meaning, e.count, e.kind) {
+                (b'P', 3, b'F') if positions.is_none() => {
+                    positions = Some(
+                        vertices
+                            .clone()
+                            .map(|v| {
+                                [
+                                    f32_at(v, e.offset),
+                                    f32_at(v, e.offset + 4),
+                                    f32_at(v, e.offset + 8),
+                                ]
+                            })
+                            .collect::<Vec<_>>(),
+                    );
+                }
+                (b'T', 2, kind) if uvs.is_none() => {
+                    let read = |v: &[u8], o: usize| {
+                        if kind == b'H' {
+                            f16_at(v, o)
+                        } else {
+                            f32_at(v, o)
+                        }
+                    };
+                    let step = e.size() / 2;
+                    uvs = Some(
+                        vertices
+                            .clone()
+                            .map(|v| [read(v, e.offset), read(v, e.offset + step)])
+                            .collect::<Vec<_>>(),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok((indices, positions, uvs))
+}
+
+/// Indices and streams stored quantised and bit packed (flag 2).
+fn read_quantised(
+    r: &mut Reader<'_>,
+    layouts: &[Layout],
+    vertex_count: usize,
+    index_count: usize,
+) -> Result<Decoded, MessiahError> {
+    let indices = read_packed(r, false)?.0;
+    if indices.len() != index_count {
+        return Err(MessiahError::Malformed("index count does not match".into()));
+    }
+    let mut positions = None;
+    let mut uvs = None;
+    for (_, elements, _) in layouts {
+        for e in elements {
+            let (q, scale) = read_packed(r, e.kind != b'B')?;
+            if q.len() != e.count * vertex_count {
+                return Err(MessiahError::Malformed(format!(
+                    "element holds {} values, expected {}",
+                    q.len(),
+                    e.count * vertex_count
+                )));
+            }
+            let value =
+                |i: usize| scale.map_or(q[i] as f32, |(min, step)| min + q[i] as f32 * step);
+            match (e.meaning, e.count) {
+                (b'P', 3) if positions.is_none() => {
+                    positions = Some(
+                        (0..vertex_count)
+                            .map(|v| [value(3 * v), value(3 * v + 1), value(3 * v + 2)])
+                            .collect(),
+                    );
+                }
+                (b'T', 2) if uvs.is_none() => {
+                    uvs = Some(
+                        (0..vertex_count)
+                            .map(|v| [value(2 * v), value(2 * v + 1)])
+                            .collect(),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok((indices, positions, uvs))
+}
+
+/// Raw values of a packed run and, for float elements, (minimum, step).
+type Packed = (Vec<u32>, Option<(f32, f32)>);
+
+/// One packed run: count, (range, minimum,) bits, values. Returns the raw
+/// values and, for float elements, (minimum, step).
+fn read_packed(r: &mut Reader<'_>, float: bool) -> Result<Packed, MessiahError> {
+    let count = r.u32()? as usize;
+    let range_min = if float {
+        Some((r.f32()?, r.f32()?))
+    } else {
+        None
+    };
+    let bits = u32::from(r.take(1)?[0]);
+    if bits > 32 {
+        return Err(MessiahError::Malformed(format!("{bits} bits per value")));
+    }
+    let bytes = r.take((count * bits as usize).div_ceil(8))?;
+    let mut values = Vec::with_capacity(count);
+    let (mut acc, mut held, mut i) = (0u64, 0u32, 0usize);
+    let mask = if bits == 32 {
+        u64::from(u32::MAX)
+    } else {
+        (1u64 << bits) - 1
+    };
+    for _ in 0..count {
+        while held < bits {
+            acc |= u64::from(bytes[i]) << held;
+            i += 1;
+            held += 8;
+        }
+        values.push((acc & mask) as u32);
+        acc >>= bits;
+        held -= bits;
+    }
+    let scale = range_min.map(|(range, min)| {
+        let top = if bits == 0 { 1.0 } else { mask as f32 };
+        (min, range / top)
+    });
+    Ok((values, scale))
 }
 
 fn f32_at(v: &[u8], o: usize) -> f32 {

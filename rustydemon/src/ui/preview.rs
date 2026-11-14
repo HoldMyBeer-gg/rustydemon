@@ -407,11 +407,13 @@ pub fn apply_preview_override(
             model_file,
         )
     };
+    let messiah_repo = || handler_ref?.mpk_repository();
     let siblings = crate::preview::SiblingFetcher {
         by_name: &by_name,
         by_fdid: &by_fdid,
         texture_info: &texture_info,
         monster_skins: &monster_skins,
+        messiah_repo: &messiah_repo,
     };
 
     let new_preview = match new_override {
@@ -477,11 +479,13 @@ fn reload_current_pcx(app: &mut CascExplorerApp, ctx: &egui::Context) {
         let no_fdid = |_: u32| -> Option<Vec<u8>> { None };
         let no_tex_info = |_: &str| None;
         let no_skins = || None;
+        let no_repo = || None;
         let siblings = crate::preview::SiblingFetcher {
             by_name: &no_name,
             by_fdid: &no_fdid,
             texture_info: &no_tex_info,
             monster_skins: &no_skins,
+            messiah_repo: &no_repo,
         };
         sel.preview = crate::preview::run(sel.result.filename.as_deref(), &data, ctx, &siblings);
     }

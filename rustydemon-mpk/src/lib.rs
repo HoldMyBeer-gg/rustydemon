@@ -64,6 +64,7 @@ pub struct MpkEntry {
 }
 
 const MAGIC_ZZZ4: &[u8; 4] = b"ZZZ4";
+const MAGIC_CCCC: &[u8; 4] = b"CCCC";
 
 /// Parse an `.mpkinfo` index, checking its trailing MD5.
 pub fn parse_index(data: &[u8]) -> Result<Vec<MpkEntry>, MpkError> {
@@ -108,6 +109,15 @@ pub fn parse_index(data: &[u8]) -> Result<Vec<MpkEntry>, MpkError> {
 
 /// Turn a stored payload into the file's bytes.
 pub fn decode_payload(stored: &[u8]) -> Result<Vec<u8>, MpkError> {
+    // The resource registry wraps its ZZZ4 payload in a `CCCC` tag, and a
+    // few stray bytes follow the last LZ4 sequence there, so decode it with
+    // a reader that stops at the stated size.
+    if let Some(inner) = stored.strip_prefix(MAGIC_CCCC) {
+        if inner.len() >= 8 && inner.starts_with(MAGIC_ZZZ4) {
+            let size = u32::from_le_bytes(inner[4..8].try_into().expect("4 bytes")) as usize;
+            return lz4_block_until(&inner[8..], size);
+        }
+    }
     if stored.len() < 8 || &stored[..4] != MAGIC_ZZZ4 {
         return Ok(stored.to_vec());
     }
@@ -120,6 +130,55 @@ pub fn decode_payload(stored: &[u8]) -> Result<Vec<u8>, MpkError> {
             out.len()
         )));
     }
+    Ok(out)
+}
+
+/// Decode an LZ4 block until `size` bytes are out, ignoring anything after.
+fn lz4_block_until(src: &[u8], size: usize) -> Result<Vec<u8>, MpkError> {
+    let short = || MpkError::Decompress("LZ4 block ends early".into());
+    let mut out = Vec::with_capacity(size);
+    let mut i = 0;
+    let read_len = |i: &mut usize, mut n: usize| -> Result<usize, MpkError> {
+        loop {
+            let b = *src.get(*i).ok_or_else(short)?;
+            *i += 1;
+            n += b as usize;
+            if b != 255 {
+                return Ok(n);
+            }
+        }
+    };
+    while out.len() < size {
+        let token = *src.get(i).ok_or_else(short)?;
+        i += 1;
+        let mut lit = (token >> 4) as usize;
+        if lit == 15 {
+            lit = read_len(&mut i, lit)?;
+        }
+        let literals = src.get(i..i + lit).ok_or_else(short)?;
+        out.extend_from_slice(literals);
+        i += lit;
+        if out.len() >= size {
+            break;
+        }
+        let lo = *src.get(i).ok_or_else(short)? as usize;
+        let hi = *src.get(i + 1).ok_or_else(short)? as usize;
+        i += 2;
+        let offset = lo | hi << 8;
+        let mut len = (token & 15) as usize;
+        if len == 15 {
+            len = read_len(&mut i, len)?;
+        }
+        len += 4;
+        if offset == 0 || offset > out.len() {
+            return Err(MpkError::Decompress(format!("bad LZ4 offset {offset}")));
+        }
+        let start = out.len() - offset;
+        for k in 0..len {
+            out.push(out[start + k]);
+        }
+    }
+    out.truncate(size);
     Ok(out)
 }
 

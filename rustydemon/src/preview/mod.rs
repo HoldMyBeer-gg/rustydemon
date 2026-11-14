@@ -174,6 +174,9 @@ pub struct SiblingFetcher<'a> {
     /// none) that the game's creature tables give the file being previewed.
     /// `None` when it is not a creature model or the tables are unreadable.
     pub monster_skins: &'a dyn Fn() -> Option<[u32; 3]>,
+    /// Diablo Immortal's resource registry, for previews that follow a
+    /// mesh to its materials and textures. `None` for other games.
+    pub messiah_repo: &'a dyn Fn() -> Option<Arc<rustydemon_messiah::repository::Repository>>,
 }
 
 /// Plug-in interface for format-specific preview panels.
@@ -233,6 +236,7 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         Box::new(model_d2r::ModelD2rPreview),
         // Diablo Immortal mesh objects: magic plus a vertex layout name.
         Box::new(messiah::MessiahMeshPreview),
+        Box::new(messiah::MessiahTexturePreview),
         Box::new(adt::AdtPreview),
         Box::new(pow::PowPreview),
         Box::new(vid::VidPreview),

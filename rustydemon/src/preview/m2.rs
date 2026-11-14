@@ -394,11 +394,13 @@ mod tests {
         let no_name = |_: &str| None;
         let no_info = |_: &str| None;
         let no_skins = || None;
+        let no_repo = || None;
         let siblings = SiblingFetcher {
             by_name: &no_name,
             by_fdid: &none,
             texture_info: &no_info,
             monster_skins: &no_skins,
+            messiah_repo: &no_repo,
         };
         M2Preview
             .build("crab.m2", model, &egui::Context::default(), &siblings)

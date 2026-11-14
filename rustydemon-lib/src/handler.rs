@@ -6,6 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use rustydemon_messiah::repository::Repository;
 use rustydemon_mpk::{MpkArchive, MpkError};
 
 use crate::{
@@ -93,6 +94,9 @@ pub struct CascHandler {
     /// Messiah MPK packages: present only for Diablo Immortal.  Keys from
     /// [`root::mpk::key_for`] index into it.
     mpk: Option<Arc<MpkArchive>>,
+    /// Diablo Immortal's resource registry: names, types and dependencies
+    /// of everything in the MPK packages.
+    mpk_repository: Option<Arc<Repository>>,
     /// Optional CDN fallback fetcher.  Only present when the `cdn` feature
     /// is compiled in and the install's `.build.info` carries CDN host
     /// info.  Used to load D2R 3.1.2+ loose metadata blobs that aren't in
@@ -350,6 +354,7 @@ impl CascHandler {
             local_index: Some(local_index),
             static_container: None,
             mpk: None,
+            mpk_repository: None,
             #[cfg(feature = "cdn")]
             cdn: cdn_fetcher,
             root: root_handler,
@@ -399,6 +404,7 @@ impl CascHandler {
             local_index: None,
             static_container: Some(container),
             mpk: None,
+            mpk_repository: None,
             #[cfg(feature = "cdn")]
             cdn: None,
             root: Box::new(tvfs),
@@ -419,13 +425,22 @@ impl CascHandler {
         mpk_dir: &std::path::Path,
     ) -> Result<Self, CascError> {
         let archive = MpkArchive::open(mpk_dir).map_err(mpk_error)?;
-        let root = root::mpk::MpkRootHandler::new(&archive);
+        // Best effort: without the registry, files keep their GUID names.
+        let repository = archive
+            .entries()
+            .iter()
+            .position(|e| e.path == "Package/resource.repository")
+            .and_then(|i| archive.read(i).ok())
+            .and_then(|bytes| Repository::parse(&bytes).ok())
+            .map(Arc::new);
+        let root = root::mpk::MpkRootHandler::new(&archive, repository.as_deref());
         Ok(CascHandler {
             config: CascConfig::for_mpk(base_path),
             encoding: None,
             local_index: None,
             static_container: None,
             mpk: Some(Arc::new(archive)),
+            mpk_repository: repository,
             #[cfg(feature = "cdn")]
             cdn: None,
             root: Box::new(root),
@@ -436,6 +451,11 @@ impl CascHandler {
             validate_hashes: false,
             texture_base_index: None,
         })
+    }
+
+    /// Diablo Immortal's resource registry, when the install has one.
+    pub fn mpk_repository(&self) -> Option<Arc<Repository>> {
+        self.mpk_repository.clone()
     }
 
     // ── D4 texture descriptor index ────────────────────────────────────────────
@@ -1296,6 +1316,64 @@ mod mpk_tests {
         )
         .unwrap();
         base
+    }
+
+    /// A registry naming the GUID file as `Char/crab/Mesh_crab.mesh`.
+    fn registry() -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&1u32.to_le_bytes());
+        b.extend_from_slice(&1u32.to_le_bytes());
+        b.extend_from_slice(&0u16.to_le_bytes());
+        let types = b"Texture2D;ParticleSystem;LodModel;Model;Mesh";
+        b.extend_from_slice(&(types.len() as u16).to_le_bytes());
+        b.extend_from_slice(types);
+        let folders = b"@^_^@;Char/crab";
+        b.extend_from_slice(&(folders.len() as u16).to_le_bytes());
+        b.extend_from_slice(folders);
+        b.extend_from_slice(&[5, 0, 1, 0, 0]);
+        b.extend_from_slice(&[
+            0x11, 0x51, 0x6e, 0x65, 0xc5, 0xe3, 0x40, 0x62, 0xa6, 0x45, 0x0f, 0xee, 0x65, 0xd1,
+            0x38, 0x38,
+        ]);
+        let name = b"Mesh_crab";
+        b.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        b.extend_from_slice(name);
+        for v in [1u16, 4, 0] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b
+    }
+
+    #[test]
+    fn registry_names_appear_as_readable_paths() {
+        let base = immortal_install("registry");
+        let mpk = base.join("Package").join("MPK");
+        let reg = registry();
+        let mut data = fs::read(mpk.join("Resources.mpk")).unwrap();
+        let reg_at = data.len() as u32;
+        data.extend_from_slice(&reg);
+        fs::write(mpk.join("Resources.mpk"), &data).unwrap();
+        fs::write(
+            mpk.join("Resources.mpkinfo"),
+            mpkinfo(&[
+                ("Package/Char/npc/a_drink.anim", 0, 10, 0),
+                ("Package/11/11516e65-c5e3-4062-a645-0fee65d13838", 10, 12, 0),
+                ("Package/resource.repository", reg_at, reg.len() as u32, 0),
+            ]),
+        )
+        .unwrap();
+
+        let mut handler = CascHandler::open_local(&base, "anbs").unwrap();
+        assert!(handler.mpk_repository().is_some());
+        assert_eq!(
+            handler
+                .open_file_by_name("Char/crab/Mesh_crab.mesh")
+                .unwrap(),
+            b".MESSIAH obj"
+        );
+        handler.load_builtin_paths();
+        assert_eq!(handler.filename_count(), 4);
+        fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]
