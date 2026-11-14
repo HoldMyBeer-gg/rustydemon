@@ -209,7 +209,10 @@ pub fn show(ui: &mut egui::Ui) {
     let rows = pose.frame.rows();
     let size = egui::vec2(rows[0].len() as f32, rows.len() as f32) * PIXEL;
     let screen = ctx.content_rect();
-    let ground = ui.clip_rect().top();
+    // The bar's drawn top border.  The panel's clip rect starts higher, in
+    // the gap above the bar; the content rect starts one inner margin
+    // below the border.
+    let ground = ui.max_rect().top() - super::STATUS_BAR_MARGIN_Y;
     let corner = place(pose.across, screen.left(), screen.right(), ground, size);
     let (left, top) = (corner.x, corner.y - lift(pose.frame) * PIXEL);
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, id));
