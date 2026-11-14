@@ -48,7 +48,7 @@ if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 # ── Check working tree is clean ───────────────────────────────────────────────
-if [[ -n "$(git status --porcelain)" ]]; then
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
     die "Working tree is not clean. Commit or stash changes before releasing."
 fi
 
