@@ -219,11 +219,11 @@ fn decode_block(data: &[u8], block_idx: usize, out: &mut Vec<u8>) -> Result<(), 
 
     match data[0] {
         0x4E => {
-            // 'N' — not compressed, raw copy.
+            // 'N', not compressed, raw copy.
             out.extend_from_slice(&data[1..]);
         }
         0x5A => {
-            // 'Z' — zlib/deflate compressed.
+            // 'Z': zlib/deflate compressed.
             let mut dec = ZlibDecoder::new(&data[1..]);
             let mut buf = Vec::new();
             dec.read_to_end(&mut buf)
@@ -231,17 +231,17 @@ fn decode_block(data: &[u8], block_idx: usize, out: &mut Vec<u8>) -> Result<(), 
             out.extend_from_slice(&buf);
         }
         0x45 => {
-            // 'E' — encrypted; decrypt then recurse.
+            // 'E': encrypted; decrypt then recurse.
             let decrypted = decrypt_block(&data[1..], block_idx)?;
             if let Some(dec) = decrypted {
                 decode_block(&dec, block_idx, out)?;
             } else {
-                // Key unknown — emit zeros for the expected size.
+                // Key unknown: emit zeros for the expected size.
                 // (Caller may handle this differently if desired.)
             }
         }
         0x46 => {
-            // 'F' — frame (recursive BLTE); not implemented.
+            // 'F': frame (recursive BLTE); not implemented.
             return Err(CascError::Blte(
                 "BLTE frame blocks ('F') are not supported".into(),
             ));
@@ -321,13 +321,13 @@ fn decrypt_block(data: &[u8], block_idx: usize) -> Result<Option<Vec<u8>>, CascE
 
     match enc_type {
         0x53 => {
-            // 'S' — Salsa20.
+            // 'S': Salsa20.
             let mut buf = payload.to_vec();
             Salsa20::new(&key, &iv).apply_keystream(&mut buf);
             Ok(Some(buf))
         }
         0x41 => {
-            // 'A' — ARC4; not implemented.
+            // 'A': ARC4; not implemented.
             Err(CascError::Blte("ARC4 encryption not implemented".into()))
         }
         t => Err(CascError::Blte(format!(
@@ -371,7 +371,7 @@ mod tests {
     }
 
     /// Regression guard for issue #2.  An encrypted block whose key we don't
-    /// hold must surface as `MissingKey` — never as a storage/IO error, which
+    /// hold must surface as `MissingKey`: never as a storage/IO error, which
     /// is what triggers the (useless) CDN refetch in `CascHandler::open_by_ekey`.
     #[test]
     fn encrypted_block_without_key_returns_missing_key() {

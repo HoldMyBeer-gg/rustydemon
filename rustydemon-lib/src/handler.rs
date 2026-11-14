@@ -80,11 +80,11 @@ pub struct CascHandler {
     /// Parsed configuration (paths, keys, etc.).
     pub config: CascConfig,
 
-    /// Encoding table — absent for static-container installations.
+    /// Encoding table: absent for static-container installations.
     encoding: Option<EncodingHandler>,
-    /// Local index files (`*.idx`) — absent for static-container installations.
+    /// Local index files (`*.idx`): absent for static-container installations.
     local_index: Option<LocalIndexHandler>,
-    /// Static container backend — present only for Steam D4/OW-style builds.
+    /// Static container backend: present only for Steam D4/OW-style builds.
     /// Wrapped in `Arc` so `PreparedLoad` can clone-and-ship a handle to a
     /// background thread for batch extraction.
     static_container: Option<Arc<StaticContainer>>,
@@ -143,7 +143,7 @@ impl CascHandler {
 
         if has_static_cfg {
             // Prefer the static container path whenever a `.build.config`
-            // exists — even if `.build.info` is also present (Windows Steam
+            // exists: even if `.build.info` is also present (Windows Steam
             // D4 ships both, but only the static config has key-layout fields).
             // Use if-let so a malformed/non-static `.build.config` falls
             // through to the `.build.info` path rather than hard-erroring.
@@ -190,7 +190,7 @@ impl CascHandler {
 
         // ── Optional CDN fallback fetcher ─────────────────────────────────
         // Built before loading ENCODING so the encoding load path itself
-        // can fall back to CDN — required for D2R 3.1.2+ where ENCODING
+        // can fall back to CDN: required for D2R 3.1.2+ where ENCODING
         // lives in `file-index` as a loose CDN blob, not in any local
         // `data.NNN` archive.
         #[cfg(feature = "cdn")]
@@ -214,7 +214,7 @@ impl CascHandler {
 
         // Fallback read: try the local index first, then CDN (when the
         // `cdn` feature is compiled in and a fetcher was built).  Used for
-        // ENCODING and for the legacy root manifest — both can be loose
+        // ENCODING and for the legacy root manifest: both can be loose
         // blobs on D2R 3.1.2+.
         #[allow(unused_variables)] // cdn arg is unused when feature is off
         let read_metadata_blob = |ekey: &Md5Hash| -> Result<Vec<u8>, CascError> {
@@ -286,7 +286,7 @@ impl CascHandler {
             // Dummy AND the build config has a vfs-root entry, try TVFS
             // before giving up on the root manifest.  Retail WoW also
             // ships both fields populated, but its `root` is a valid
-            // MFST so this branch never fires there — MFST wins and WoW
+            // MFST so this branch never fires there: MFST wins and WoW
             // keeps working.
             if handler.type_name() == "Dummy" && config.vfs_root_ekey().is_some() {
                 let vfs_ekey = config.vfs_root_ekey().unwrap();
@@ -403,7 +403,7 @@ impl CascHandler {
 
     /// Best-effort load of `base/Texture-Base-Global.dat`, the consolidated
     /// texture descriptor table that ships with D4 (Steam and Battle.net both).
-    /// Failures are silent — the texture preview just falls back to brute-force.
+    /// Failures are silent: the texture preview just falls back to brute-force.
     fn try_load_texture_base_index(&mut self) {
         if self.root.type_name() != "TVFS" {
             return; // Only D4 / OW2-class TVFS roots have this file.
@@ -665,7 +665,7 @@ impl CascHandler {
 
         match local_attempt {
             Ok(bytes) => Ok(bytes),
-            // The block was on disk and structurally intact — we just don't hold
+            // The block was on disk and structurally intact. We just don't hold
             // its decryption key.  The CDN serves the same ciphertext, so a
             // refetch cannot help; falling back would only bury the real
             // diagnostic behind an unrelated 404.
@@ -796,7 +796,7 @@ impl CascHandler {
         // If we have a local entry, route it to the correct storage
         // directory (primary `<data>/data/`, secondary `<data>/ecache/`,
         // or whatever else `load_multi` + `merge_archive_indices` added).
-        // Missing entries aren't fatal when we have a CDN fetcher — the
+        // Missing entries aren't fatal when we have a CDN fetcher: the
         // background thread will fall through to CDN on execute.
         let (storage_dir, archive_index, offset, size) = match local_index.get_entry(&ekey) {
             Some(idx) => {
@@ -814,7 +814,7 @@ impl CascHandler {
                 (Some(dir), idx.index, idx.offset, idx.size)
             }
             None => {
-                // No local entry — the read will go straight to CDN if the
+                // No local entry: the read will go straight to CDN if the
                 // fetcher is available, otherwise `execute` returns
                 // IndexNotFound so the GUI can surface the error.
                 (None, 0, 0, 0)
@@ -846,7 +846,7 @@ impl CascHandler {
 /// clone of the handler's CDN fetcher (so loose-blob reads fall back to
 /// CDN without holding a handler reference).
 pub struct PreparedLoad {
-    /// `None` when there's no local entry at all — execute() must fall
+    /// `None` when there's no local entry at all: execute() must fall
     /// straight to CDN.  `Some(dir)` points at whichever storage directory
     /// owns `data.{archive_index}`.
     storage_dir: Option<PathBuf>,
@@ -896,7 +896,7 @@ impl PreparedLoad {
 
         match local_attempt {
             Ok(bytes) => Ok(bytes),
-            // See `CascHandler::open_by_ekey` — a missing key is not a storage
+            // See `CascHandler::open_by_ekey`: a missing key is not a storage
             // failure, so the CDN fallback has nothing to offer.
             Err(err @ CascError::MissingKey(_)) => Err(err),
             Err(local_err) => {
@@ -985,7 +985,7 @@ mod missing_key_tests {
     //!
     //! These are gated on `cdn` because without it the fallback is compiled
     //! out and there is nothing to regress.  CI's `cargo test --workspace`
-    //! does run them — both `rustydemon` and `rustydemon-cli` depend on the
+    //! does run them: both `rustydemon` and `rustydemon-cli` depend on the
     //! lib with `features = ["cdn"]`, so feature unification enables it.
     //! A bare `cargo test -p rustydemon-lib` skips them; use
     //! `--features cdn` when testing the lib in isolation.
@@ -1079,7 +1079,7 @@ mod missing_key_tests {
     }
 
     /// The complement: a genuine *storage* failure must still reach the CDN.
-    /// This is what keeps the fix narrow — we only short-circuit MissingKey,
+    /// This is what keeps the fix narrow. We only short-circuit MissingKey,
     /// so corrupt/absent local data can still be repaired by a refetch.
     #[test]
     fn absent_local_block_still_attempts_cdn() {

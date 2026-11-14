@@ -156,7 +156,7 @@ impl WowRootHandler {
                     )
                 }
                 _ => {
-                    // Unknown version — skip.
+                    // Unknown version: skip.
                     break;
                 }
             };

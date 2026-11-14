@@ -95,7 +95,7 @@
                       1. Uncomment the `Component` tag and its contents.
                       2. Change the value for the `Source` attribute in the `File` tag to a path
                          to the file that should be included as the license sidecar file. The path
-                         can, and probably should be, relative to this file.
+                         can be, and should be, relative to this file.
                       3. Change the value for the `Name` attribute in the `File` tag to the
                          desired name for the file when it is installed alongside the `bin` folder
                          in the installation directory. This can be omitted if the desired name is

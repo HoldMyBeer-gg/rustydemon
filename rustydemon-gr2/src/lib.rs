@@ -6,11 +6,11 @@
 //! - The 32-byte file header across all six known magic variants
 //!   (LE/BE × 32/64-bit × file-format 6/7).
 //! - The file-info struct and sector-descriptor table.
-//! - Bitknit2 decompression — pure-Rust port of the
+//! - Bitknit2 decompression: pure-Rust port of the
 //!   [powzix/ooz](https://github.com/powzix/ooz) C++ decoder.
 //!   Raw (compression type 0) sectors pass through unmodified.
 //! - Pointer-fixup tables (kept as side tables, not in-place relocated).
-//! - The type-tree / element walker for Granny types 1..=22 — the
+//! - The type-tree / element walker for Granny types 1..=22: the
 //!   ones D2R actually uses.  Types we don't fully decode surface as
 //!   [`ElementValue::Opaque`] so structural walks keep making
 //!   progress past unsupported leaf types.

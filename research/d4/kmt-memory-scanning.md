@@ -9,7 +9,7 @@ Build tested: live 2.x and PTR 2.6.0.70501 (Season 12 preview, build-comments: `
 
 D4 uses TACT/BLTE for content storage. Encrypted files (e.g. `EncryptedNameDict-0x<id>.dat`)
 require 16-byte Salsa20 keys distributed at runtime via the Key Management Table (KMT).
-The KMT is fetched from Blizzard's CDN/auth infrastructure on game startup — it is **not**
+The KMT is fetched from Blizzard's CDN/auth infrastructure on game startup. It is **not**
 embedded in the client and does **not** appear in the public CDN KeyRing field
 (`fenristest` builds have an empty `KeyRing` in the NGDP response).
 
@@ -22,7 +22,7 @@ key ID in big-endian order as written to disk.
 
 BLTE reads the 8-byte key name from the encrypted block header as `u64::from_le_bytes`.
 This means the key ID that BLTE looks up at runtime is the **little-endian integer
-interpretation** of the raw filename bytes — i.e. byte-swapped relative to the filename hex.
+interpretation** of the raw filename bytes, i.e. byte-swapped relative to the filename hex.
 
 Example:
 - Filename: `EncryptedNameDict-0x8a223842ed92fa53.dat`
@@ -51,7 +51,7 @@ The KMT is stored as a **hash table** with entries of the form:
 [key_name (8 bytes)] [key_name (8 bytes)] [key_value (16 bytes)]
 ```
 
-The key name is duplicated — this is a hash table artifact (the key is stored inline in
+The key name is duplicated. This is a hash table artifact (the key is stored inline in
 the bucket, duplicated as part of the open-addressing or chaining scheme).
 
 To scan: search for the 16-byte pattern `key_name_bytes + key_name_bytes`, then read the
@@ -76,14 +76,14 @@ F159F1F70EABAAB1 E00294A2AF86C537E088A086BABE3D82
 
 ## PTR Preview Client: KMT Is Never Loaded
 
-The S12 PTR (2.6.0.70501, `fenristest`) is a **preview client** — Blizzard pushed the
+The S12 PTR (2.6.0.70501, `fenristest`) is a **preview client**. Blizzard pushed the
 encrypted game data for dataminers but did not operate a game server for this build.
 
 Observed behaviour:
 - Battle.net auth succeeds (`error_code: 0` in FenrisDebug.txt)
 - CDN nodes resolve and rotate normally
 - `[Sigma] [casc] [:0]: Scanning for KMT sequence numbers.` is logged at startup
-- **No KMT fetch is ever initiated** — no further KMT log entries appear
+- **No KMT fetch is ever initiated**. No further KMT log entries appear
 - The game reaches the title screen and shows "servers down"
 
 The KMT fetch is gated on a fully-initialized game state (game server connection), which
@@ -114,7 +114,7 @@ reading 16 bytes produces high-entropy binary data that passes naive entropy fil
 but fails BLTE decryption.
 
 **Distinguishing VFS from KMT:**
-- KMT entries use the duplicate-key pattern (`key + key + value`) — search for this first
+- KMT entries use the duplicate-key pattern (`key + key + value`): search for this first
 - If the duplicate pattern produces 0 results, KMT is not loaded; all other hits are VFS
 - VFS entries follow the `[key][null_or_ptr][metadata_ptr]` 24-byte layout
 
@@ -126,7 +126,7 @@ See `tact_scan.py` in this repo. Key design decisions:
 
 1. Build `pat = struct.pack("<Q", int(filename_hex, 16))` for memory search
 2. Build `blte_key = struct.unpack("<Q", bytes.fromhex(filename_hex))[0]` for output
-3. Search for `pat + pat` (16-byte duplicate needle) — not just `pat`
+3. Search for `pat + pat` (16-byte duplicate needle), not just `pat`
 4. Read 16 bytes at `needle_match + 16` as the key value
 5. Validate with `looks_like_key()`: reject all-zero, low entropy, heap pointers,
    and values whose second 8 bytes are themselves a known key name

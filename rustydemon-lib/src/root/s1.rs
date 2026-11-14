@@ -76,7 +76,7 @@ impl S1RootHandler {
 
     /// Quick check: does this blob look like an S1 text root?
     pub fn looks_like_s1_root(data: &[u8]) -> bool {
-        // Sample up to the first 2KB — must be printable ASCII with at least
+        // Sample up to the first 2KB: must be printable ASCII with at least
         // one line containing a `|` separator.
         let sample = &data[..data.len().min(2048)];
         if !sample

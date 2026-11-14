@@ -193,7 +193,7 @@ define_table!(CopyOffsetTable, 21, 0);
 // ── rANS state ────────────────────────────────────────────────────────────────
 
 /// A single rANS stream register.  Bitknit2 uses two of these,
-/// interleaved — each decode op operates on one and then the pair is
+/// interleaved: each decode op operates on one and then the pair is
 /// swapped so the next op uses the other.
 #[derive(Debug, Clone, Copy)]
 struct RansState {
@@ -269,7 +269,7 @@ impl LruOffsetCache {
     fn hit(&mut self, index: u32) -> u32 {
         let slot = (self.entry_order >> (index * 4)) & 0xF;
         // `16 << (index*4)` overflows u32 for index=7 (16 << 28 =
-        // 0x100000000).  Compute in u64 then cast — on u32 it wraps
+        // 0x100000000).  Compute in u64 then cast: on u32 it wraps
         // to 0 so the -1 underflow gives 0xFFFFFFFF, which is the
         // rotate-all mask and happens to be correct for index=7.
         let rotate_mask = (((16u64) << (index * 4)).wrapping_sub(1)) as u32;
@@ -385,7 +385,7 @@ impl DecoderState {
         let (mut s1, mut s2) = self.decode_initial_state(src)?;
 
         // First byte of the entire decoded output is 8 bits pulled
-        // straight from the rANS state — no delta encoding applied.
+        // straight from the rANS state. No delta encoding applied.
         if *dst_pos == 0 {
             let b = Self::pop_bits(&mut s1, &mut s2, src, 8)?;
             dst[*dst_pos] = b as u8;
@@ -528,7 +528,7 @@ impl DecoderState {
     }
 }
 
-// Trait for "has an observe() method" — the decoder's `pop_model` uses
+// Trait for "has an observe() method": the decoder's `pop_model` uses
 // it polymorphically without caring which table type.  We implement
 // it on the three concrete tables via the macro below.
 trait Observable {

@@ -1,7 +1,7 @@
-//! `inspect` subcommand — print format-specific metadata for a local file.
+//! `inspect` subcommand: print format-specific metadata for a local file.
 //!
 //! Reads a file from disk and runs the appropriate parser based on magic
-//! bytes / extension.  Prints a text summary to stdout — the same kind
+//! bytes / extension.  Prints a text summary to stdout: the same kind
 //! of info the GUI preview panel shows, minus GPU rendering.
 //!
 //! Supported formats:
@@ -472,7 +472,7 @@ fn inspect_blp(data: &[u8]) -> Result<()> {
 }
 
 fn inspect_texture_de(data: &[u8]) -> Result<()> {
-    // Inline the small <DE( header parse — avoids pulling in the GUI crate.
+    // Inline the small <DE( header parse: avoids pulling in the GUI crate.
     if data.len() < 0x2C {
         println!("<DE( header too short ({} bytes)", data.len());
         return Ok(());

@@ -61,7 +61,7 @@ impl Salsa20 {
         Salsa20 { state: s }
     }
 
-    /// XOR-decrypt (or encrypt — the operation is identical) `data` in place.
+    /// XOR-decrypt (or encrypt: the operation is identical) `data` in place.
     pub fn apply_keystream(&mut self, data: &mut [u8]) {
         let mut keystream = [0u8; 64];
         let mut pos = 0;

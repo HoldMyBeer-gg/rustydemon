@@ -9,7 +9,7 @@
 //!   0x18   8 bytes  reserved / zero
 //! ```
 //!
-//! The magic GUID is the real discriminator — there is no ASCII magic.
+//! The magic GUID is the real discriminator. There is no ASCII magic.
 //! Six variants are known in the wild:
 //!
 //! | Variant                    | Endian | Ptr size | File format |
@@ -53,7 +53,7 @@ pub struct Header {
     /// follows it.  Always 456 for LE64 file format 7 (D2R) and 440
     /// for LE32 file format 6.
     pub size: u32,
-    /// Granny file format — 6 or 7.  D2R uses 7.
+    /// Granny file format: 6 or 7.  D2R uses 7.
     pub format: u32,
 }
 
@@ -77,7 +77,7 @@ const MAGIC_BE64_F7: [u8; 16] = [
     0xE3, 0xD4, 0x95, 0x31, 0x62, 0x4F, 0xDC, 0x20, 0x3A, 0xD0, 0x36, 0xCC, 0x89, 0xFF, 0x82, 0xB1,
 ];
 
-/// Check whether `data` starts with a known Granny magic.  Cheap — used
+/// Check whether `data` starts with a known Granny magic.  Cheap: used
 /// by the preview plugin's `can_preview` to claim `.model` files.
 pub fn has_granny_magic(data: &[u8]) -> bool {
     if data.len() < 16 {

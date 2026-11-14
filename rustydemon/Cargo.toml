@@ -18,13 +18,13 @@ rustydemon-gr2  = { path = "../rustydemon-gr2" }
 eframe = { version = "0.37", default-features = false, features = [
     "default_fonts",
     "wgpu",
-    # Linux backends — required because we disabled default-features.
+    # Linux backends: required because we disabled default-features.
     # Without these, winit fails with "platform not supported".
     "x11",
     "wayland",
     # Publish the egui widget tree to the platform accessibility bus
     # (AT-SPI on Linux, UIA on Windows, NSAccessibility on macOS) so
-    # screen readers — and tools like bad-ass-mcp — can drive the UI.
+    # screen readers, and tools like bad-ass-mcp, can drive the UI.
     "accesskit",
     # Both were always on before egui 0.37 and are opt-in since.
     # clipboard: Copy Hash / Copy CKey / Copy Version, and paste in the
@@ -54,7 +54,7 @@ texture2ddecoder = "0.1"
 # `libasound2-dev` (Debian/Ubuntu) / `alsa-lib` (Arch) system
 # headers, which aren't available on a stock SteamOS install
 # without disabling read-only mode.  We therefore restrict the
-# dependency to non-Linux targets and stub it out on Linux — the
+# dependency to non-Linux targets and stub it out on Linux: the
 # preview panel still renders disabled playback controls so the
 # UI is consistent across OSes.  Linux devs who have the system
 # deps can re-enable it by dropping the target cfg.

@@ -100,7 +100,7 @@ impl BlockFormat {
 
     /// Map D4's `eTexFormat` enum to a [`BlockFormat`]. Returns `None` for
     /// uncompressed formats (BGRA8, A8, RGBA16F) and anything we haven't
-    /// catalogued — callers can fall back to the brute-force decoder.
+    /// catalogued: callers can fall back to the brute-force decoder.
     fn from_d4_format(fmt: u32) -> Option<Self> {
         Some(match fmt {
             9 | 10 | 46 | 47 => BlockFormat::Bc1,
@@ -117,7 +117,7 @@ impl BlockFormat {
 
 /// Eagerly-parsed Texture-Base-Global descriptor table. We hold ~140k
 /// `TextureDescriptor` values (~32 bytes each) which weighs in at ~5 MB
-/// resident — far smaller than the 34 MB source file, which is dropped
+/// resident: far smaller than the 34 MB source file, which is dropped
 /// after parsing.
 #[derive(Debug)]
 pub struct TextureBaseIndex {
@@ -179,14 +179,14 @@ impl TextureBaseIndex {
             }
             cursor = end;
             if def_size < MIN_DESCRIPTOR_SIZE {
-                // Tiny / placeholder entry — skip. The lookup just won't
+                // Tiny / placeholder entry: skip. The lookup just won't
                 // return anything for this SNO and the preview falls back.
                 continue;
             }
             let blob = &data[actual..end];
             let stored_sno = i32::from_le_bytes(blob[0..4].try_into().unwrap());
             if stored_sno != sno_id {
-                // Index/data drift — bail rather than handing back a wrong
+                // Index/data drift: bail rather than handing back a wrong
                 // descriptor for some other SNO.
                 return Err(CascError::InvalidData(format!(
                     "Texture-Base-Global.dat: descriptor at offset {actual} has SNO \

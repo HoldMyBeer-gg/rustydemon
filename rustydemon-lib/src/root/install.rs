@@ -6,8 +6,8 @@
 //!
 //! Binary format:
 //! - Header: "IN" (2B), version (u8), hash_size (u8), num_tags (u16 BE), num_entries (u32 BE)
-//! - Tags: for each tag — name (C-string), type (u16 BE), bitmask bytes
-//! - Entries: for each entry — name (C-string), ckey (hash_size B), size (u32 BE)
+//! - Tags: for each tag: name (C-string), type (u16 BE), bitmask bytes
+//! - Entries: for each entry: name (C-string), ckey (hash_size B), size (u32 BE)
 
 use std::collections::HashMap;
 use std::io::{Cursor, Read};

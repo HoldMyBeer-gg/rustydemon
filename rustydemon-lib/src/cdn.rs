@@ -33,7 +33,7 @@ pub struct CdnFetcher {
 impl CdnFetcher {
     /// Construct a fetcher from the CDN hosts + path already parsed by
     /// [`CascConfig`](crate::CascConfig).  Returns an error if no hosts
-    /// are provided or `cdn_path` is empty — both are required to build a
+    /// are provided or `cdn_path` is empty: both are required to build a
     /// URL.  The `cache_dir` is created on first use; passing a path
     /// inside the game install is fine and what [`CascHandler`] does by
     /// default.
@@ -121,7 +121,7 @@ impl CdnFetcher {
     }
 
     /// Fetch a config blob (BuildKey / CDNKey) from CDN and cache it under
-    /// `cache_dir/<ab>/<cd>/<key>` — the same layout the game uses for its
+    /// `cache_dir/<ab>/<cd>/<key>`: the same layout the game uses for its
     /// local `Data/config/` tree, so passing the game's config directory
     /// makes the file available for future opens without re-downloading.
     ///

@@ -12,7 +12,7 @@
 //!   → BLP file (fetched via SiblingFetcher::by_fdid)
 //! ```
 //!
-//! No animation, no doodad placement — those layer on later.
+//! No animation, no doodad placement: those layer on later.
 
 use std::io::Cursor;
 use std::sync::Arc;
@@ -138,7 +138,7 @@ impl PreviewPlugin for M2Preview {
         let Some(skin_bytes) = (siblings.by_fdid)(skin_id) else {
             text.push_str(&format!(
                 "\n\nCould not read skin file {skin_id}, which holds this model's \
-                 triangles. It is probably not downloaded in this install.",
+                 triangles. It may not be downloaded in this install.",
             ));
             out.text = Some(text);
             return out;
@@ -294,7 +294,7 @@ impl PreviewPlugin for M2Preview {
             build: Arc::new(move |_raw, _path| Ok(super::encode_obj(&mesh_for_obj))),
         });
 
-        // OBJ + MTL + texture PNGs — writes sibling files next to the OBJ.
+        // OBJ + MTL + texture PNGs: writes sibling files next to the OBJ.
         if !mesh.materials.is_empty() {
             let mesh_for_mtl = Arc::clone(&mesh);
             out.extra_exports.push(ExportAction {

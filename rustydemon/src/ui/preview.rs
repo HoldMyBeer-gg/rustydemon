@@ -220,7 +220,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         // Look at the live player (if any) to decide button states.
         // We can't borrow `app` mutably here, but the immutable peek
         // at `audio_player` is fine because we only read is_playing /
-        // is_paused / current_label — the AudioPlayer's interior
+        // is_paused / current_label: the AudioPlayer's interior
         // state is all owned values we can copy out.
         let (is_playing, is_paused, current_label, elapsed) =
             match app.audio_player.as_ref().and_then(|slot| slot.as_ref()) {
@@ -371,7 +371,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
 /// the preview pipeline.  `new_override` is `None` for auto-dispatch
 /// or `Some(index)` to force a specific plugin from the registry.
 ///
-/// **Must be called from the top of `App::update`** — dropping the old
+/// **Must be called from the top of `App::update`**: dropping the old
 /// `PreviewOutput`'s GPU texture handle mid-frame (after egui has
 /// already queued a paint using it) crashes wgpu at queue-submit time.
 /// UI code should set `app.pending_preview_override` and let the next
@@ -471,7 +471,7 @@ fn reload_current_pcx(app: &mut CascExplorerApp, ctx: &egui::Context) {
         crate::app::apply_pcx_palette_override(sel, &data, pal, ctx);
     } else {
         // Rebuild with default decoder
-        // No sibling fetcher on PCX reload — palette swaps don't trigger
+        // No sibling fetcher on PCX reload: palette swaps don't trigger
         // multi-file plugins.
         let no_name = |_: &str| -> Option<Vec<u8>> { None };
         let no_fdid = |_: u32| -> Option<Vec<u8>> { None };

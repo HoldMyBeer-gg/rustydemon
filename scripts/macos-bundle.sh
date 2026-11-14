@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# macos-bundle.sh — build RustyDemon.app and package it into a DMG.
+# macos-bundle.sh: build RustyDemon.app and package it into a DMG.
 #
 # Why this exists: cargo-dist ships the bare Unix binary in a tarball.
 # Double-clicking that in Finder launches it through Terminal, which is

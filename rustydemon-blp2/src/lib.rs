@@ -14,7 +14,7 @@
 //! let blp = BlpFile::open("texture.blp")?;
 //! println!("{}×{}, {} mip level(s)", blp.width, blp.height, blp.mipmap_count());
 //!
-//! // Decode the base (largest) mipmap — always RGBA, 4 bytes per pixel.
+//! // Decode the base (largest) mipmap: always RGBA, 4 bytes per pixel.
 //! let (pixels, w, h) = blp.get_pixels(0)?;
 //! assert_eq!(pixels.len(), (w * h * 4) as usize);
 //! # Ok::<(), rustydemon_blp2::BlpError>(())
@@ -31,7 +31,7 @@
 //!
 //! [`BlpFile::get_pixels`] always returns **RGBA** (red first, alpha last),
 //! 4 bytes per pixel, in row-major order. This differs from the on-disk
-//! ARGB8888 representation (which is BGRA) — the swap is applied automatically.
+//! ARGB8888 representation (which is BGRA): the swap is applied automatically.
 //!
 //! ## Mipmaps
 //!

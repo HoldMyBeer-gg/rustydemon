@@ -3,7 +3,7 @@
 //! A Rust library for reading CASC (Content-Addressable Storage Container)
 //! archives used by several popular games.
 //!
-//! ## Quick start — local installation
+//! ## Quick start: local installation
 //!
 //! ```no_run
 //! use rustydemon_lib::{CascHandler, LocaleFlags, SearchQuery};
@@ -12,7 +12,7 @@
 //! let mut casc = CascHandler::open_local("/path/to/game", "wow")?;
 //! casc.set_locale(LocaleFlags::EN_US);
 //!
-//! // Load a community listfile (optional — needed for filename-based access).
+//! // Load a community listfile (optional: needed for filename-based access).
 //! let listfile = std::fs::read_to_string("community-listfile.csv")?;
 //! casc.load_listfile(&listfile);
 //!
@@ -22,7 +22,7 @@
 //! )?;
 //! println!("File is {} bytes", bytes.len());
 //!
-//! // Global search — all keys, not just the active folder.
+//! // Global search: all keys, not just the active folder.
 //! let results = casc.search(
 //!     SearchQuery::new().filename(".blp").limit(50)
 //! );

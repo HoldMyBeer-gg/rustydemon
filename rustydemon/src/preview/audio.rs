@@ -1,7 +1,7 @@
 //! Audio file preview plugin (WAV / MP3 / OGG).
 //!
 //! Parses just enough of each format's header to show format, sample rate,
-//! channels, bit depth, and approximate duration. No playback — egui has no
+//! channels, bit depth, and approximate duration. No playback: egui has no
 //! audio pipeline, and adding one would pull in a heavy dep (rodio, cpal).
 
 use super::{PreviewOutput, PreviewPlugin};

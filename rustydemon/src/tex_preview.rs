@@ -1,9 +1,9 @@
-//! D4 .tex texture preview — attempts to decode raw BC-compressed data.
+//! D4 .tex texture preview: attempts to decode raw BC-compressed data.
 //!
 //! D4 .tex files contain raw block-compressed pixel data without a header.
 //! When the texture descriptor is available (via `Texture-Base-Global.dat`)
 //! we decode at exact dimensions and format. Otherwise we fall back to
-//! brute-forcing power-of-2 dimensions and BC formats — a heuristic that
+//! brute-forcing power-of-2 dimensions and BC formats: a heuristic that
 //! only works for `payload/` files with pow2 dims ≥ 64; everything else
 //! (NPOT, small textures, paylow/paymed mip streams) needs the descriptor.
 

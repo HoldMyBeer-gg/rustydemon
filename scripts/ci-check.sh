@@ -3,7 +3,7 @@
 # with the same flags CI uses.  Fail-fast on the first failure so you
 # don't wait on a long test run when a trivial fmt issue is blocking.
 #
-# Keep this file in sync with .github/workflows/ci.yml — if CI gains
+# Keep this file in sync with .github/workflows/ci.yml: if CI gains
 # a new check, add it here too.
 
 set -euo pipefail
@@ -39,7 +39,7 @@ cargo clippy \
     -A clippy::cloned_instead_of_copied
 
 # ── 3. Tests ───────────────────────────────────────────────────────────────
-# Skip tests when FAST=1 — pre-commit uses that to keep fmt+clippy
+# Skip tests when FAST=1: pre-commit uses that to keep fmt+clippy
 # feedback under ~30 seconds.  pre-push and manual invocation run
 # the full suite.
 if [[ "${FAST:-0}" != "1" ]]; then
@@ -50,7 +50,7 @@ fi
 # ── 4. Feature-flagged builds ──────────────────────────────────────────────
 # rustydemon-lib has opt-in features (currently just `cdn`) that default
 # builds never exercise.  Check them here so a broken feature flag can't
-# sneak into main — fmt+clippy are enough for the check, no tests needed.
+# sneak into main: fmt+clippy are enough for the check, no tests needed.
 step "cargo clippy -p rustydemon-lib --features cdn"
 cargo clippy -p rustydemon-lib --features cdn --all-targets -- \
     -D warnings \

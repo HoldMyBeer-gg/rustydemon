@@ -1,4 +1,4 @@
-# Agent Guide — rustydemon
+# Agent Guide: rustydemon
 
 How to build, check, test, and validate changes to this codebase
 without requiring the human to launch the GUI.
@@ -26,7 +26,7 @@ cargo check -p rustydemon-lib
 
 The repo has a pre-commit hook that runs fmt, clippy, and tests.
 Every `git commit` and `git push` triggers it. If it fails the commit
-is rejected — fix the issue, re-stage, and create a NEW commit (do
+is rejected: fix the issue, re-stage, and create a NEW commit (do
 not amend).
 
 ## Self-testing with `rustydemon-cli inspect`
@@ -53,16 +53,16 @@ it after modifying any parser to verify the output makes sense.
 ### Known test files
 
 The human has extracted sample files in `~/Downloads/`:
-- `LadySylvanasWindrunner.m2` — WoW M2 (MD21, 4815 verts, 140 bones)
-- `sylvanasshadowlands2.m2` — WoW M2 (MD21, 14711 verts, 207 bones)
+- `LadySylvanasWindrunner.m2`: WoW M2 (MD21, 4815 verts, 140 bones)
+- `sylvanasshadowlands2.m2`: WoW M2 (MD21, 14711 verts, 207 bones)
 
 ## Feedback loop for format changes
 
 1. **Edit** the parser or preview plugin
-2. **`cargo check`** — catches type errors in ~2s
-3. **`cargo run -p rustydemon-cli -- inspect <file>`** — verify parsed output
-4. **`cargo test --workspace`** — run the full test suite
-5. **Commit** — the pre-commit hook re-runs fmt + clippy + tests
+2. **`cargo check`**: catches type errors in ~2s
+3. **`cargo run -p rustydemon-cli -- inspect <file>`**: verify parsed output
+4. **`cargo test --workspace`**: run the full test suite
+5. **Commit**: the pre-commit hook re-runs fmt + clippy + tests
 
 This loop takes seconds, not the 5+ minutes of rebuilding and
 launching the GUI.
@@ -91,17 +91,17 @@ rustydemon-gr2/          Granny3D / D2R .model reader
 
 | Format | Magic | Plugin | 3D viewport | Textures |
 |--------|-------|--------|-------------|----------|
-| .blp | `BLP2` | blp.rs | — | decode + PNG export |
-| .pcx | PCX header | pcx.rs | — | decode + PNG export |
-| .texture | `<DE(` | texture.rs | — | BC decode + PNG export |
-| .tex | (D4 raw BC) | tex.rs | — | BC decode + PNG export |
+| .blp | `BLP2` | blp.rs | - | decode + PNG export |
+| .pcx | PCX header | pcx.rs | - | decode + PNG export |
+| .texture | `<DE(` | texture.rs | - | BC decode + PNG export |
+| .tex | (D4 raw BC) | tex.rs | - | BC decode + PNG export |
 | .wmo | `REVM` | model3d.rs | yes, with BLP materials | sibling groups + textures |
 | .m2 | `MD20`/`MD21` | m2.rs | yes, hash-coloured | skin LOD via SFID |
 | .model | Granny magic | model_d2r.rs | yes, with .texture materials | sibling textures via name |
-| .pow | (D4 binary) | pow.rs | — | text summary only |
-| .vid | (BK2 container) | vid.rs | — | header + .bk2 export |
-| audio | WAV/MP3/OGG | audio.rs | — | metadata only |
-| text | UTF-8 heuristic | text.rs | — | monospace view |
+| .pow | (D4 binary) | pow.rs | - | text summary only |
+| .vid | (BK2 container) | vid.rs | - | header + .bk2 export |
+| audio | WAV/MP3/OGG | audio.rs | - | metadata only |
+| text | UTF-8 heuristic | text.rs | - | monospace view |
 
 ## Key architectural patterns
 

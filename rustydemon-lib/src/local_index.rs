@@ -22,7 +22,7 @@ use crate::{
 /// shortcut.  D2R 3.1.2 and newer split their CASC across a **primary**
 /// `Data/data/` storage (game assets) and a **secondary** `Data/ecache/`
 /// storage (loose metadata like ENCODING, DOWNLOAD, root manifests, TVFS
-/// tables) — for those you call [`load_multi`](Self::load_multi) with both
+/// tables): for those you call [`load_multi`](Self::load_multi) with both
 /// directories and the handler transparently resolves lookups to whichever
 /// storage owns the ekey.
 pub struct LocalIndexHandler {
@@ -63,7 +63,7 @@ impl LocalIndexHandler {
         for dir in data_dirs {
             let files = match collect_idx_files(dir) {
                 Ok(files) if !files.is_empty() => files,
-                _ => continue, // non-existent or empty — skip without error
+                _ => continue, // non-existent or empty: skip without error
             };
 
             let storage_id = handler.storages.len() as u8;
@@ -93,20 +93,20 @@ impl LocalIndexHandler {
     /// For D2R 3.1.2+, each `.index` file under `<data>/indices/` is named
     /// after a CDN archive hash and lists the ekeys packed into that
     /// archive along with their byte offsets and encoded sizes.  The
-    /// archive ordinal — which maps directly to the locally-stored
-    /// `data.NNN` file number — comes from the position of the archive
+    /// archive ordinal, which maps directly to the locally-stored
+    /// `data.NNN` file number: comes from the position of the archive
     /// hash in the CDN config's `archives = ...` list.
     ///
     /// `archive_hashes` must be the lowercase hex-string list from
     /// [`CascConfig::archives`], in original order.  `indices_dir` is the
     /// directory holding the `.index` files (typically
     /// [`CascConfig::archive_indices_path`]).  `data_storage_id` is the
-    /// storage slot whose `data.NNN` archive files these entries live in
-    /// — normally `0` for the primary `<data>/data/` storage.
+    /// storage slot whose `data.NNN` archive files these entries live in,
+    /// normally `0` for the primary `<data>/data/` storage.
     ///
     /// Missing `.index` files are skipped silently (not every archive
     /// listed in the CDN config ships a local index).  Existing entries
-    /// win on conflict, matching CASCLib's first-seen behaviour — so the
+    /// win on conflict, matching CASCLib's first-seen behaviour, so the
     /// ordering of this call relative to [`Self::load_multi`] matters:
     /// call it AFTER the legacy `.idx` files so those take precedence.
     ///
@@ -133,14 +133,14 @@ impl LocalIndexHandler {
         for (archive_ordinal, hash) in archive_hashes.iter().enumerate() {
             // Archive ordinals past u8 would exceed the current IndexEntry
             // storage field, and realistically no Blizzard game ships more
-            // than a few hundred archives — D2R 3.1.2 has 148.  Cap at
+            // than a few hundred archives: D2R 3.1.2 has 148.  Cap at
             // u32::MAX which is what the `index` field already accommodates.
             if archive_ordinal > u32::MAX as usize {
                 break;
             }
 
             let path = indices_dir.join(format!("{hash}.index"));
-            // Missing and malformed files are both skipped silently — not
+            // Missing and malformed files are both skipped silently: not
             // every archive listed in the CDN config ships a local index,
             // and we don't want one bad file in data/indices/ to break
             // opening the entire storage for games that don't rely on
@@ -156,7 +156,7 @@ impl LocalIndexHandler {
                 // Entries from archive indices reference data.{archive_ordinal}
                 // in `data_storage_id`'s directory.  Offsets wider than u32
                 // (5-byte D2R group indices) get truncated here because
-                // IndexEntry.offset is u32 — for the range CommitteeCommit 2
+                // IndexEntry.offset is u32: for the range CommitteeCommit 2
                 // cares about (locally-present archives 0..39) the offsets
                 // always fit in 30 bits anyway.  Entries whose encoded
                 // offset exceeds u32::MAX are silently skipped so they
@@ -206,7 +206,7 @@ impl LocalIndexHandler {
     /// Fetch the raw BLTE-ready block bytes for `ekey` from whichever
     /// storage owns it.
     ///
-    /// Hides all the multi-storage routing from callers — they only need
+    /// Hides all the multi-storage routing from callers. They only need
     /// the ekey.  The 30-byte `data.NNN` block header is stripped so the
     /// returned bytes can be fed straight to [`crate::blte::decode`].
     pub fn read_block(&self, ekey: &Md5Hash) -> Result<Vec<u8>, CascError> {

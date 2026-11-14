@@ -1,7 +1,7 @@
 """
 Scan PTR memory for known key names and dump raw context (hex only, no binary).
 Goal: understand what the in-memory layout around key names looks like in the PTR build.
-Only prints lines — no binary data to terminal.
+Only prints lines. No binary data to terminal.
 """
 
 import ctypes

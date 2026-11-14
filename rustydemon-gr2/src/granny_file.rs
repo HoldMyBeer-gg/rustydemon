@@ -18,7 +18,7 @@ pub struct GrannyFile {
 impl GrannyFile {
     /// Parse an in-memory Granny file start-to-end.
     ///
-    /// - Decompresses every sector (Bitknit2 or None — returns an
+    /// - Decompresses every sector (Bitknit2 or None: returns an
     ///   [`UnsupportedCompression`](crate::GrannyError::UnsupportedCompression)
     ///   error for sectors using Oodle/Bitknit1, which D2R doesn't use).
     /// - Applies no in-place relocations; pointer fixups are kept as a
@@ -138,7 +138,7 @@ impl GrannyFile {
     }
 }
 
-/// Compact structural summary — what the preview panel shows users
+/// Compact structural summary: what the preview panel shows users
 /// before any geometry rendering happens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GrannySummary {

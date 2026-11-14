@@ -1,5 +1,5 @@
 //! Parser for CDN archive-index files (`<hash>.index`), as used by
-//! modern CASC installations — most notably D2R 3.1.2+.
+//! modern CASC installations: most notably D2R 3.1.2+.
 //!
 //! # Format reference
 //!
@@ -31,7 +31,7 @@
 //!   │ Data page N-1                │
 //!   ├──────────────────────────────┤
 //!   │ Per-page MD5 hashes          │   16 × N bytes (we don't verify
-//!   ├──────────────────────────────┤   them — strictly optional)
+//!   ├──────────────────────────────┤   them: strictly optional)
 //!   │ TOC page                     │   first ekey of each data page;
 //!   │                              │   only needed for binary search,
 //!   │                              │   ignored here since we load every
@@ -64,14 +64,14 @@
 //!
 //! Note the `size` field comes **before** `archive_offset`, not after.  This
 //! is easy to get wrong by eyeballing hex dumps and cost me most of a
-//! session — match `CaptureIndexEntry` in `CascIndexFiles.cpp` exactly.
+//! session: match `CaptureIndexEntry` in `CascIndexFiles.cpp` exactly.
 
 use std::{fs, io, path::Path};
 
 use crate::{error::CascError, types::Md5Hash};
 
 /// Size, in bytes, of the fixed footer at the end of an archive-index file
-/// (version 1, `FooterHashBytes = 8` — the only variant in use as of D2R 3.1.2).
+/// (version 1, `FooterHashBytes = 8`: the only variant in use as of D2R 3.1.2).
 pub const FOOTER_BYTES: usize = 36;
 
 /// MD5 hash width used for both the per-page hashes and the TOC hash.
@@ -93,7 +93,7 @@ pub struct ArchiveIndexFooter {
     /// Width (in bytes) of the trailing footer hash.  Normally `8`.
     pub footer_hash_bytes: u8,
     /// Total number of entries in the file (from the footer's `ElementCount`).
-    /// This value is advisory — we parse entries by walking pages, not by
+    /// This value is advisory. We parse entries by walking pages, not by
     /// trusting the count.
     pub element_count: u32,
     /// Size, in bytes, of one entry on disk.
@@ -107,7 +107,7 @@ pub struct ArchiveIndexFooter {
 pub struct ArchiveIndexEntry {
     pub ekey: Md5Hash,
     /// Byte offset into the archive blob that this `.index` file indexes
-    /// (the archive's hash is the `.index` file's stem — caller's
+    /// (the archive's hash is the `.index` file's stem: caller's
     /// responsibility to track).
     pub archive_offset: u64,
     /// Encoded (BLTE-wrapped) size of the file at that offset.
@@ -119,7 +119,7 @@ pub struct ArchiveIndexEntry {
 /// Reads the whole file into memory (these are typically 10–200 KiB),
 /// validates the footer, and walks every page collecting entries.  Returns
 /// the decoded footer plus every entry.  All-zero ekeys at the tail of a
-/// page are skipped — CascLib treats those as page padding.
+/// page are skipped. CascLib treats those as page padding.
 pub fn parse_file(path: &Path) -> Result<(ArchiveIndexFooter, Vec<ArchiveIndexEntry>), CascError> {
     let data = fs::read(path).map_err(|e| io_err(path, e))?;
     parse_bytes(&data)
@@ -187,7 +187,7 @@ fn parse_footer(data: &[u8]) -> Result<ArchiveIndexFooter, CascError> {
     }
     // OffsetBytes == 0 is valid: CascLib notes "0 for loose file indices"
     // in CascStructs.h. Those entries represent a whole archive file with
-    // no per-entry offset — the ekey IS the archive. D2R ships 8 such
+    // no per-entry offset: the ekey IS the archive. D2R ships 8 such
     // loose indices out of 361 total.
     if size_bytes == 0 || size_bytes > 4 {
         return Err(CascError::InvalidData(format!(
@@ -230,7 +230,7 @@ fn parse_entries(
     // 0. That means all N pages of entries are packed together at the
     // start of the file, followed by the N per-page hashes, followed by
     // the TOC, followed by the footer.  We can ignore the hashes and TOC
-    // entirely — we load every entry up front instead of binary-searching.
+    // entirely. We load every entry up front instead of binary-searching.
     let body = data
         .get(..data.len().saturating_sub(FOOTER_BYTES))
         .ok_or_else(|| CascError::InvalidData("archive index body empty".into()))?;
@@ -268,7 +268,7 @@ fn parse_page_entries(page: &[u8], footer: &ArchiveIndexFooter, out: &mut Vec<Ar
         //
         // CascLib additionally rejects archive offsets >= 0x10000000 as
         // bogus, but that guard is specific to its `ConvertBytesToInteger_X`
-        // helper which truncates to 4 bytes regardless of field width —
+        // helper which truncates to 4 bytes regardless of field width:
         // any large offset that fits in 5+ bytes looks broken to CascLib's
         // truncated read.  We read the full field width correctly, so
         // there's no equivalent sanity cap to apply: D2R ships 8 archive
@@ -350,7 +350,7 @@ mod tests {
         f[22] = ekey_length;
         f[23] = 8; // FooterHashBytes (must be 8)
         f[24..28].copy_from_slice(&element_count.to_le_bytes());
-        // FooterHash 28..36 left zero — we don't verify it
+        // FooterHash 28..36 left zero. We don't verify it
         f
     }
 
@@ -374,7 +374,7 @@ mod tests {
 
     /// Build one PageLength-byte page full of entries plus zero padding
     /// up to `page_len`.  Page hashes are stored in a separate block AFTER
-    /// all the pages, not interleaved — callers compose the final file via
+    /// all the pages, not interleaved: callers compose the final file via
     /// [`synth_archive_index`].
     fn synth_page(entries: &[Vec<u8>], page_len: usize) -> Vec<u8> {
         let mut page = Vec::with_capacity(page_len);
@@ -387,7 +387,7 @@ mod tests {
 
     /// Assemble a full archive-index file matching the real disk layout:
     /// all page bodies concatenated, followed by N page hashes (zeroed),
-    /// followed by a TOC page (we fill it with zeros — we never parse it),
+    /// followed by a TOC page (we fill it with zeros and never parse it),
     /// followed by the 36-byte footer.  `toc_bytes` lets tests control the
     /// exact trailing-region size since CascLib's VerifyIndexSize lumps
     /// the TOC together with leftover bytes before the footer.
@@ -397,9 +397,9 @@ mod tests {
             assert_eq!(page.len(), page_len, "page must be page_len bytes");
             out.extend_from_slice(page);
         }
-        // N per-page hashes (zeroed — we never verify them)
+        // N per-page hashes (zeroed, never verified)
         out.resize(out.len() + pages.len() * HASH_BYTES, 0);
-        // Optional TOC — CascLib uses it for binary search, we skip it.
+        // Optional TOC: CascLib uses it for binary search, we skip it.
         // Size one entry per page to match real layout roughly.
         let toc_entries = pages.len();
         out.resize(out.len() + toc_entries * 24, 0);
@@ -511,7 +511,7 @@ mod tests {
     fn entries_five_byte_offsets_allow_values_above_256mib() {
         // D2R ships 8 archive indices with OffsetBytes = 5 whose real
         // offsets legitimately exceed 256 MiB.  CascLib's truncation-based
-        // "offset >= 0x10000000" guard wrongly drops those — make sure we
+        // "offset >= 0x10000000" guard wrongly drops those: make sure we
         // don't.
         let footer = synth_footer(4, 5, 4, 16, 1);
 

@@ -96,7 +96,7 @@ fn pcx_diagnostics(data: &[u8]) -> String {
     )
 }
 
-/// Decode a PCX with no palette override — uses the file's own trailer
+/// Decode a PCX with no palette override: uses the file's own trailer
 /// palette if present, otherwise a grayscale ramp.
 fn decode_pcx(data: &[u8]) -> Result<(Vec<u8>, u32, u32), &'static str> {
     decode_pcx_with_palette(data, None)
@@ -105,7 +105,7 @@ fn decode_pcx(data: &[u8]) -> Result<(Vec<u8>, u32, u32), &'static str> {
 /// Decode a PCX, optionally overriding the file's palette.
 ///
 /// `palette_override` is 768 RGB bytes (256 entries × 3). When provided,
-/// it takes precedence over any embedded trailer palette — useful for SC1
+/// it takes precedence over any embedded trailer palette: useful for SC1
 /// assets that reference an external `.pal`/`.wpe` file.
 pub fn decode_pcx_with_palette(
     data: &[u8],

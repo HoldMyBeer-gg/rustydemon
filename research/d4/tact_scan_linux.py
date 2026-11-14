@@ -1,5 +1,5 @@
 """
-tact_scan_linux.py — Linux/Proton port of tact_scan.py.
+tact_scan_linux.py: Linux/Proton port of tact_scan.py.
 
 Scans a running process for TACT key name→value pairs by reading
 `/proc/<PID>/maps` + `/proc/<PID>/mem` directly, so it works against a
@@ -13,7 +13,7 @@ Reading another process's /proc/<pid>/mem needs ptrace permission.  Under the
 default `ptrace_scope=1` a same-uid, non-child target is blocked, so run under
 sudo (or `echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope` first).
 
-The scan/match logic is identical to the Windows scanner — only the memory
+The scan/match logic is identical to the Windows scanner: only the memory
 access primitives differ.  Key names default to the embedded PTR set but should
 be overridden with --names for the current build (generate it from the install:
 `rustydemon-cli export -a <D4> -p '**/EncryptedNameDict*' -o /tmp/x --dry-run`
@@ -143,7 +143,7 @@ def plausible_value(b: bytes) -> bool:
     """Sanity check for the 16 bytes sitting in a confirmed KMT value slot.
 
     The 16-byte name+name needle already guarantees we're at a real hash-table
-    entry, so this only rejects unpopulated/degenerate slots — an all-zero or
+    entry, so this only rejects unpopulated/degenerate slots: an all-zero or
     near-constant slot means the game hasn't streamed that key yet."""
     if len(b) != 16:
         return False
@@ -160,7 +160,7 @@ def scan(pid, patterns, all_regions):
 
     # Search for the 16-byte INLINE needle: [name][name].  The live KMT stores
     # each entry as [name(8)][name(8)][value(16)] (research/d4/kmt-memory-scanning.md),
-    # so a duplicated-name hit is ~impossible to forge by coincidence — unlike an
+    # so a duplicated-name hit is ~impossible to forge by coincidence: unlike an
     # 8-byte name, which litters memory inside UTF-16 strings and unrelated data.
     needle_to_name = {pat + pat: name for pat, name in patterns.items()}
     combined = re.compile(b"|".join(re.escape(n) for n in needle_to_name))

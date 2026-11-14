@@ -1,4 +1,4 @@
-//! Headless wgpu mesh renderer — renders a mesh to a PNG file without
+//! Headless wgpu mesh renderer: renders a mesh to a PNG file without
 //! opening a window.  Used by `inspect --png` to produce a visual
 //! preview from the CLI so automated agents can verify 3D output.
 
@@ -9,7 +9,7 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
-/// Positions + UVs + indices + bounding box — the subset of mesh data
+/// Positions + UVs + indices + bounding box: the subset of mesh data
 /// we need for rendering.  Kept separate from the GUI's `Mesh3dCpu` so
 /// the CLI doesn't depend on the GUI crate.
 pub struct RenderMesh {

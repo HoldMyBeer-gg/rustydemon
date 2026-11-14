@@ -11,7 +11,7 @@
 //! Each MCNK is a 33.333-yard square of terrain stored as 145 vertices:
 //!
 //! - 81 **outer** vertices on a 9×9 grid (corners of 8×8 quads)
-//! - 64 **inner** vertices on an 8×8 grid, offset by half a step — one
+//! - 64 **inner** vertices on an 8×8 grid, offset by half a step: one
 //!   per quad, at the quad's center
 //!
 //! Triangulation per quad is a 4-triangle fan around the inner vertex:
@@ -57,7 +57,7 @@ impl PreviewPlugin for AdtPreview {
         // `foo.adt` (heights, the thing we want), `foo_tex0.adt`
         // (texture layers), `foo_obj0.adt` (doodad placements) etc.
         // The split ones end in `_tex0.adt` / `_obj0.adt` / `_lod.adt`
-        // and we skip them — they don't carry MCNK height data.
+        // and we skip them. They don't carry MCNK height data.
         lower.ends_with(".adt")
             && !lower.ends_with("_tex0.adt")
             && !lower.ends_with("_tex1.adt")
@@ -84,8 +84,7 @@ impl PreviewPlugin for AdtPreview {
         };
         let chunk_count = chunks.len();
         if chunk_count == 0 {
-            out.text =
-                Some(".adt has no MCNK terrain chunks. This is probably a stub file.".into());
+            out.text = Some(".adt has no MCNK terrain chunks. It may be a stub file.".into());
             return out;
         }
 

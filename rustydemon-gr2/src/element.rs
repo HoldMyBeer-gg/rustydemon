@@ -17,8 +17,8 @@
 //! The element data lives immediately after the last type descriptor
 //! in the iteration, packed with pointer-sized alignment.  Since we
 //! don't actually need the fully resolved tree for our current
-//! preview use case — just names, counts, and a handful of leaf
-//! floats/ints — we keep the walker minimal but faithful.
+//! preview use case: just names, counts, and a handful of leaf
+//! floats/ints. We keep the walker minimal but faithful.
 
 use crate::error::{GrannyError, Result};
 use crate::header::{read_f32, read_i32, read_u32, read_usize, Endian};
@@ -36,15 +36,15 @@ pub struct Element {
 ///
 /// Types we recognize but don't fully decode collapse into
 /// [`ElementValue::Opaque`] so the walker keeps making progress past
-/// them — the alternative (panicking on unknown types, as opengr2
+/// them: the alternative (panicking on unknown types, as opengr2
 /// does) is unusable on real D2R files.
 #[derive(Debug, Clone)]
 pub enum ElementValue {
-    /// Type 2: inline struct — a recursive child tree.
+    /// Type 2: inline struct, a recursive child tree.
     Reference(Vec<Element>),
     /// Type 3: dynamic-array-of-struct.
     ReferenceArray(Vec<Vec<Element>>),
-    /// Type 4/7: array-of-references — each outer entry resolves
+    /// Type 4/7: array-of-references, where each outer entry resolves
     /// through an additional pointer indirection.
     ArrayOfReferences(Vec<Vec<Element>>),
     /// Type 8: NUL-terminated UTF-8 string.
@@ -56,7 +56,7 @@ pub enum ElementValue {
     /// Type 19: signed 32-bit integer.
     I32(i32),
     /// Type that this reader recognizes structurally but doesn't
-    /// fully decode — e.g. VariantReference, trig vectors, packed
+    /// fully decode, e.g. VariantReference, trig vectors, packed
     /// integers.  The caller still sees the name and can treat the
     /// node as present for structure-summary purposes.
     Opaque(u32),
@@ -64,7 +64,7 @@ pub enum ElementValue {
     Array(Vec<ElementValue>),
 }
 
-/// Granny `Transform` — same layout as in opengr2 / lslib.
+/// Granny `Transform`: same layout as in opengr2 / lslib.
 #[derive(Debug, Clone, Copy)]
 pub struct Transform {
     pub flags: u32,
@@ -215,7 +215,7 @@ impl<'a> Ctx<'a> {
         type_offset: usize,
         out: &mut Vec<Element>,
     ) -> Result<()> {
-        // Bail out if the recursion gets absurdly deep — D2R files
+        // Bail out if the recursion gets absurdly deep: D2R files
         // observed top out around 8–10 levels, so 64 is generous
         // but still guards against pathological inputs.
         if self.depth > 64 {
@@ -573,7 +573,7 @@ impl<'a> Ctx<'a> {
                 ElementValue::I32(v)
             }
             20 => {
-                // UInt32 — store as I32 so callers have one numeric leaf type.
+                // UInt32: store as I32 so callers have one numeric leaf type.
                 let pos = *data_cursor;
                 if pos + 4 > data_sec.data.len() {
                     return Err(GrannyError::OutOfRange {
@@ -587,7 +587,7 @@ impl<'a> Ctx<'a> {
                 ElementValue::I32(v as i32)
             }
             21 => {
-                // HalfFloat — IEEE 754 half precision.  D2R stores
+                // HalfFloat: IEEE 754 half precision.  D2R stores
                 // vertex positions as HalfFloat[4] so we actually need
                 // to decode these rather than skip the bytes.
                 let pos = *data_cursor;
@@ -596,7 +596,7 @@ impl<'a> Ctx<'a> {
                 ElementValue::F32(f16_to_f32(h))
             }
             22 => {
-                // EmptyReference — pointer-sized.
+                // EmptyReference: pointer-sized.
                 advance_data(data_cursor, ptr_size, data_sec)?;
                 ElementValue::Opaque(22)
             }

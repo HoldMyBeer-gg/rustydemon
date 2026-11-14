@@ -1,6 +1,6 @@
 //! 3D model preview plugin.
 //!
-//! v0: WMO root + group text summary. Renders nothing yet — the goal of
+//! v0: WMO root + group text summary. Renders nothing yet: the goal of
 //! this first cut is to confirm `wow-wmo` parses real retail WMO files
 //! end-to-end so we know the foundation is sound before we wire up a
 //! wgpu paint callback.

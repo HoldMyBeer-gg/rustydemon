@@ -199,7 +199,7 @@ pub struct CascExplorerApp {
     /// A viewer-override change requested on the previous frame.  Applied
     /// at the top of the next `update` so the old `PreviewOutput`'s GPU
     /// texture handle isn't dropped mid-frame while egui still has paint
-    /// commands referencing it — dropping a live `egui::TextureHandle`
+    /// commands referencing it: dropping a live `egui::TextureHandle`
     /// inside the frame that used it crashes wgpu at queue-submit time.
     /// `Some(None)` means "switch back to Auto"; `Some(Some(idx))` means
     /// "force plugin at registry index idx".
@@ -468,11 +468,11 @@ impl CascExplorerApp {
                 self.loading = false;
             }
             Err(mpsc::TryRecvError::Empty) => {
-                // Still working — poll again in 100ms (not every frame).
+                // Still working: poll again in 100ms (not every frame).
                 ctx.request_repaint_after(std::time::Duration::from_millis(100));
             }
             Err(mpsc::TryRecvError::Disconnected) => {
-                // Thread dropped without sending — treat as cancelled.
+                // Thread dropped without sending: treat as cancelled.
                 self.bg_rx = None;
                 self.loading = false;
             }
@@ -551,7 +551,7 @@ impl CascExplorerApp {
     /// Load TACT decryption keys from a user-supplied key file.
     ///
     /// Keys land in the shared runtime table, so they apply to the already-open
-    /// archive immediately — encrypted files that previously failed with
+    /// archive immediately: encrypted files that previously failed with
     /// "missing TACT key" will open on the next click without reopening.
     pub fn load_tact_keys(&mut self, path: std::path::PathBuf) {
         match rustydemon_lib::key_service::load_keys_from_file(&path) {
@@ -647,7 +647,7 @@ impl CascExplorerApp {
         });
     }
 
-    /// Run the full global (deep) search — every entry, optionally searching
+    /// Run the full global (deep) search: every entry, optionally searching
     /// inside container files.
     pub fn run_deep_search(&mut self) {
         if self.handler.is_none() {
@@ -853,7 +853,7 @@ impl eframe::App for CascExplorerApp {
         // Apply any viewer-override swap requested on the previous frame
         // BEFORE we start drawing.  Doing this at the top of update()
         // guarantees the old `PreviewOutput`'s texture handle is dropped
-        // while no egui paint command references it — dropping mid-frame
+        // while no egui paint command references it: dropping mid-frame
         // crashes wgpu with "Texture has been destroyed".
         if let Some(new_override) = self.pending_preview_override.take() {
             crate::ui::preview::apply_preview_override(self, new_override, ctx);

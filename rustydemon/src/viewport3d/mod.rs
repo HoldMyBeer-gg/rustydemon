@@ -67,7 +67,7 @@ struct MeshResources {
     offscreen_format: wgpu::TextureFormat,
     /// Currently-uploaded mesh, keyed by Arc pointer for cache identity.
     cached: Option<UploadedMesh>,
-    /// Cached offscreen target — recreated when the rect size changes.
+    /// Cached offscreen target: recreated when the rect size changes.
     offscreen: Option<Offscreen>,
 }
 
@@ -83,7 +83,7 @@ struct UploadedMesh {
     #[allow(dead_code)]
     batch_uniform_buf: wgpu::Buffer,
     batch_bind_group: wgpu::BindGroup,
-    /// One bind group per material (slot 2 — sampled texture). Indexed
+    /// One bind group per material (slot 2: sampled texture). Indexed
     /// by `MeshBatch::material_id`. Populated at upload time. Empty
     /// when the source had no material info; in that case every batch
     /// uses the fallback bind group.
@@ -93,7 +93,7 @@ struct UploadedMesh {
     #[allow(dead_code)]
     material_textures: Vec<wgpu::Texture>,
     batches: Vec<UploadedBatch>,
-    /// Per-mesh camera state — resets when a new selection uploads.
+    /// Per-mesh camera state: resets when a new selection uploads.
     camera: CameraState,
 }
 
@@ -333,7 +333,7 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    // Flat shading via screen-space derivatives — no per-vertex normals
+    // Flat shading via screen-space derivatives. No per-vertex normals
     // needed. Sampled texture provides base colour; b.color acts as a
     // tint (white when materials are present, hash-coloured otherwise).
     let dx = dpdx(in.world);
@@ -586,7 +586,7 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Cw,
-                // No back-face culling — M2/Granny models have mixed
+                // No back-face culling: M2/Granny models have mixed
                 // winding (hair, capes, two-sided geometry), and WMO
                 // groups occasionally do too.  The flat-shading normal
                 // derivation via dpdx/dpdy handles both sides correctly.
@@ -692,7 +692,7 @@ pub fn init(render_state: &egui_wgpu::RenderState) {
             uniform_buffer,
             bind_group,
         }));
-    // Per-material texture sampler (linear, repeat — WoW UVs frequently
+    // Per-material texture sampler (linear, repeat: WoW UVs frequently
     // exceed [0,1] for tiled textures, e.g. floor planks).
     let texture_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("viewport3d material sampler"),
@@ -1000,7 +1000,7 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
                     material_textures.push(tex);
                     material_bind_groups.push(bg);
                 } else {
-                    // Decode failed — emit a placeholder slot. The render
+                    // Decode failed: emit a placeholder slot. The render
                     // loop sees the missing entry and uses the fallback.
                     // We still push a dummy texture/bind group to keep
                     // indexing aligned with `mesh.materials`.
@@ -1265,7 +1265,7 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
         };
 
         // Constrain the fullscreen-triangle blit to the painter rect via
-        // viewport, and clip to the visible portion via scissor — the
+        // viewport, and clip to the visible portion via scissor: the
         // scissor matters when our rect is partially scrolled out of
         // view inside a parent ScrollArea, otherwise the offscreen blit
         // would bleed over neighbouring widgets.

@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn literal_file_falls_through_from_folder() {
-        // "Interface/Icons/INV_Sword_04.blp" isn't a folder — the Folder
+        // "Interface/Icons/INV_Sword_04.blp" isn't a folder: the Folder
         // variant must fall through to a file lookup automatically.
         let q = PathQuery::parse("Interface/Icons/INV_Sword_04.blp").unwrap();
         let hits = q.resolve(&tree()).unwrap();
@@ -217,7 +217,7 @@ mod tests {
     #[test]
     fn empty_glob_is_not_error() {
         // Valid glob that simply matches nothing should return an empty
-        // vec, not an error — callers like the GUI need to display
+        // vec, not an error: callers like the GUI need to display
         // "0 results" without treating it as a parse failure.
         let q = PathQuery::parse("*.nonexistent").unwrap();
         let hits = q.resolve(&tree()).unwrap();

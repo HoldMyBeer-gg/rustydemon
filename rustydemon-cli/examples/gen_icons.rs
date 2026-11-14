@@ -75,7 +75,7 @@ fn main() {
     eprintln!("Saved rustydemon.ico");
 
     // ── macOS .icns sizes (plain square PNGs, icns packing needs a
-    //    separate tool — but having the right sizes is 90% of the work) ──
+    //    separate tool, but having the right sizes is 90% of the work) ──
     for &sz in &[1024, 512, 256, 128, 32, 16] {
         let resized = padded.resize_exact(sz, sz, FilterType::Lanczos3);
         let name = format!("icns_{sz}.png");
@@ -91,7 +91,7 @@ fn main() {
 
     // ── iOS / iPadOS ─────────────────────────────────────────────────────
     // These need NO transparency for App Store, but we provide transparent
-    // versions — Apple composites the rounded rect mask at display time.
+    // versions: Apple composites the rounded rect mask at display time.
     for &sz in &[180, 167, 152, 120, 87, 76, 58, 40, 29] {
         let resized = padded.resize_exact(sz, sz, FilterType::Lanczos3);
         let name = format!("ios_{sz}.png");
@@ -105,7 +105,7 @@ fn main() {
     eprintln!("Saved iOS icons");
 
     // ── Android adaptive icon ────────────────────────────────────────────
-    // Foreground: 108dp (with safe zone — icon should fit in center 72dp)
+    // Foreground: 108dp (with safe zone: icon should fit in center 72dp)
     // Background: 108dp solid dark
     let dp_map = [("xxxhdpi", 4), ("xxhdpi", 3), ("xhdpi", 2), ("hdpi", 1)];
     for &(dpi, scale) in &dp_map {
