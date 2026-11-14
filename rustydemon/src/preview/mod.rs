@@ -15,6 +15,9 @@ pub mod adt_lite;
 pub mod audio;
 pub mod blp;
 pub mod creature_skins;
+pub mod d3_app;
+#[cfg(test)]
+mod d3_app_tests;
 pub mod d3_stl;
 #[cfg(test)]
 mod d3_stl_tests;
@@ -235,6 +238,7 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         Box::new(texture::TextureDePreview),
         Box::new(d3_tex::D3TexPreview),
         Box::new(d3_stl::D3StlPreview),
+        Box::new(d3_app::D3AppPreview),
         Box::new(tex::TexPreview),
         // Structured-data format summaries.
         Box::new(model3d::Model3dPreview),
