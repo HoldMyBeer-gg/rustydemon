@@ -422,6 +422,7 @@ fn probe_one(archive: &Path, product_override: Option<&str>) -> Result<ProbeInfo
         GameType::DiabloIIResurrected => Some("data/data/global/dataversionbuild.txt"),
         GameType::DiabloIV | GameType::DiabloIVBeta => Some("base/Default_GPU_Settings.txt"),
         GameType::StarCraft => Some("SD/rez/EstT01ED.txt"),
+        GameType::Anbs => Some("Engine/Config/Graphics2.bin"),
         // WoW and others don't have builtin paths without a listfile;
         // opening successfully + having entries is enough signal.
         _ => None,
@@ -469,6 +470,7 @@ fn game_display_name(game_type: GameType, fallback_product: &str) -> String {
         GameType::HeroesOfTheStorm => "HotS".into(),
         GameType::Hearthstone => "HS".into(),
         GameType::Overwatch => "OW2".into(),
+        GameType::Anbs => "Diablo Immortal".into(),
         _ => fallback_product.to_uppercase(),
     }
 }

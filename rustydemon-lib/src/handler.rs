@@ -6,6 +6,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use rustydemon_mpk::{MpkArchive, MpkError};
+
 use crate::{
     blte,
     config::CascConfig,
@@ -88,6 +90,9 @@ pub struct CascHandler {
     /// Wrapped in `Arc` so `PreparedLoad` can clone-and-ship a handle to a
     /// background thread for batch extraction.
     static_container: Option<Arc<StaticContainer>>,
+    /// Messiah MPK packages: present only for Diablo Immortal.  Keys from
+    /// [`root::mpk::key_for`] index into it.
+    mpk: Option<Arc<MpkArchive>>,
     /// Optional CDN fallback fetcher.  Only present when the `cdn` feature
     /// is compiled in and the install's `.build.info` carries CDN host
     /// info.  Used to load D2R 3.1.2+ loose metadata blobs that aren't in
@@ -130,6 +135,13 @@ impl CascHandler {
         product: &str,
     ) -> Result<Self, CascError> {
         let base_path = base_path.as_ref();
+
+        // Diablo Immortal: Battle.net lays down a CASC skeleton, but the
+        // content ships in Messiah MPK packages under `Package/MPK/`.
+        let mpk_dir = base_path.join("Package").join("MPK");
+        if mpk_dir.join("Resources.mpkinfo").is_file() {
+            return Self::finish_mpk(base_path, &mpk_dir);
+        }
 
         // Steam-style static-container installs ship only a `.build.config`
         // (no `.build.info`, no CDN config).  Detect that case by looking
@@ -337,6 +349,7 @@ impl CascHandler {
             encoding: Some(encoding),
             local_index: Some(local_index),
             static_container: None,
+            mpk: None,
             #[cfg(feature = "cdn")]
             cdn: cdn_fetcher,
             root: root_handler,
@@ -385,6 +398,7 @@ impl CascHandler {
             encoding: None,
             local_index: None,
             static_container: Some(container),
+            mpk: None,
             #[cfg(feature = "cdn")]
             cdn: None,
             root: Box::new(tvfs),
@@ -397,6 +411,31 @@ impl CascHandler {
         };
         handler.try_load_texture_base_index();
         Ok(handler)
+    }
+
+    /// Build a handler over a Diablo Immortal install's MPK packages.
+    fn finish_mpk(
+        base_path: &std::path::Path,
+        mpk_dir: &std::path::Path,
+    ) -> Result<Self, CascError> {
+        let archive = MpkArchive::open(mpk_dir).map_err(mpk_error)?;
+        let root = root::mpk::MpkRootHandler::new(&archive);
+        Ok(CascHandler {
+            config: CascConfig::for_mpk(base_path),
+            encoding: None,
+            local_index: None,
+            static_container: None,
+            mpk: Some(Arc::new(archive)),
+            #[cfg(feature = "cdn")]
+            cdn: None,
+            root: Box::new(root),
+            locale: LocaleFlags::ALL,
+            root_folder: None,
+            filenames: HashMap::new(),
+            data_files: Mutex::new(HashMap::new()),
+            validate_hashes: false,
+            texture_base_index: None,
+        })
     }
 
     // ── D4 texture descriptor index ────────────────────────────────────────────
@@ -645,6 +684,9 @@ impl CascHandler {
     /// entries can be stale or truncated and need a CDN-fetched blob to
     /// supersede them.
     pub fn open_by_ekey(&self, ekey: &Md5Hash) -> Result<Vec<u8>, CascError> {
+        if let Some(archive) = &self.mpk {
+            return read_mpk(archive, ekey);
+        }
         if let Some(container) = &self.static_container {
             // `open_by_ekey` autodetects BLTE vs raw zlib (D4's VFS roots
             // and locale manifests use `espec = z`, not BLTE).
@@ -771,6 +813,21 @@ impl CascHandler {
             None => *ckey,
         };
 
+        if let Some(archive) = &self.mpk {
+            return Ok(PreparedLoad {
+                storage_dir: None,
+                archive_index: 0,
+                offset: 0,
+                size: 0,
+                ekey,
+                validate_hashes: self.validate_hashes,
+                static_container: None,
+                mpk: Some(Arc::clone(archive)),
+                #[cfg(feature = "cdn")]
+                cdn: None,
+            });
+        }
+
         // Static-container backend: bypass the `.idx` machinery entirely.
         // The container Arc clone is cheap and gives the worker thread a
         // self-contained handle for `open_by_ekey`.
@@ -783,6 +840,7 @@ impl CascHandler {
                 ekey,
                 validate_hashes: self.validate_hashes,
                 static_container: Some(Arc::clone(container)),
+                mpk: None,
                 #[cfg(feature = "cdn")]
                 cdn: None,
             });
@@ -829,6 +887,7 @@ impl CascHandler {
             ekey,
             validate_hashes: self.validate_hashes,
             static_container: None,
+            mpk: None,
             #[cfg(feature = "cdn")]
             cdn: self.cdn.clone(),
         })
@@ -859,6 +918,8 @@ pub struct PreparedLoad {
     /// When `Some`, `execute_ref` reads through the container and ignores
     /// the `.idx`-style storage fields above.
     static_container: Option<Arc<StaticContainer>>,
+    /// MPK packages, when the source install is Diablo Immortal.
+    mpk: Option<Arc<MpkArchive>>,
     #[cfg(feature = "cdn")]
     cdn: Option<std::sync::Arc<crate::cdn::CdnFetcher>>,
 }
@@ -879,6 +940,9 @@ impl PreparedLoad {
     /// GUI's background loader gets the same D2R 3.1.2 fallback the
     /// synchronous API does.
     pub fn execute_ref(&self) -> Result<Vec<u8>, CascError> {
+        if let Some(archive) = &self.mpk {
+            return read_mpk(archive, &self.ekey);
+        }
         // Static-container backend short-circuits: the container knows how
         // to resolve the EKey to a chunk file and decode the blob
         // (BLTE or raw zlib, autodetected).
@@ -1056,6 +1120,7 @@ mod missing_key_tests {
             ekey: Md5Hash::default(),
             validate_hashes: false,
             static_container: None,
+            mpk: None,
             cdn: Some(unreachable_cdn(scratch_dir("preparedload-cache"))),
         };
 
@@ -1093,6 +1158,7 @@ mod missing_key_tests {
             ekey: Md5Hash::default(),
             validate_hashes: false,
             static_container: None,
+            mpk: None,
             cdn: Some(unreachable_cdn(scratch_dir("nolocal-cache"))),
         };
 
@@ -1106,6 +1172,20 @@ mod missing_key_tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+/// Read the MPK entry named by a key from [`root::mpk::key_for`].
+fn read_mpk(archive: &MpkArchive, key: &Md5Hash) -> Result<Vec<u8>, CascError> {
+    let index =
+        root::mpk::entry_index(key).ok_or_else(|| CascError::IndexNotFound(key.to_hex()))?;
+    archive.read(index).map_err(mpk_error)
+}
+
+fn mpk_error(e: MpkError) -> CascError {
+    match e {
+        MpkError::Io(io) => CascError::Io(io),
+        other => CascError::InvalidData(other.to_string()),
     }
 }
 
@@ -1173,5 +1253,93 @@ mod listfile_tests {
 
         let (filenames, _) = prepare_listfile(listfile, &root);
         assert_eq!(filenames.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod mpk_tests {
+    use md5::{Digest, Md5};
+
+    use super::*;
+
+    fn mpkinfo(entries: &[(&str, u32, u32, u32)]) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(&1u32.to_le_bytes());
+        b.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+        for (name, off, size, field) in entries {
+            b.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            b.extend_from_slice(name.as_bytes());
+            b.extend_from_slice(&off.to_le_bytes());
+            b.extend_from_slice(&size.to_le_bytes());
+            b.extend_from_slice(&field.to_le_bytes());
+        }
+        let digest = Md5::digest(&b);
+        b.extend_from_slice(&digest);
+        b
+    }
+
+    /// A Diablo Immortal shaped install: an empty CASC skeleton under
+    /// `Data/` and the real content under `Package/MPK/`.
+    fn immortal_install(tag: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!("rd-mpk-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let mpk = base.join("Package").join("MPK");
+        fs::create_dir_all(&mpk).unwrap();
+        fs::create_dir_all(base.join("Data").join("data")).unwrap();
+        fs::write(mpk.join("Resources.mpk"), b"hello crab.MESSIAH obj").unwrap();
+        fs::write(
+            mpk.join("Resources.mpkinfo"),
+            mpkinfo(&[
+                ("Package/Char/npc/a_drink.anim", 0, 10, 0),
+                ("Package/11/11516e65-c5e3-4062-a645-0fee65d13838", 10, 12, 0),
+            ]),
+        )
+        .unwrap();
+        base
+    }
+
+    #[test]
+    fn opens_an_mpk_install_by_path() {
+        let base = immortal_install("open");
+        let handler = CascHandler::open_local(&base, "anbs").unwrap();
+        assert_eq!(handler.root_type_name(), "MPK");
+        assert_eq!(handler.root_count(), 2);
+        assert_eq!(
+            handler
+                .open_file_by_name("Package/Char/npc/a_drink.anim")
+                .unwrap(),
+            b"hello crab"
+        );
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn mpk_install_is_detected_as_immortal() {
+        let base = immortal_install("detect");
+        assert_eq!(CascConfig::detect_products(&base), vec!["anbs".to_owned()]);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn mpk_paths_build_the_tree_without_a_listfile() {
+        let base = immortal_install("tree");
+        let mut handler = CascHandler::open_local(&base, "anbs").unwrap();
+        assert!(handler.has_builtin_paths());
+        handler.load_builtin_paths();
+        assert_eq!(handler.filename_count(), 2);
+        assert!(handler.root_folder.is_some());
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn mpk_files_load_on_a_background_thread() {
+        let base = immortal_install("bg");
+        let handler = CascHandler::open_local(&base, "anbs").unwrap();
+        let hash = jenkins96("Package/11/11516e65-c5e3-4062-a645-0fee65d13838");
+        let ckey = handler.resolve_hash(hash).unwrap();
+        let load = handler.prepare_load(&ckey).unwrap();
+        let bytes = std::thread::spawn(move || load.execute()).join().unwrap();
+        assert_eq!(bytes.unwrap(), b".MESSIAH obj");
+        fs::remove_dir_all(&base).unwrap();
     }
 }

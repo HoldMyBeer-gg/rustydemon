@@ -1,0 +1,15 @@
+[package]
+name         = "rustydemon-mpk"
+description  = "Rust library for reading MPK archives (Messiah engine, Diablo Immortal)"
+version.workspace    = true
+authors.workspace    = true
+edition.workspace    = true
+license-file.workspace = true
+repository.workspace = true
+keywords             = ["mpk", "messiah", "archive", "diablo", "lz4"]
+categories           = ["parser-implementations", "game-development"]
+
+[dependencies]
+thiserror = "2"
+md-5      = "0.10"
+lz4_flex  = "0.11"

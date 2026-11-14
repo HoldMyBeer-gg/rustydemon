@@ -17,6 +17,7 @@ md-5        = "0.10"
 hex-literal = "0.4"
 bitflags    = "2"
 globset     = "0.4"
+rustydemon-mpk = { version = "0.6.0", path = "../rustydemon-mpk" }
 # Plain HTTP only: the Blizzard CDN serves http://level3.blizzard.com
 # etc., and we don't want to drag ring/rustls (C build, known broken on
 # Steam Deck's Homebrew GCC) into the dependency tree.  Users who want
