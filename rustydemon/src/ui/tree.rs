@@ -88,7 +88,7 @@ pub fn draw_tree(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<TreeCli
     }
 
     // Handler is open, but the root manifest didn't ship with file paths
-    // (MFST WoW, etc.) and no listfile has been applied yet — guide the
+    // (MFST WoW, etc.) and no listfile has been applied yet: guide the
     // user to the next step instead of leaving the panel mute.
     let needs_listfile = app
         .handler
@@ -150,7 +150,7 @@ fn draw_folder_rows(
 
     let mut click: Option<TreeClick> = None;
 
-    // The folder header row itself (skip for "" root — shown as "Game Root" label only at depth 0).
+    // The folder header row itself (skip for "" root: shown as "Game Root" label only at depth 0).
     if !path.is_empty() || depth == 0 {
         let row = tree_row(
             ui,
@@ -243,7 +243,7 @@ fn fit_name(
     ui.painter().layout_job(job)
 }
 
-/// Response from a tree row — body click vs caret click are separate.
+/// Response from a tree row: body click vs caret click are separate.
 struct TreeRowResponse {
     body: egui::Response,
     caret_clicked: bool,
@@ -302,7 +302,7 @@ fn tree_row(
         });
     }
 
-    // Hover paints the *body* zone — caret hover is implicit feedback only.
+    // Hover paints the *body* zone: caret hover is implicit feedback only.
     let resp = &body_resp;
 
     let painter = ui.painter();
@@ -379,7 +379,7 @@ fn tree_row(
 
 fn apply_expansion_commands(_ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     // With the custom row-based tree, expansion state lives entirely in
-    // app.expanded — no egui CollapsingState sync needed.
+    // app.expanded. No egui CollapsingState sync needed.
     app.expansion_dirty = false;
 }
 

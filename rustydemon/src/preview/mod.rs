@@ -42,7 +42,7 @@ pub type ExportBuilder =
 
 /// Output produced by a preview plugin for one selected file.
 ///
-/// All fields are optional — a minimalist plugin might only fill in
+/// All fields are optional: a minimalist plugin might only fill in
 /// `text`, while a texture plugin fills in `texture` + `texture_pixels`
 /// and adds an "Export As PNG" action.  The UI renders whichever fields
 /// are present, in a fixed order, so plugins never have to think about
@@ -77,7 +77,7 @@ pub struct Mesh3dCpu {
     /// Index ranges for separately-textured draws. Each batch covers
     /// `indices[start_index .. start_index + index_count]` and references
     /// a material slot by index into `materials` (or `u32::MAX` for
-    /// "no material — use fallback texture").
+    /// "no material: use fallback texture").
     pub batches: Vec<MeshBatch>,
     /// Decoded materials in the order referenced by `MeshBatch::material_id`.
     /// Empty when the source had no material info (e.g. a single group
@@ -178,7 +178,7 @@ pub struct SiblingFetcher<'a> {
 /// Plug-in interface for format-specific preview panels.
 ///
 /// Implementers go under `src/preview/` and register themselves in
-/// [`registry`].  Keep `can_preview` cheap — it runs on every file load.
+/// [`registry`].  Keep `can_preview` cheap. It runs on every file load.
 pub trait PreviewPlugin: Send + Sync {
     /// Human-readable name (e.g. `".blp texture"`).  Used in debug output
     /// and future plugin-management UI.
@@ -197,7 +197,7 @@ pub trait PreviewPlugin: Send + Sync {
     ///
     /// `ctx` is provided for plugins that need to upload GPU textures.
     /// `fetch_sibling` lets the plugin pull related files out of the
-    /// open archive — e.g. a WMO root loading its group files. Most
+    /// open archive, e.g. a WMO root loading its group files. Most
     /// plugins ignore it.
     fn build(
         &self,
@@ -214,12 +214,12 @@ pub trait PreviewPlugin: Send + Sync {
 /// plugin here after dropping its module into `src/preview/`.
 pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
     vec![
-        // Texture-bearing formats come first — they short-circuit before
+        // Texture-bearing formats come first. They short-circuit before
         // the text heuristic could false-positive on a binary header.
         Box::new(blp::BlpPreview),
         Box::new(pcx::PcxPreview),
         Box::new(grp::GrpPreview),
-        // D2R `<DE(` container — magic-sniffed, so it sits above the
+        // D2R `<DE(` container: magic-sniffed, so it sits above the
         // extension-only `.tex` plugin to claim D2R textures before a
         // name collision could matter.
         Box::new(texture::TextureDePreview),
@@ -262,7 +262,7 @@ pub fn run(
 ///
 /// Plugins already fail soft when handed unrelated bytes (they fill in
 /// a human-readable `text` blob and return), so forcing a mismatch is
-/// safe — you either see a decoded image or a "could not decode"
+/// safe: you either see a decoded image or a "could not decode"
 /// message, never a panic.
 pub fn run_with_override(
     plugin_index: usize,

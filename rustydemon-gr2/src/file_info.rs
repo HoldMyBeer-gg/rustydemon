@@ -3,7 +3,7 @@
 //!
 //! ```text
 //!   +0   i32  format_version        (6 or 7)
-//!   +4   u32  total_size            (bytes — must equal file size)
+//!   +4   u32  total_size            (bytes: must equal file size)
 //!   +8   u32  crc32
 //!   +12  u32  file_info_size        (72 for LE64 f7, 56 for LE32 f6)
 //!   +16  u32  sector_count
@@ -12,10 +12,10 @@
 //!   +28  u32  root_section          ┐ root_ref: Reference
 //!   +32  u32  root_position         ┘
 //!   +36  u32  tag
-//!   +40  …    reserved — padded up to file_info_size
+//!   +40  …    reserved: padded up to file_info_size
 //! ```
 //!
-//! The total_size field is our hard validation anchor — it matches the
+//! The total_size field is our hard validation anchor. It matches the
 //! on-disk file size exactly on every D2R sample I've looked at, so
 //! every test harness should check it first.
 

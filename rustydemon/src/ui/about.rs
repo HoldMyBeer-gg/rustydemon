@@ -210,7 +210,7 @@ fn about_body(ui: &mut egui::Ui, logo: &Option<egui::TextureHandle>, open: &mut 
 }
 
 /// One link card in the 3-column row. `warm` gives the ember treatment
-/// (used for Sponsor — the single warm accent).
+/// (used for Sponsor: the single warm accent).
 fn link_card(ui: &mut egui::Ui, label: &str, url: &str, warm: bool) {
     let accent = if warm { rd::EMBER_600 } else { rd::RUNE_400 };
     let resp = egui::Frame::NONE

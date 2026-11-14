@@ -1,8 +1,8 @@
 //! Parser for D4 `.vid` ("Movie") files.
 //!
 //! The format is a 128-byte custom header followed by a raw Bink Video 2
-//! (BK2) stream.  We can't decode BK2 directly — it's RAD Game Tools'
-//! proprietary codec and there is no FOSS decoder — but we can:
+//! (BK2) stream.  We can't decode BK2 directly. It's RAD Game Tools'
+//! proprietary codec and there is no FOSS decoder, but we can:
 //!
 //! 1. Parse the header to show metadata (dimensions, version, audio GUIDs).
 //! 2. Offer a one-click export that strips the 128-byte header and writes
@@ -20,7 +20,7 @@ pub const MOVI_HEADER_BYTES: usize = 128;
 
 /// Magic for a "child reference" stub: `0xDEADBEEF` little-endian.  D4 stores
 /// many `.vid` SNOs as 52-byte redirection records that point at the real BK2
-/// payload in a parent / sibling container — the stub itself is not playable.
+/// payload in a parent / sibling container: the stub itself is not playable.
 pub const CHILD_STUB_MAGIC: u32 = 0xDEAD_BEEF;
 /// Observed size of a D4 child-reference stub.
 pub const CHILD_STUB_BYTES: usize = 52;

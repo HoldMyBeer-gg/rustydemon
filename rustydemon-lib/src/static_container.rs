@@ -17,7 +17,7 @@
 //! ```
 //!
 //! The 4th value (`flags`) is specific to the D4 Steam format and is the
-//! physical-offset alignment — TACTLib's Overwatch handler ignores it.  Two
+//! physical-offset alignment: TACTLib's Overwatch handler ignores it.  Two
 //! values are known:
 //!
 //! | flags | Meaning                                          |
@@ -25,7 +25,7 @@
 //! | 0     | Byte offset into a `-meta.dat` file              |
 //! | 4096  | 4 KiB-aligned offset into a `-payload.dat` file  |
 //!
-//! Layout 1 (offsetBits = 0) describes a whole loose file — child content
+//! Layout 1 (offsetBits = 0) describes a whole loose file: child content
 //! stored as `{chunk}/{archive}-child.dat` or `-payload.dat`.
 
 use std::{
@@ -133,7 +133,7 @@ impl StaticContainer {
     pub fn extract_location(&self, ekey: &Md5Hash) -> Result<StorageLocation, CascError> {
         // Top 8 bytes of the ekey as a big-endian u64.  Matching TACTLib's
         // `StaticContainerHandler.ExtractStorageLocation`, the very top byte
-        // (bits 56..63) is unused padding — the layout-index field starts at
+        // (bits 56..63) is unused padding: the layout-index field starts at
         // bit `56 - index_bits`, giving a 56-bit location budget.
         let hi = u64::from_be_bytes(ekey.0[8..16].try_into().unwrap());
 
@@ -184,7 +184,7 @@ impl StaticContainer {
     /// Layouts with `flags == 0` and non-zero `offset_bits` point into
     /// `-meta.dat` files.  Layouts with `flags == 4096` point into
     /// `-payload.dat` files.  Layout 1 (offset_bits == 0) is a whole loose
-    /// file whose suffix is unknown without probing — we try both
+    /// file whose suffix is unknown without probing. We try both
     /// `-child.dat` and `-payload.dat`.
     pub fn candidate_paths(&self, loc: &StorageLocation) -> Vec<PathBuf> {
         let chunk_dir = format!("{:03}", loc.chunk);
@@ -231,11 +231,11 @@ impl StaticContainer {
     ///
     /// The blob format is autodetected by peeking at the first two bytes:
     ///
-    /// - **`BLTE`** — standard CASC wrapper, decoded with [`crate::blte::decode`].
-    /// - **`0x78 ..`** — a raw zlib stream (used for TVFS VFS roots in D4,
+    /// - **`BLTE`**: standard CASC wrapper, decoded with [`crate::blte::decode`].
+    /// - **`0x78 ..`**: a raw zlib stream (used for TVFS VFS roots in D4,
     ///   where `vfs-*-espec = z`).  Streamed through [`ZlibDecoder`] until
     ///   the stream ends naturally, so we don't need the compressed size.
-    /// - Anything else — returned as-is (caller decides what to do with it).
+    /// - Anything else: returned as-is (caller decides what to do with it).
     ///
     /// Layout 1 files (`offset_bits == 0`) are whole loose files: the entire
     /// on-disk file is read, then the same format autodetection is applied.
@@ -244,7 +244,7 @@ impl StaticContainer {
         let mut file = self.open_data_file(&loc)?;
 
         if loc.layout.offset_bits == 0 {
-            // Whole loose file — read everything, then decode.
+            // Whole loose file: read everything, then decode.
             let mut buf = Vec::new();
             file.read_to_end(&mut buf)?;
             return decode_blob(&buf, ekey);
@@ -264,7 +264,7 @@ impl StaticContainer {
                 let raw = read_blte_stream(&mut file)?;
                 blte::decode(&raw, ekey, false)
             }
-            // Zlib header — deflate stream, no BLTE wrapper.  Stream the
+            // Zlib header: deflate stream, no BLTE wrapper.  Stream the
             // whole thing through the decoder; it stops at the end marker
             // so we don't need the compressed size up front.
             [0x78, _] => {

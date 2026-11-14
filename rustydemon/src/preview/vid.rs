@@ -19,7 +19,7 @@ impl PreviewPlugin for VidPreview {
     }
 
     fn can_preview(&self, filename: &str, data: &[u8]) -> bool {
-        // Accept by extension OR by magic — some Movie files are
+        // Accept by extension OR by magic: some Movie files are
         // referenced under FDIDs without a canonical extension.
         let ext_match = filename.to_ascii_lowercase().ends_with(".vid");
         ext_match || VidHeader::parse(data).is_some() || looks_like_child_stub(data)

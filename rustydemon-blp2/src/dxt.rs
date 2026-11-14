@@ -12,11 +12,11 @@
 /// | `> 1` | anything else | [`Dxt3`](DxtFlags::Dxt3) |
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DxtFlags {
-    /// DXT1 (BC1) — 8 bytes per 4×4 block, 0- or 1-bit alpha.
+    /// DXT1 (BC1): 8 bytes per 4×4 block, 0- or 1-bit alpha.
     Dxt1,
-    /// DXT3 (BC2) — 16 bytes per 4×4 block, explicit 4-bit alpha.
+    /// DXT3 (BC2): 16 bytes per 4×4 block, explicit 4-bit alpha.
     Dxt3,
-    /// DXT5 (BC3) — 16 bytes per 4×4 block, interpolated 8-bit alpha.
+    /// DXT5 (BC3): 16 bytes per 4×4 block, interpolated 8-bit alpha.
     Dxt5,
 }
 
@@ -26,7 +26,7 @@ pub enum DxtFlags {
 /// should surface as [`BlpError::ImageTooLarge`](crate::BlpError::ImageTooLarge).
 ///
 /// Partial blocks (where the data ends before a full 8- or 16-byte block has
-/// been read) are silently skipped — the corresponding pixels remain zeroed.
+/// been read) are silently skipped: the corresponding pixels remain zeroed.
 /// This matches the behaviour of the original SereniaBLPLib, where truncated
 /// mipmap data produces a black region rather than a crash.
 pub fn decompress_image(width: u32, height: u32, data: &[u8], flags: DxtFlags) -> Option<Vec<u8>> {

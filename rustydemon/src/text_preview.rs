@@ -9,7 +9,7 @@
 //! BOMs and trailing NULs are stripped so the rendered text looks clean
 //! in the egui multiline view.
 
-/// Maximum number of bytes we'll ever render in the text preview — matches
+/// Maximum number of bytes we'll ever render in the text preview: matches
 /// the existing hex preview cap of 256 bytes × many rows so the panel
 /// doesn't try to show multi-MB files all at once.
 const MAX_PREVIEW_BYTES: usize = 64 * 1024; // 64 KiB
@@ -20,7 +20,7 @@ const PRINTABLE_THRESHOLD: f32 = 0.90;
 
 /// Extensions that are always rendered as text (case-insensitive).
 ///
-/// Keep this list conservative — anything listed here will be force-decoded
+/// Keep this list conservative: anything listed here will be force-decoded
 /// as UTF-8 (lossy), so exotic binary-with-text-extension formats won't
 /// render cleanly but also won't panic.
 const TEXT_EXTENSIONS: &[&str] = &[

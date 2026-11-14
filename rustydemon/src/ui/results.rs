@@ -12,10 +12,10 @@ fn row_meta(file_data_id: Option<u32>, hash: u64) -> String {
     }
 }
 
-/// Draw the center panel — shows either search results or browsed folder contents.
+/// Draw the center panel: shows either search results or browsed folder contents.
 /// Returns the clicked [`SearchResult`], if any.
 pub fn draw_results(ui: &mut egui::Ui, app: &mut CascExplorerApp) -> Option<SearchResult> {
-    // Handle Ctrl+A to select all visible files — but only if no text
+    // Handle Ctrl+A to select all visible files, but only if no text
     // widget is focused, so typing Ctrl+A in the search box still does
     // "select all text" inside that field instead of double-firing into
     // a select-all-results.

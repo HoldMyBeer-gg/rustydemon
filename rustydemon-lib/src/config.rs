@@ -250,7 +250,7 @@ impl CascConfig {
     /// Load a Steam-style static-container installation.
     ///
     /// Static containers ship only a `.build.config` file (typically under
-    /// `<base>/Data/.build.config`) — there is no `.build.info`, no CDN
+    /// `<base>/Data/.build.config`). There is no `.build.info`, no CDN
     /// config, and no separate build/CDN hash keys.  The resulting
     /// [`CascConfig`] has empty `cdn` and the build config parsed directly
     /// from `.build.config`.
@@ -356,7 +356,7 @@ impl CascConfig {
         })?;
 
         // Resolve the actual on-disk casing.  D2R ships lowercase `data/`
-        // where every other Blizzard game ships `Data/` — on Linux that's
+        // where every other Blizzard game ships `Data/`: on Linux that's
         // the difference between "opens" and "No such file or directory".
         // Falls back to the expected casing if we can't read the base dir,
         // which matches the old hard-coded behaviour.
@@ -399,7 +399,7 @@ impl CascConfig {
                     CascError::Config(format!("Cannot open config {}: {e}", path.display()))
                 });
             }
-            // Not cached locally — try CDN.
+            // Not cached locally: try CDN.
             #[cfg(feature = "cdn")]
             if !cdn_hosts.is_empty() && !cdn_path.is_empty() {
                 match crate::cdn::CdnFetcher::new(
@@ -542,7 +542,7 @@ impl CascConfig {
     /// instead of a traditional root manifest.
     ///
     /// True only when `vfs-root` is present AND the `root` field is absent
-    /// or all-zero.  That's the D4 / Overwatch case — those games have no
+    /// or all-zero.  That's the D4 / Overwatch case: those games have no
     /// legacy root manifest at all.
     ///
     /// Games like retail WoW ship BOTH a real non-zero `root` (valid MFST)
@@ -647,7 +647,7 @@ impl CascConfig {
     /// Secondary "ecache" storage introduced by D2R 3.1.2 for loose
     /// metadata blobs (ENCODING, DOWNLOAD, root manifests, TVFS tables).
     ///
-    /// Returns the path whether or not the directory exists — callers
+    /// Returns the path whether or not the directory exists: callers
     /// should pass it to [`LocalIndexHandler::load_multi`](crate::local_index::LocalIndexHandler::load_multi)
     /// which silently skips missing storages.
     pub fn ecache_path(&self) -> std::path::PathBuf {

@@ -123,7 +123,7 @@ fn build_from_descriptor(
 }
 
 /// Captured dims/format used by the PNG export closure when descriptor-driven
-/// decoding is in play — without this, PNG export falls back to brute-force
+/// decoding is in play: without this, PNG export falls back to brute-force
 /// and fails for the same NPOT/paylow files the descriptor path just rescued.
 #[derive(Clone, Copy)]
 struct KnownDecode {

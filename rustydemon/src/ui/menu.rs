@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::app::CascExplorerApp;
 
-/// Ctrl+O on Linux/Windows, ⌘+O on macOS — egui's `COMMAND` modifier maps
+/// Ctrl+O on Linux/Windows, ⌘+O on macOS: egui's `COMMAND` modifier maps
 /// to whichever the host platform uses.
 const OPEN_SHORTCUT: egui::KeyboardShortcut =
     egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::O);

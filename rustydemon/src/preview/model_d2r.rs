@@ -70,7 +70,7 @@ impl PreviewPlugin for ModelD2rPreview {
             summary.models, summary.meshes, summary.skeletons, summary.animations, summary.textures
         ));
 
-        // Source file + art tool info — pulled straight out of the
+        // Source file + art tool info: pulled straight out of the
         // parsed tree.  Granny puts these at the top level.
         if let Some(name) = find_string(&gf.root_elements, "FromFileName") {
             text.push_str(&format!("Source file       {name}\n"));
@@ -87,7 +87,7 @@ impl PreviewPlugin for ModelD2rPreview {
         }
         text.push('\n');
 
-        // Texture names — pulled from the Textures array's inner
+        // Texture names: pulled from the Textures array's inner
         // FromFileName fields.  Shows users which .texture files they'd
         // need to extract alongside this model.
         if let Some(textures) = gf.find("Textures") {
@@ -239,7 +239,7 @@ impl PreviewPlugin for ModelD2rPreview {
             out.mesh3d = Some(mesh);
         }
 
-        // Top-level element tree — one level deep.  Users can see the
+        // Top-level element tree: one level deep.  Users can see the
         // skeleton name, mesh name, etc. without us having to interpret
         // the geometry.
         text.push_str("\nTop-level tree:\n");
@@ -279,7 +279,7 @@ fn find_f32(elements: &[Element], name: &str) -> Option<f32> {
 /// D2R stores paths like `"data:data/hd/env/…/foo.texture"`.  The
 /// CASC virtual tree might index them with or without the `data:`
 /// prefix, so we try the full path, without prefix, and just the
-/// filename — in that order.
+/// filename, in that order.
 fn texture_lookup_candidates(raw: &str) -> Vec<String> {
     let mut out = Vec::with_capacity(3);
     // Full path as-is.

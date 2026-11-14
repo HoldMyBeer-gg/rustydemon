@@ -116,7 +116,7 @@ fn parse_keys(text: &str) -> Vec<(u64, [u8; 16])> {
 
 /// Load TACT keys from a file on disk.
 ///
-/// The file format is identical to [`load_keys_from_str`] — the standard
+/// The file format is identical to [`load_keys_from_str`]: the standard
 /// wowdev space-separated hex format used by
 /// <https://github.com/wowdev/TACTKeys>.
 ///
@@ -139,7 +139,7 @@ pub const KEY_FILE_ENV: &str = "RUSTYDEMON_TACT_KEYS";
 /// Split out from [`user_key_file`] so the platform rules are testable without
 /// mutating the real process environment.  Resolution order:
 ///
-/// 1. `RUSTYDEMON_TACT_KEYS` — absolute path to the key file itself.
+/// 1. `RUSTYDEMON_TACT_KEYS`: absolute path to the key file itself.
 /// 2. Windows: `%APPDATA%\rustydemon\tact.keys`
 /// 3. macOS: `$HOME/Library/Application Support/rustydemon/tact.keys`
 /// 4. Otherwise: `$XDG_CONFIG_HOME/rustydemon/tact.keys`, falling back to
@@ -172,7 +172,7 @@ pub fn user_key_file_from_env(
 
 /// The per-user TACT key file for this platform, if it can be resolved.
 ///
-/// The path is returned whether or not the file exists — callers that want to
+/// The path is returned whether or not the file exists: callers that want to
 /// show it to the user (e.g. "drop your keys here") need it either way.
 pub fn user_key_file() -> Option<PathBuf> {
     user_key_file_from_env(

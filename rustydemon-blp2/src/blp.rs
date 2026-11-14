@@ -48,9 +48,9 @@ impl TryFrom<u8> for ColorEncoding {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum PixelFormat {
-    /// DXT1 (BC1) — 4 bits/pixel, 0- or 1-bit alpha.
+    /// DXT1 (BC1): 4 bits/pixel, 0- or 1-bit alpha.
     Dxt1 = 0,
-    /// DXT3 (BC2) — 8 bits/pixel, explicit 4-bit alpha.
+    /// DXT3 (BC2): 8 bits/pixel, explicit 4-bit alpha.
     Dxt3 = 1,
     /// Uncompressed 32-bit ARGB (rarely used as a `PixelFormat` value).
     Argb8888 = 2,
@@ -62,7 +62,7 @@ pub enum PixelFormat {
     Rgb565 = 5,
     /// 8-bit alpha-only channel.
     A8 = 6,
-    /// DXT5 (BC3) — 8 bits/pixel, interpolated 8-bit alpha.
+    /// DXT5 (BC3): 8 bits/pixel, interpolated 8-bit alpha.
     Dxt5 = 7,
     /// Unspecified / unknown format.
     Unspecified = 8,
@@ -145,10 +145,10 @@ pub struct BlpFile {
     pub color_encoding: ColorEncoding,
     /// Bits of alpha precision stored per pixel.
     ///
-    /// * `0` — no alpha (all pixels are fully opaque)
-    /// * `1` — 1-bit alpha (transparent or opaque)
-    /// * `4` — 4-bit alpha (16 levels)
-    /// * `8` — 8-bit alpha (256 levels)
+    /// * `0`: no alpha (all pixels are fully opaque)
+    /// * `1`: 1-bit alpha (transparent or opaque)
+    /// * `4`: 4-bit alpha (16 levels)
+    /// * `8`: 8-bit alpha (256 levels)
     pub alpha_size: u8,
     /// DXT sub-format, relevant only when
     /// `color_encoding == ColorEncoding::Dxt`.
@@ -326,7 +326,7 @@ impl BlpFile {
 
         let mut out = vec![0u8; n_pixels * 4];
         for i in 0..n_pixels {
-            // data[i] is a u8 (0–255) and palette has exactly 256 entries — always in bounds.
+            // data[i] is a u8 (0–255) and palette has exactly 256 entries: always in bounds.
             let c = self.palette[data[i] as usize];
             out[i * 4] = c.r;
             out[i * 4 + 1] = c.g;
@@ -383,7 +383,7 @@ fn parse_header(mut cur: io::Cursor<Vec<u8>>) -> Result<BlpFile, BlpError> {
             let h = read_i32(&mut cur)? as u32;
             let pf = PixelFormat::try_from(read_i32(&mut cur)? as u8)
                 .unwrap_or(PixelFormat::Unspecified);
-            let _hm = read_i32(&mut cur)?; // has_mipmaps flag — unused; we scan the offset table
+            let _hm = read_i32(&mut cur)?; // has_mipmaps flag: unused; we scan the offset table
             (enc, alpha, pf, w, h)
         }
         MAGIC_BLP2 => {
@@ -469,13 +469,13 @@ fn parse_header(mut cur: io::Cursor<Vec<u8>>) -> Result<BlpFile, BlpError> {
 ///
 /// ## Packing formats
 ///
-/// * **1-bit** — 8 pixels packed into each byte, LSB first.
+/// * **1-bit**: 8 pixels packed into each byte, LSB first.
 ///   Bit set → `0xFF` (opaque), bit clear → `0x00` (transparent).
-/// * **4-bit** — 2 pixels per byte. Even pixels use the low nibble (shifted
+/// * **4-bit**: 2 pixels per byte. Even pixels use the low nibble (shifted
 ///   left to the high-nibble position), odd pixels use the high nibble as-is.
 ///   This matches the original SereniaBLPLib behaviour.
-/// * **8-bit** — one byte per pixel, direct value.
-/// * **Other** — treated as no alpha; returns `0xFF` (fully opaque).
+/// * **8-bit**: one byte per pixel, direct value.
+/// * **Other**: treated as no alpha; returns `0xFF` (fully opaque).
 fn palette_alpha(data: &[u8], index: usize, alpha_start: usize, alpha_size: u8) -> u8 {
     match alpha_size {
         1 => {

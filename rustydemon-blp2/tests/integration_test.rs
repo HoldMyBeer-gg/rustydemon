@@ -1,9 +1,9 @@
 /// Integration tests for the `blp` crate.
 ///
 /// The original C# SereniaBLPLib had no tests at all.  This suite covers:
-///   1. Correctness  — each encoding/format produces correct RGBA output
-///   2. Error paths  — invalid / truncated / corrupt input returns errors, not panics
-///   3. Security     — malicious field values cannot cause panics, OOB, or overflow
+///   1. Correctness: each encoding/format produces correct RGBA output
+///   2. Error paths: invalid / truncated / corrupt input returns errors, not panics
+///   3. Security: malicious field values cannot cause panics, OOB, or overflow
 use rustydemon_blp2::{BlpError, BlpFile, ColorEncoding};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,8 +55,8 @@ fn append_mip_tables(v: &mut Vec<u8>, first_offset: u32, first_size: u32) {
 ///   148..1172 palette (256 × i32 BGRA)
 ///   1172..   mip_data
 ///
-/// `palette_bgra` — 256 × 4 bytes (B, G, R, A per entry).
-/// `mip_data`     — raw palette-index bytes + optional alpha bytes.
+/// `palette_bgra`: 256 × 4 bytes (B, G, R, A per entry).
+/// `mip_data`: raw palette-index bytes + optional alpha bytes.
 fn make_blp2_palette(
     width: i32,
     height: i32,
@@ -474,7 +474,7 @@ fn security_mip_offset_beyond_eof() {
     assert!(matches!(blp.get_pixels(0), Err(BlpError::OutOfBounds)));
 }
 
-/// Mip size is u32::MAX — offset + size overflows before the slice check.
+/// Mip size is u32::MAX: offset + size overflows before the slice check.
 #[test]
 fn security_mip_size_u32_max() {
     let mut data = make_blp2_palette(1, 1, 0, &[[0u8; 4]; 256], vec![0x00]);
@@ -548,13 +548,13 @@ fn security_palette_missing_alpha4_data() {
     assert!(matches!(blp.get_pixels(0), Err(BlpError::DataTooShort)));
 }
 
-/// DXT1 mip data is shorter than one full 8-byte block — must not panic.
+/// DXT1 mip data is shorter than one full 8-byte block: must not panic.
 #[test]
 fn security_dxt_partial_block_no_panic() {
     // 4×4 DXT1 needs 8 bytes; provide only 4.
     let data = make_blp2_dxt(4, 4, 0, 0, vec![0u8; 4]);
     let blp = BlpFile::from_bytes(data).unwrap();
-    // Should succeed (zeroed pixels) or fail gracefully — must not panic.
+    // Should succeed (zeroed pixels) or fail gracefully: must not panic.
     let result = blp.get_pixels(0);
     if let Ok((pixels, w, h)) = result {
         // If it succeeds the pixel buffer must be correctly sized (zeroed).
@@ -563,7 +563,7 @@ fn security_dxt_partial_block_no_panic() {
     // Panic = test failure, which is the point.
 }
 
-/// DXT5 mip data completely empty — must not panic.
+/// DXT5 mip data completely empty: must not panic.
 #[test]
 fn security_dxt5_empty_data_no_panic() {
     let data = make_blp2_dxt(4, 4, 8, 7 /*Dxt5*/, vec![]);
@@ -571,7 +571,7 @@ fn security_dxt5_empty_data_no_panic() {
     let _ = blp.get_pixels(0); // must not panic
 }
 
-/// DXT3 mip data completely empty — must not panic.
+/// DXT3 mip data completely empty: must not panic.
 #[test]
 fn security_dxt3_empty_data_no_panic() {
     let data = make_blp2_dxt(4, 4, 8, 1 /*Dxt3*/, vec![]);
@@ -595,7 +595,7 @@ fn security_jpeg_header_size_too_large() {
     assert!(BlpFile::from_bytes(v).is_err());
 }
 
-/// JPEG encoding with header size = i32::MAX — must not OOM or panic.
+/// JPEG encoding with header size = i32::MAX: must not OOM or panic.
 #[test]
 fn security_jpeg_header_size_i32_max() {
     let mut v = blp2_header(0 /*Jpeg*/, 0, 0, 1, 1);
@@ -605,7 +605,7 @@ fn security_jpeg_header_size_i32_max() {
     assert!(BlpFile::from_bytes(v).is_err());
 }
 
-/// All mip_sizes = u32::MAX with valid offsets — must not cause any panic.
+/// All mip_sizes = u32::MAX with valid offsets: must not cause any panic.
 #[test]
 fn security_all_mip_sizes_u32_max() {
     let mut data = make_blp2_palette(1, 1, 0, &[[0u8; 4]; 256], vec![0x00]);

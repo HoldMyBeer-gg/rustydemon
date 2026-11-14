@@ -3,7 +3,7 @@
 //! [`AudioPlayer`] owns a single rodio [`OutputStream`] + [`Sink`] pair
 //! (on non-Linux targets) and exposes the handful of operations the
 //! preview panel needs: play a fresh in-memory buffer, toggle pause,
-//! stop, query state.  Only one audio clip plays at a time — switching
+//! stop, query state.  Only one audio clip plays at a time: switching
 //! files or clicking Stop wipes the existing sink and reuses the stream.
 //!
 //! Initialization is lazy and fallible: on machines without a working

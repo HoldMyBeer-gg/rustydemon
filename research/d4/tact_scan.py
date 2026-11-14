@@ -1,5 +1,5 @@
 """
-tact_scan.py — scan a running process for TACT key name→value pairs.
+tact_scan.py: scan a running process for TACT key name→value pairs.
 
 Usage:
     python tact_scan.py <PID>
@@ -73,7 +73,7 @@ def read_mem(handle, addr, size):
 # ── Key names from D4 EncryptedNameDict filenames ───────────────────────────
 # Each is a u64 LE; we search for these 8-byte patterns in memory.
 # Generated from: base/EncryptedNameDict-0x<ID>.dat
-# Full PTR (2.6.0.70501) EncryptedNameDict key set — 184 files
+# Full PTR (2.6.0.70501) EncryptedNameDict key set: 184 files
 KEY_IDS_HEX = [
     "00b9b2a6cb806a3d","02819b3a245a767c","0296d1f07ca1df56","02d64e000d128ac5",
     "04af7358e24ff07b","093b6416e2835509","09f0c09900c83a1c","0a5015374c0f9fc7",
@@ -162,7 +162,7 @@ def looks_like_key(b: bytes, reject_name_halves: bool = True) -> bool:
     reject_name_halves guards the *pointer* layout, where a bad deref can land on
     another bucket and hand back [something][key_name] instead of a real value.
     The inline layout reads the value directly out of a bucket we already matched,
-    so that guard doesn't apply there — and would false-reject a genuine key whose
+    so that guard doesn't apply there, and would false-reject a genuine key whose
     second half happens to collide with a name pattern.
     """
     if len(b) < 16:
@@ -212,7 +212,7 @@ def scan(pid):
 
                     val_hex = None
 
-                    # Layout A — live game, value stored INLINE:
+                    # Layout A: live game, value stored INLINE:
                     #   [key_name(8)][key_name(8)][key_value(16)]
                     # The duplicated name at +8 is what confirms the bucket.
                     if idx + 32 <= len(data) and data[idx + 8:idx + 16] == pat:
@@ -221,9 +221,9 @@ def scan(pid):
                             val_hex = cand.hex().upper()
                             layout_hits["inline"] += 1
 
-                    # Layout B — PTR builds, value behind a pointer:
+                    # Layout B: PTR builds, value behind a pointer:
                     #   [key_name(8)][null_or_ptr(8)][value_ptr(8)]
-                    # Do NOT deref +8 — that's a hash-chain pointer, not the value.
+                    # Do NOT deref +8: that's a hash-chain pointer, not the value.
                     if val_hex is None and idx + 24 <= len(data):
                         raw_ptr = struct.unpack_from("<Q", data, idx + 16)[0]
                         if 0x10000 < raw_ptr < 0x7FFFFFFFFFFF:

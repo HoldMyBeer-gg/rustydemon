@@ -16,7 +16,7 @@ use super::{ExportAction, PreviewOutput, PreviewPlugin};
 
 pub struct TextureDePreview;
 
-/// Parsed `<DE(` header — only the fields we actually use for decoding.
+/// Parsed `<DE(` header: only the fields we actually use for decoding.
 #[derive(Debug, Clone, Copy)]
 struct DeHeader {
     format_code: u8,
@@ -32,7 +32,7 @@ struct DeHeader {
 const MAGIC: &[u8; 4] = b"<DE(";
 
 /// Parse the header and locate mip 0.  Returns `None` on any structural
-/// problem — the UI then falls back to the generic text/hex dump.
+/// problem: the UI then falls back to the generic text/hex dump.
 fn parse_header(data: &[u8]) -> Option<DeHeader> {
     if data.len() < 0x2C || &data[..4] != MAGIC {
         return None;
@@ -116,13 +116,13 @@ const BC7: BcCandidate = BcCandidate {
     decode: texture2ddecoder::decode_bc7,
 };
 
-/// Result of [`candidates_for`] — the BC formats to try plus whether
+/// Result of [`candidates_for`]: the BC formats to try plus whether
 /// they came from a confident known-code mapping (`trusted = true`) or
 /// a fallback brute force (`trusted = false`).
 struct CandidateList {
     candidates: Vec<BcCandidate>,
     /// When true, the first successful decode is accepted without
-    /// running the spatial-coherence plausibility check — necessary
+    /// running the spatial-coherence plausibility check: necessary
     /// for content like flow maps and normal maps whose adjacent
     /// pixels legitimately look like high-frequency noise.
     trusted: bool,
@@ -133,7 +133,7 @@ struct CandidateList {
 /// The format code is the 5th byte of the header (the one I originally
 /// mis-read as a closing `>`).  The table below came from eyeballing
 /// known-content samples.  For codes I have a confident mapping for,
-/// `trusted` is set so the caller skips `looks_valid` — flow maps,
+/// `trusted` is set so the caller skips `looks_valid`: flow maps,
 /// normal maps, and other high-frequency content fail that heuristic
 /// even when the decode is perfectly correct.  Unknown codes fall
 /// through to a block-size-matched brute force where `looks_valid` is
@@ -158,15 +158,15 @@ fn candidates_for(header: &DeHeader, _filename: &str) -> CandidateList {
         // samples at 4×4 (default_mask: ffff/ffff/aaaaaaaa; aluminum:
         // ffff/bef7beef/aaaaaaaa) decode as clean BC3 "flat white" /
         // "flat solid" blocks.  BC3 is most likely the canonical
-        // format and the difference vs 0x3E is probably an sRGB
+        // format and the difference vs 0x3E looks like an sRGB
         // vs linear colorspace flag (0x3E = sRGB albedo, 0x3D =
         // linear data).  BC7 and BC5 stay in the fallback chain in
-        // case specific content — LUTs, gradients — was actually
+        // case specific content (LUTs, gradients) was actually
         // encoded differently; user can force them via the override.
         (0x3D, true) => (vec![BC3, BC7, BC5], true),
 
         // Flow maps (default_flow, gfxtest_hair_flow).  Two-channel
-        // vector field — adjacent pixels are high-frequency direction
+        // vector field: adjacent pixels are high-frequency direction
         // vectors, so `looks_valid` must be skipped.
         (0x39, false) => (vec![BC1, BC4], true),
 
@@ -200,7 +200,7 @@ pub(crate) fn decode_mip0(
     let mip = &data[header.mip0_offset..header.mip0_offset + header.mip0_size];
 
     // Clamp to multiple of 4 for BC decoding.  BC blocks are always 4×4,
-    // so sub-4 textures are padded — the decoder still writes `w*h`
+    // so sub-4 textures are padded: the decoder still writes `w*h`
     // output pixels so we pass the true dimensions through.
     let w = header.width as usize;
     let h = header.height as usize;
@@ -249,7 +249,7 @@ impl PreviewPlugin for TextureDePreview {
 
     fn can_preview(&self, filename: &str, data: &[u8]) -> bool {
         // Extension is a cheap early-out; magic is authoritative.  We
-        // accept any extension as long as the magic matches — a few D2R
+        // accept any extension as long as the magic matches: a few D2R
         // assets with non-.texture extensions use the same wrapper.
         if data.len() < 4 || &data[..4] != MAGIC {
             return false;

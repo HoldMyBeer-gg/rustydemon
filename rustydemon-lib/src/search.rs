@@ -94,7 +94,7 @@ impl CascHandler {
     /// Search the entire CASC storage for files matching `query`.
     ///
     /// Unlike a folder-scoped search, this iterates *every* entry in the root
-    /// manifest — exactly like regedit's "Find" which searches all keys and
+    /// manifest: exactly like regedit's "Find" which searches all keys and
     /// values, not just the currently selected subtree.
     ///
     /// # Example
@@ -214,7 +214,7 @@ impl CascHandler {
     /// Run a glob/path query against the virtual file tree and return one
     /// [`SearchResult`] per matched file.
     ///
-    /// Requires a populated [`root_folder`](CascHandler::root_folder) — i.e.
+    /// Requires a populated [`root_folder`](CascHandler::root_folder), i.e.
     /// the handler has either a TVFS built-in path table or a loaded
     /// listfile.  Returns an empty vec when the query is valid but matches
     /// nothing, or when the handler has no tree at all.
@@ -260,7 +260,7 @@ impl CascHandler {
     ///
     /// - If the input contains glob metacharacters (`*`, `?`, `{`, `[`), it
     ///   is parsed as a [`PathQuery`](crate::query::PathQuery) and resolved
-    ///   against the virtual tree — this is the "**/*.m2" / "sylvanas*.wmo"
+    ///   against the virtual tree. This is the "**/*.m2" / "sylvanas*.wmo"
     ///   case.
     /// - Otherwise it falls through to the existing case-insensitive
     ///   substring search over the root manifest, matching GUI behaviour
@@ -295,7 +295,7 @@ impl CascHandler {
 
     /// Iterate every known hash in the root manifest.
     ///
-    /// This is the raw "all keys" view — equivalent to regedit showing every
+    /// This is the raw "all keys" view: equivalent to regedit showing every
     /// registry key regardless of which tree node is selected.
     pub fn all_hashes(&self) -> impl Iterator<Item = u64> + '_ {
         // Deduplicate hashes; root.all_entries() yields one row per RootEntry

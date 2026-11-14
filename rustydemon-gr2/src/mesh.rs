@@ -35,7 +35,7 @@ pub struct Mesh {
 impl GrannyFile {
     /// Extract every mesh's geometry.  Returns an empty vec if the
     /// file has no `Meshes` array or if every mesh has unreadable
-    /// vertex/index data.  Unreadable meshes are skipped silently —
+    /// vertex/index data.  Unreadable meshes are skipped silently:
     /// the caller keeps the ones that did decode.
     pub fn meshes(&self) -> Vec<Mesh> {
         let meshes_elem = match self.find("Meshes") {
@@ -156,7 +156,7 @@ fn read_indices(topology_fields: &[Element]) -> Option<Vec<u32>> {
 /// `Vec<Element>` holding one `I32` (or for 16-bit types, an `Opaque(15)`
 /// since our walker advances the cursor past int16 without fully
 /// decoding it).  For the 16-bit case we can't read values via the
-/// generic walker — we'd need to decode from the raw sector data —
+/// generic walker; we'd need to decode from the raw sector data,
 /// so for now we return None when we hit that.
 fn read_int_array_flat(arr: &Element) -> Option<Vec<u32>> {
     match &arr.value {

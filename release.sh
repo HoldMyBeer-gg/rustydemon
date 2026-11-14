@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# release.sh — bump the workspace version and publish all crates in dependency order.
+# release.sh: bump the workspace version and publish all crates in dependency order.
 #
 # Usage:
 #   ./release.sh 0.2.0          # bump to 0.2.0, publish everything

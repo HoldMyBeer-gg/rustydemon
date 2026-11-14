@@ -2,13 +2,13 @@
 //!
 //! A Granny file is a header + N sector descriptors + N payloads.
 //! Each sector payload is independently compressed (`compression_type`
-//! 0 = raw, 4 = Bitknit2 — the cases D2R uses) and carries a fixup
+//! 0 = raw, 4 = Bitknit2: the cases D2R uses) and carries a fixup
 //! table at `fixup_offset..fixup_offset+fixup_size*12` in the *file*
 //! (not the sector).  Each 12-byte fixup entry relocates a pointer
 //! from one (sector, position) to another (sector, position).
 //!
 //! For our preview use case we don't actually need to rewrite the
-//! decompressed bytes — opengr2 stashes the fixup entries in a side
+//! decompressed bytes: opengr2 stashes the fixup entries in a side
 //! table and the element parser looks up pointers by (sector, offset)
 //! via [`Section::resolve_pointer`].  We take the same approach so
 //! the element parser port is mechanical.
@@ -117,7 +117,7 @@ pub fn load_section(file: &[u8], info: SectionInfo, endian: Endian) -> Result<Se
     }
     let compressed = &file[info.data_offset as usize..data_end];
 
-    // Empty sectors (compressed_length == 0) are legitimate — Granny
+    // Empty sectors (compressed_length == 0) are legitimate. Granny
     // reserves sector slots for asset classes it didn't use (animations,
     // extra skeletons, etc.) and we should treat them as a zero-byte
     // decompressed payload regardless of compression type.

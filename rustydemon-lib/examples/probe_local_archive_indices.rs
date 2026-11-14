@@ -1,5 +1,5 @@
 //! Verify that `LocalIndexHandler::merge_archive_indices` actually loads
-//! D2R's archive-style `.index` entries — independent of whether
+//! D2R's archive-style `.index` entries: independent of whether
 //! `CascHandler::open_local` succeeds, which still needs CDN fetch for
 //! the loose ENCODING blob.
 

@@ -30,21 +30,21 @@ CLI="$BIN_DIR/rustydemon-cli"
 # ── Game install candidates ────────────────────────────────────────────────────
 # Add your own paths here.  Non-existent paths are silently skipped.
 INSTALLS=(
-  # Windows — Steam
+  # Windows: Steam
   "C:/Program Files (x86)/Steam/steamapps/common/Diablo II Resurrected"
   "C:/Program Files (x86)/Steam/steamapps/common/Diablo IV"
   "C:/Program Files (x86)/Steam/steamapps/common/World of Warcraft"
   "C:/Program Files (x86)/Steam/steamapps/common/StarCraft"
   "C:/Program Files (x86)/Steam/steamapps/common/Heroes of the Storm"
   "C:/Program Files (x86)/Steam/steamapps/common/Overwatch"
-  # Windows — Battle.net
+  # Windows: Battle.net
   "C:/Program Files (x86)/Diablo IV"
   "C:/Program Files (x86)/Diablo IV Public Test"
   "C:/Program Files (x86)/World of Warcraft"
   "C:/Program Files (x86)/StarCraft"
   "C:/Program Files (x86)/Diablo III"
   "C:/Program Files (x86)/Heroes of the Storm"
-  # Linux / SteamOS — Steam
+  # Linux / SteamOS: Steam
   "$HOME/.local/share/Steam/steamapps/common/Diablo II Resurrected"
   "$HOME/.local/share/Steam/steamapps/common/Diablo IV"
   "$HOME/.local/share/Steam/steamapps/common/World of Warcraft"

@@ -145,7 +145,7 @@ fn toolbar(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         app.run_search();
     }
 
-    // Primary action — ember fill, forge-colored text.
+    // Primary action: ember fill, forge-colored text.
     let search_btn = egui::Button::new(
         egui::RichText::new("Search")
             .color(theme::rd::FG_ON_EMBER)
@@ -235,14 +235,14 @@ fn split_status_accent(status: &str) -> (Option<&str>, &str) {
     (None, status)
 }
 
-/// Paint the forge-glow vignette beneath all panels — warm ember in
+/// Paint the forge-glow vignette beneath all panels: warm ember in
 /// the top-left, cool rune in the bottom-right, both at very low alpha
 /// so nothing competes with actual UI content.
 fn paint_forge_glow(ui: &egui::Ui) {
     let rect = ui.ctx().content_rect();
     let painter = ui.ctx().layer_painter(egui::LayerId::background());
 
-    // Warm ember — top-left quadrant.
+    // Warm ember: top-left quadrant.
     let c1 = rect.min + egui::vec2(rect.width() * 0.15, -rect.height() * 0.10);
     painter.circle_filled(
         c1,
@@ -250,7 +250,7 @@ fn paint_forge_glow(ui: &egui::Ui) {
         egui::Color32::from_rgba_premultiplied(0x1c, 0x0b, 0x02, 0x14),
     );
 
-    // Cool rune — bottom-right quadrant.
+    // Cool rune: bottom-right quadrant.
     let c2 = rect.min + egui::vec2(rect.width() * 0.90, rect.height() * 1.10);
     painter.circle_filled(
         c2,
@@ -263,75 +263,86 @@ fn paint_forge_glow(ui: &egui::Ui) {
 mod copy_tests {
     use std::path::Path;
 
-    /// The part of a source line before its `//` comment, if it has one.
-    fn code_part(line: &str) -> &str {
-        // "://" is a URL inside a string, not the start of a comment.
-        let mut from = 0;
-        while let Some(at) = line[from..].find("//") {
-            let at = from + at;
-            if at == 0 || line.as_bytes()[at - 1] != b':' {
-                return &line[..at];
-            }
-            from = at + 2;
-        }
-        line
-    }
+    /// Text files in the repository: source, docs, scripts and packaging.
+    const TEXT: &[&str] = &[
+        "rs", "md", "toml", "sh", "yml", "json", "py", "wxs", "keys", "desktop", "SRCINFO",
+    ];
+    const TEXT_NAMES: &[&str] = &["PKGBUILD", "CREDITS", "LICENSE", ".gitignore"];
 
-    /// Every line of Rust source under `dir` that has `needle` outside a
-    /// comment, as `file:line`.
-    fn lines_with(dir: &Path, needle: char, found: &mut Vec<String>) {
+    fn text_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         for entry in std::fs::read_dir(dir).unwrap().flatten() {
             let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
             if path.is_dir() {
-                lines_with(&path, needle, found);
-            } else if path.extension().is_some_and(|e| e == "rs") {
-                let text = std::fs::read_to_string(&path).unwrap();
-                for (i, line) in text.lines().enumerate() {
-                    if code_part(line).contains(needle) {
-                        found.push(format!("{}:{}", path.display(), i + 1));
+                if !matches!(
+                    name.as_str(),
+                    ".git" | "target" | "node_modules" | "bam-results"
+                ) {
+                    text_files(&path, out);
+                }
+            } else if TEXT_NAMES.contains(&name.as_str())
+                || path
+                    .extension()
+                    .is_some_and(|e| TEXT.contains(&e.to_string_lossy().as_ref()))
+            {
+                out.push(path);
+            }
+        }
+    }
+
+    /// Whether `word` appears in `line` as a whole word, ignoring case.
+    fn has_word(line: &str, word: &str) -> bool {
+        let line = line.to_lowercase();
+        line.match_indices(word).any(|(at, _)| {
+            let before = line[..at].chars().next_back();
+            let after = line[at + word.len()..].chars().next();
+            !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
+        })
+    }
+
+    #[test]
+    fn whole_words_only() {
+        assert!(has_word("It works, maybe.", "maybe"));
+        assert!(!has_word("maybeso", "maybe"));
+        assert!(has_word("Maybe not", "maybe"));
+    }
+
+    /// Everything in the repository reads as plain prose: no long dashes and
+    /// none of the filler words below, in code, comments, docs or scripts.
+    #[test]
+    fn plain_punctuation_and_wording_everywhere() {
+        let dash = '\u{2014}';
+        // Spelled in pieces so this file does not trip its own check.
+        let words = [
+            ["prob", "ably"].concat(),
+            ["hon", "estly"].concat(),
+            ["cav", "eat"].concat(),
+            ["cav", "eats"].concat(),
+        ];
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let mut files = Vec::new();
+        text_files(root, &mut files);
+        let mut found = Vec::new();
+        for path in files {
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let rel = path.strip_prefix(root).unwrap().display().to_string();
+            for (i, line) in text.lines().enumerate() {
+                if line.contains(dash) {
+                    found.push(format!("{rel}:{}: long dash", i + 1));
+                }
+                for w in &words {
+                    if has_word(line, w) {
+                        found.push(format!("{rel}:{}: {w}", i + 1));
                     }
                 }
             }
         }
-    }
-
-    #[test]
-    fn a_dash_after_a_url_is_not_mistaken_for_a_comment() {
-        assert!(code_part("say(\"see https://example.com \u{2014} now\");").contains('\u{2014}'));
-        assert!(!code_part("let x = 1; // old \u{2014} note").contains('\u{2014}'));
-        assert!(!code_part("    /// doc \u{2014} comment").contains('\u{2014}'));
-    }
-
-    /// Text people read (labels, messages, command-line output, the README,
-    /// the key file users edit) uses plain punctuation. An em dash may only
-    /// appear in a source comment.
-    #[test]
-    fn no_em_dashes_in_text_people_read() {
-        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let mut found = Vec::new();
-        for krate in ["rustydemon", "rustydemon-cli", "rustydemon-lib"] {
-            for dir in ["src", "examples"] {
-                let dir = workspace.join(krate).join(dir);
-                if dir.is_dir() {
-                    lines_with(&dir, '\u{2014}', &mut found);
-                }
-            }
-        }
-        for file in [
-            "README.md",
-            "COMMERCIAL.md",
-            "rustydemon-lib/README.md",
-            "rustydemon-blp2/README.md",
-            "rustydemon-gr2/README.md",
-            "rustydemon-lib/keys/d4.keys",
-        ] {
-            let text = std::fs::read_to_string(workspace.join(file)).unwrap();
-            for (i, line) in text.lines().enumerate() {
-                if line.contains('\u{2014}') {
-                    found.push(format!("{file}:{}", i + 1));
-                }
-            }
-        }
-        assert!(found.is_empty(), "em dash outside a comment: {found:#?}");
+        assert!(
+            found.is_empty(),
+            "{} lines to rewrite: {found:#?}",
+            found.len()
+        );
     }
 }

@@ -4,7 +4,7 @@
 //! into a single `apply(ctx)` call.  Cold gunmetal surfaces, rune-blue for
 //! technical data, ember fills for selection / focus / active state.
 //!
-//! Fonts: bundled OFL faces baked into the binary via `include_bytes!` —
+//! Fonts: bundled OFL faces baked into the binary via `include_bytes!`:
 //! Cinzel Decorative for engraved mastheads, Inter for body/UI, JetBrains
 //! Mono for hashes/hex. OpenDyslexic Regular/Bold ship as the a11y
 //! alternate the design system explicitly calls for; toggle via
@@ -24,7 +24,7 @@ const FONT_CINZEL: &[u8] = include_bytes!("../../assets/fonts/CinzelDecorative-B
 const FONT_DYSLEXIA_REG: &[u8] = include_bytes!("../../assets/fonts/OpenDyslexic-Regular.otf");
 const FONT_DYSLEXIA_BOLD: &[u8] = include_bytes!("../../assets/fonts/OpenDyslexic-Bold.otf");
 
-/// Custom font family used by `engraved()` / `section_label()` — Cinzel
+/// Custom font family used by `engraved()` / `section_label()`. Cinzel
 /// Decorative, the medieval-Roman display face from the design system.
 fn display_family() -> FontFamily {
     FontFamily::Name(Arc::from("display"))
@@ -32,7 +32,7 @@ fn display_family() -> FontFamily {
 
 /// RustyDemon design tokens, transcribed from
 /// `RustyDemon Design System/colors_and_type.css`.  Keep in sync if the
-/// design system changes — token names match the CSS custom properties.
+/// design system changes: token names match the CSS custom properties.
 #[allow(dead_code)]
 pub mod rd {
     use egui::Color32;
@@ -51,7 +51,7 @@ pub mod rd {
     pub const FROST_800: Color32 = Color32::from_rgb(0xc2, 0xcb, 0xd6);
     pub const FROST_900: Color32 = Color32::from_rgb(0xe6, 0xec, 0xf3);
 
-    // ── Rune-blue (cold accent — technical data) ────────────────────
+    // ── Rune-blue (cold accent: technical data) ────────────────────
     pub const RUNE_300: Color32 = Color32::from_rgb(0x6f, 0xc8, 0xff);
     pub const RUNE_400: Color32 = Color32::from_rgb(0x3a, 0xa7, 0xff);
     pub const RUNE_500: Color32 = Color32::from_rgb(0x1d, 0x8e, 0xe8);
@@ -91,7 +91,7 @@ pub mod rd {
 /// for engraved mastheads.
 ///
 /// `dyslexia_friendly = true`: swaps Inter and JetBrains Mono out for
-/// OpenDyslexic Regular / Bold — the a11y alternate the design system
+/// OpenDyslexic Regular / Bold: the a11y alternate the design system
 /// ships specifically for this toggle. Cinzel stays put (the engraved
 /// look is brand identity, not body type).
 ///
@@ -142,7 +142,7 @@ pub fn set_fonts(ctx: &Context, dyslexia_friendly: bool) {
 }
 
 /// Install the RustyDemon visual theme on `ctx`.  Safe to call once at
-/// startup — takes immediate effect and persists across frames.
+/// startup: takes immediate effect and persists across frames.
 pub fn apply(ctx: &Context) {
     set_fonts(ctx, false);
     let mut visuals = Visuals::dark();
@@ -164,7 +164,7 @@ pub fn apply(ctx: &Context) {
     visuals.selection.stroke = Stroke::new(1.0_f32, rd::EMBER_600);
 
     // Radii: 4px for controls, 6px for windows/menus.  The design
-    // system reserves 10px+ for major panels — egui panels ignore
+    // system reserves 10px+ for major panels: egui panels ignore
     // Rounding entirely, so the effective ceiling is 6px here.
     let r_sm = CornerRadius::same(4);
     let r_md = CornerRadius::same(6);
@@ -185,7 +185,7 @@ pub fn apply(ctx: &Context) {
     visuals.widgets.inactive.corner_radius = r_sm;
     visuals.widgets.inactive.expansion = 0.0;
 
-    // Hover: ember border takes over — the glow IS the affordance.
+    // Hover: ember border takes over, and the glow IS the affordance.
     visuals.widgets.hovered.bg_fill = rd::BG_HOVER;
     visuals.widgets.hovered.weak_bg_fill = rd::BG_HOVER;
     visuals.widgets.hovered.bg_stroke = Stroke::new(1.5_f32, rd::EMBER_600);
@@ -249,7 +249,7 @@ pub fn apply(ctx: &Context) {
     ctx.set_global_style(style);
 }
 
-/// Format a section masthead as ENGRAVED UPPERCASE with wide tracking —
+/// Format a section masthead as ENGRAVED UPPERCASE with wide tracking:
 /// the design system reserves this for brand/masthead moments.  egui
 /// doesn't support CSS letter-spacing; we approximate by spacing the
 /// chars with thin U+2009 gaps.
@@ -267,7 +267,7 @@ pub fn engraved(text: &str) -> egui::RichText {
 
 // ── v2 additions: panel chrome, row frames, meta grid helpers ────────────
 
-/// Label for section masthead context — right-aligned metadata pill
+/// Label for section masthead context: right-aligned metadata pill
 /// ("Diablo IV", "482 hits") that sits next to `engraved()`.
 /// Rune-blue on a translucent rune background.
 #[allow(dead_code)]
@@ -315,7 +315,7 @@ pub fn selected_row_fill() -> egui::Color32 {
     egui::Color32::from_rgba_premultiplied(0xd8, 0x5a, 0x12, 0x40)
 }
 
-/// Paint a 3px ember stripe on the left edge of `rect` — the
+/// Paint a 3px ember stripe on the left edge of `rect`: the
 /// "inset 3px 0 0 ember" from the CSS mock.
 pub fn row_accent_stripe(ui: &egui::Ui, rect: egui::Rect) {
     let stripe = egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height()));
@@ -331,7 +331,7 @@ pub fn filepath_line(text: &str) -> egui::RichText {
         .color(rd::FG_MUTED)
 }
 
-/// Engraved section label inside a panel — the `.v-sectlabel` from the
+/// Engraved section label inside a panel: the `.v-sectlabel` from the
 /// frost variant (10.5px, uppercase, wide tracking, rune-blue, hairline
 /// underneath). Use to introduce sub-sections of the preview panel
 /// (`Hex · first 256 bytes`, `Export`, `Audio`, etc.) instead of a bare

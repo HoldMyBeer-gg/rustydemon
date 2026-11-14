@@ -21,7 +21,7 @@ pub enum CascError {
 
     /// The BLTE block is encrypted and we don't have the key.
     ///
-    /// The file itself is present and intact — only the key is absent, so this
+    /// The file itself is present and intact: only the key is absent, so this
     /// is never a storage or network problem.
     #[error("file is encrypted: missing TACT key {0:016X}")]
     MissingKey(u64),

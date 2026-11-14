@@ -1,12 +1,12 @@
-//! Rusty Demon CLI — headless batch exporter and file inspector for CASC
+//! Rusty Demon CLI: headless batch exporter and file inspector for CASC
 //! archives.
 //!
 //! Two subcommands:
 //!
-//! - **`export`** — walk a CASC installation, match virtual paths, and
+//! - **`export`**: walk a CASC installation, match virtual paths, and
 //!   write files to a host directory (the original `rustydemon-cli`
 //!   behavior).
-//! - **`inspect`** — read a local file from disk and print a
+//! - **`inspect`**: read a local file from disk and print a
 //!   format-specific text summary (Granny3D, M2, WMO, BLP, D2R
 //!   `.texture`).  Useful for quick validation without launching the GUI.
 //!

@@ -59,7 +59,7 @@ pub(crate) trait FileOpener {
     fn best_ekey(&self, ckey: &Md5Hash) -> Option<Md5Hash>;
 }
 
-/// Local-install backend — loads from `*.idx` local index files and the
+/// Local-install backend: loads from `*.idx` local index files and the
 /// `data.NNN` archive files they point at, across one or more storage
 /// directories.  Uses the encoding table for ckey↔ekey translation.
 ///
@@ -108,7 +108,7 @@ impl FileOpener for LocalFileOpener<'_> {
     }
 }
 
-/// Static-container backend (Steam D4 / Overwatch) — resolves each EKey
+/// Static-container backend (Steam D4 / Overwatch): resolves each EKey
 /// through its embedded storage-location bits.  There is no encoding table,
 /// so CKey and EKey are treated as equivalent.
 pub(crate) struct StaticFileOpener<'a> {
@@ -419,7 +419,7 @@ impl TvfsRootHandler {
                     let item_size = 4 + 4 + header.cft_offs_size; // contentOffset + contentLength + cftOffset
 
                     if span_count == 1 {
-                        // Single span — check if it's a VFS sub-directory.
+                        // Single span: check if it's a VFS sub-directory.
                         let ekey = self.read_vfs_span_ekey(header, &mut vfs_pos, item_size)?;
 
                         let ekey9 = EKey9::from_full(&ekey);
