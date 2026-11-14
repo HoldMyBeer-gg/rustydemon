@@ -35,9 +35,9 @@ archives, written entirely in Rust.
 |-------------|-------------------|
 | ![About modal](screenshots/about.png) | ![D4 texture preview](screenshots/d4_tex.png) |
 
-| D4 `.pow` skill data | WoW `.m2` model |
-|----------------------|-----------------|
-| ![D4 power preview](screenshots/d4_pow.png) | ![WoW M2 model preview](screenshots/wow_m2.png) |
+| D4 `.pow` skill data | StarCraft `.grp` sprite (Steam Deck) |
+|----------------------|--------------------------------------|
+| ![D4 power preview](screenshots/d4_pow.png) | ![StarCraft GRP sprite preview on Steam Deck](screenshots/sc1_grp.png) |
 
 ---
 
