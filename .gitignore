@@ -16,4 +16,5 @@ OWLib/
 
 # BAM smoke runs (machine-specific config and results)
 /bam.json
+/bam-*.json
 /bam-results/
