@@ -97,6 +97,14 @@ fn other_sno_files_and_d4_textures_are_not_claimed() {
 }
 
 #[test]
+fn only_tex_files_are_claimed() {
+    // EffectGroup SNOs carry the same 0x2F after the magic.
+    let data = texture(9, 4, 4, &bc1_planes(&[0]));
+    assert!(claims("Base/Textures/GoldCoins.tex", &data));
+    assert!(!claims("Base/EffectGroup/Blast.efg", &data));
+}
+
+#[test]
 fn unknown_format_is_an_error_not_a_guess() {
     let err = decode(&texture(4, 4, 4, &[0; 32])).unwrap_err();
     assert!(err.contains("format 4"), "{err}");
