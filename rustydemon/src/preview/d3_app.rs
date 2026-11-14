@@ -408,7 +408,11 @@ fn floats(v: impl IntoIterator<Item = f32>) -> Vec<u8> {
 
 /// Every part as its own skinned mesh on the model's skeleton, with the
 /// given PNG colour maps (by material name) embedded, as binary glTF.
-pub fn to_glb(app: &Appearance, textures: &[(String, Vec<u8>)]) -> Vec<u8> {
+pub fn to_glb(
+    app: &Appearance,
+    textures: &[(String, Vec<u8>)],
+    anim: Option<&super::d3_ani::Animation>,
+) -> Vec<u8> {
     let mut bin = Bin {
         data: Vec::new(),
         views: Vec::new(),
@@ -555,6 +559,62 @@ pub fn to_glb(app: &Appearance, textures: &[(String, Vec<u8>)]) -> Vec<u8> {
         mesh_nodes.push(nodes.len() - 1);
     }
 
+    let mut animations = Vec::new();
+    if let Some(anim) = anim {
+        let mut channels = Vec::new();
+        let mut samplers = Vec::new();
+        for track in &anim.bones {
+            let Some(node) = app.bones.iter().position(|b| b.name == track.name) else {
+                continue;
+            };
+            let times = |frames: &mut dyn Iterator<Item = u32>| -> Vec<f32> {
+                frames
+                    .map(|f| f as f32 / super::d3_ani::KEYS_PER_SECOND)
+                    .collect()
+            };
+            let mut channel =
+                |bin: &mut Bin, t: Vec<f32>, values: Vec<u8>, kind: &str, path: &str| {
+                    if t.is_empty() {
+                        return;
+                    }
+                    let lo = t.iter().copied().fold(f32::MAX, f32::min);
+                    let hi = t.iter().copied().fold(f32::MIN, f32::max);
+                    let input = bin.accessor(
+                        &floats(t.iter().copied()),
+                        FLOAT,
+                        t.len(),
+                        "SCALAR",
+                        None,
+                        Some((&[lo], &[hi])),
+                    );
+                    let output = bin.accessor(&values, FLOAT, t.len(), kind, None, None);
+                    samplers.push(format!(
+                        "{{\"input\":{input},\"output\":{output},\"interpolation\":\"LINEAR\"}}"
+                    ));
+                    channels.push(format!(
+                        "{{\"sampler\":{},\"target\":{{\"node\":{node},\"path\":\"{path}\"}}}}",
+                        samplers.len() - 1
+                    ));
+                };
+            let t = times(&mut track.translation.iter().map(|k| k.0));
+            let v = floats(track.translation.iter().flat_map(|k| y_up(k.1)));
+            channel(&mut bin, t, v, "VEC3", "translation");
+            let t = times(&mut track.rotation.iter().map(|k| k.0));
+            let v = floats(track.rotation.iter().flat_map(|k| y_up_rotation(k.1)));
+            channel(&mut bin, t, v, "VEC4", "rotation");
+            let t = times(&mut track.scale.iter().map(|k| k.0));
+            let v = floats(track.scale.iter().flat_map(|k| [k.1; 3]));
+            channel(&mut bin, t, v, "VEC3", "scale");
+        }
+        if !channels.is_empty() {
+            animations.push(format!(
+                "{{\"name\":\"animation\",\"channels\":[{}],\"samplers\":[{}]}}",
+                channels.join(","),
+                samplers.join(",")
+            ));
+        }
+    }
+
     let mut scene: Vec<String> = app
         .bones
         .iter()
@@ -587,6 +647,9 @@ pub fn to_glb(app: &Appearance, textures: &[(String, Vec<u8>)]) -> Vec<u8> {
             tex.join(","),
             materials.join(",")
         ));
+    }
+    if !animations.is_empty() {
+        json.push_str(&format!(",\"animations\":[{}]", animations.join(",")));
     }
     while !bin.data.len().is_multiple_of(4) {
         bin.data.push(0);
@@ -634,6 +697,26 @@ fn colour_map(
     })
 }
 
+/// The colour map of every material the parts use, decoded once.
+pub fn colour_maps_for(
+    app: &Appearance,
+    fetch: &SiblingFetcher<'_>,
+) -> Vec<(String, Option<super::d3_tex::Image>)> {
+    let mut names: Vec<String> = Vec::new();
+    for p in &app.parts {
+        if !names.contains(&p.material) {
+            names.push(p.material.clone());
+        }
+    }
+    names
+        .into_iter()
+        .map(|n| {
+            let img = colour_map(app, &n, fetch);
+            (n, img)
+        })
+        .collect()
+}
+
 pub struct D3AppPreview;
 
 impl super::PreviewPlugin for D3AppPreview {
@@ -662,19 +745,7 @@ impl super::PreviewPlugin for D3AppPreview {
         };
 
         // One decode per material, shared by the viewer and the export.
-        let mut names: Vec<String> = Vec::new();
-        for p in &app.parts {
-            if !names.contains(&p.material) {
-                names.push(p.material.clone());
-            }
-        }
-        let maps: Vec<(String, Option<super::d3_tex::Image>)> = names
-            .into_iter()
-            .map(|n| {
-                let img = colour_map(&app, &n, fetch);
-                (n, img)
-            })
-            .collect();
+        let maps = colour_maps_for(&app, fetch);
 
         let drawn = drawn_parts(&app);
         let mut cpu = Mesh3dCpu {
@@ -766,7 +837,7 @@ impl super::PreviewPlugin for D3AppPreview {
                         ));
                     }
                 }
-                Ok(to_glb(&app, &pngs))
+                Ok(to_glb(&app, &pngs, None))
             }),
         });
         out

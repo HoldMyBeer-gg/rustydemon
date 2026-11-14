@@ -216,7 +216,7 @@ fn truncated_appearance_is_an_error() {
 fn glb_holds_skin_meshes_and_textures() {
     let app = parse(&goblin()).unwrap();
     let png = vec![0x89, b'P', b'N', b'G'];
-    let glb = to_glb(&app, &[("A_normal_mat".to_owned(), png)]);
+    let glb = to_glb(&app, &[("A_normal_mat".to_owned(), png)], None);
     assert_eq!(&glb[..4], b"glTF");
     assert_eq!(u32::from_le_bytes(glb[4..8].try_into().unwrap()), 2);
     assert_eq!(

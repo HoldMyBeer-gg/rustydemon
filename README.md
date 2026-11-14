@@ -211,6 +211,9 @@ Diablo III names every file from the game's own tables (`CoreTOC.dat` and
 `Base/Actor/a2dun_Zolt_Pedestal.acr` and `enUS/StringList/Items.stl`. Locales
 that are not installed are skipped. Textures (`.tex`) preview as images and
 export as PNG, and string lists (`.stl`) show the game's text by label.
+Models (`.app`) open in the 3D viewer with their textures and export as a
+rigged glTF, and animations (`.ani`) export together with their model as an
+animated glTF.
 
 Diablo Immortal installs through Battle.net but keeps its files in the
 Messiah engine's MPK packages under `Package/MPK/`, not in CASC. Rusty Demon
