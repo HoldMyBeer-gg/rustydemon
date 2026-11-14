@@ -153,6 +153,24 @@ fn entry_past_the_end_of_its_archive_is_an_error() {
     fs::remove_dir_all(&dir).unwrap();
 }
 
+/// A partial copy or a dropped mount: the index lists a file whose data
+/// archive is not there.  The error has to say which archive it wanted.
+#[test]
+fn a_missing_data_archive_is_named_in_the_error() {
+    let dir = std::env::temp_dir().join(format!("mpk-test-missing-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("Resources.mpkinfo"),
+        mpkinfo(&[("Package/a", 0, 4, 7 << 1)]),
+    )
+    .unwrap();
+    let archive = MpkArchive::open(&dir).unwrap();
+    let message = archive.read(0).unwrap_err().to_string();
+    assert!(message.contains("Resources7.mpk"), "{message}");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn directory_without_mpkinfo_is_not_an_archive() {
     let dir = std::env::temp_dir().join(format!("mpk-test-empty-{}", std::process::id()));

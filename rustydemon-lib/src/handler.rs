@@ -1205,6 +1205,11 @@ fn read_mpk(archive: &MpkArchive, key: &Md5Hash) -> Result<Vec<u8>, CascError> {
 fn mpk_error(e: MpkError) -> CascError {
     match e {
         MpkError::Io(io) => CascError::Io(io),
+        // Still an I/O failure, with the archive's path kept in the message.
+        MpkError::DataFile { path, source } => CascError::Io(std::io::Error::new(
+            source.kind(),
+            format!("could not open {}: {source}", path.display()),
+        )),
         other => CascError::InvalidData(other.to_string()),
     }
 }
@@ -1388,6 +1393,22 @@ mod mpk_tests {
                 .unwrap(),
             b"hello crab"
         );
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A partial copy, or a mount that dropped: the message the app shows
+    /// names the archive it could not open.
+    #[test]
+    fn a_missing_mpk_archive_is_named_in_the_error() {
+        let base = immortal_install("missing");
+        let handler = CascHandler::open_local(&base, "anbs").unwrap();
+        fs::remove_file(base.join("Package").join("MPK").join("Resources.mpk")).unwrap();
+        let message = handler
+            .open_file_by_name("Package/Char/npc/a_drink.anim")
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("Resources.mpk"), "{message}");
+        assert!(message.starts_with("I/O error"), "{message}");
         fs::remove_dir_all(&base).unwrap();
     }
 

@@ -427,6 +427,10 @@ fn draw_file_row(
     );
     // Hand-painted row: describe it so it reaches the accessibility tree.
     resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, is_sel, name));
+    // The line under the name is painted too; publish it as the row's
+    // description so a screen reader reads it after the name.
+    ui.ctx()
+        .accesskit_node_builder(resp.id, |node| node.set_description(meta));
     let painter = ui.painter();
 
     if is_sel {
@@ -513,6 +517,26 @@ mod a11y_tests {
             .filter_map(|(_, n)| n.label().map(str::to_owned))
             .collect();
         assert!(names.iter().any(|n| n == "core.lua"), "{names:?}");
+    }
+
+    /// The line under the name (ID, hash, and the English gloss on Diablo
+    /// Immortal names) is painted by hand, so a screen reader only hears
+    /// it if the row carries it as its description.
+    #[test]
+    fn file_row_is_published_with_the_line_under_its_name() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let meta = "b76c26a981e4 · helmet, cosmetic";
+        let out = crate::ui::a11y::testing::frame(&ctx, |ui| {
+            draw_file_row(ui, "Mesh_crusader_toukui.mesh", meta, "📄", false);
+        });
+        let row = out
+            .nodes
+            .iter()
+            .find(|(_, n)| n.label() == Some("Mesh_crusader_toukui.mesh"))
+            .map(|(_, n)| n)
+            .expect("row node");
+        assert_eq!(row.description(), Some(meta));
     }
 }
 
