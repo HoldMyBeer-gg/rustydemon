@@ -269,7 +269,39 @@ mod copy_tests {
     ];
     const TEXT_NAMES: &[&str] = &["PKGBUILD", "CREDITS", "LICENSE", ".gitignore"];
 
-    fn text_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+    fn is_text(path: &Path) -> bool {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+        name.as_deref().is_some_and(|n| TEXT_NAMES.contains(&n))
+            || path
+                .extension()
+                .is_some_and(|e| TEXT.contains(&e.to_string_lossy().as_ref()))
+    }
+
+    /// The repository's text files. Tracked files only when git is there:
+    /// an untracked folder of notes beside the checkout is not the
+    /// repository's copy, and it stopped release.sh from running the suite.
+    /// Without git (a source tarball), every text file under `root`.
+    fn text_files(root: &Path, out: &mut Vec<std::path::PathBuf>) {
+        let tracked = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["ls-files", "-z"])
+            .output();
+        if let Ok(listing) = tracked {
+            if listing.status.success() {
+                for rel in listing.stdout.split(|b| *b == 0).filter(|s| !s.is_empty()) {
+                    let path = root.join(String::from_utf8_lossy(rel).as_ref());
+                    if path.is_file() && is_text(&path) {
+                        out.push(path);
+                    }
+                }
+                return;
+            }
+        }
+        walk_text_files(root, out);
+    }
+
+    fn walk_text_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         for entry in std::fs::read_dir(dir).unwrap().flatten() {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
@@ -278,13 +310,9 @@ mod copy_tests {
                     name.as_str(),
                     ".git" | "target" | "node_modules" | "bam-results"
                 ) {
-                    text_files(&path, out);
+                    walk_text_files(&path, out);
                 }
-            } else if TEXT_NAMES.contains(&name.as_str())
-                || path
-                    .extension()
-                    .is_some_and(|e| TEXT.contains(&e.to_string_lossy().as_ref()))
-            {
+            } else if is_text(&path) {
                 out.push(path);
             }
         }
