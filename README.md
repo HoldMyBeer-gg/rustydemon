@@ -182,7 +182,7 @@ Subsequent builds are incremental and much faster.
 
 ## Usage Guide
 
-### 1 -Open a game directory
+### 1. Open a game directory
 
 **File → Open Game Directory…** and select your game's installation root
 (the folder that contains `.build.info` for Battle.net installs, or
@@ -211,7 +211,7 @@ appear under readable paths too, such as
 `Char/new_dl_f_warlock/Mesh_warlock_yuanchuemo_body.mesh`. Meshes open in the
 3D viewer painted with their base textures, and textures preview as images.
 
-### 2 -Load a listfile *(optional but recommended)*
+### 2. Load a listfile *(optional but recommended)*
 
 Without a listfile, files are shown by hash only.
 With one, the full virtual path is resolved and the tree is populated.
@@ -229,7 +229,7 @@ Both steps can be done from the command line, which skips the dialogs:
 rustydemon "/path/to/World of Warcraft" --listfile /path/to/verified-listfile.csv
 ```
 
-### 3 -Search
+### 3. Search
 
 Type a filename fragment in the search bar and press **Enter** or click **Search**.
 Results are drawn from the *entire* root manifest, every locale and content
@@ -239,7 +239,7 @@ The query can be a literal substring *or* a glob: `*.wmo`, `textures/*.tex`,
 `**/cinematics/*.vid`. Matching is case-insensitive, and `**/` is
 auto-prepended unless the pattern already anchors at `/` or `**/`.
 
-### 4 -Deep search *(optional)*
+### 4. Deep search *(optional)*
 
 Check **Deep search** and click **🔍 Find All (Deep Search)** to also search
 *inside* supported container files:
@@ -249,7 +249,7 @@ Check **Deep search** and click **🔍 Find All (Deep Search)** to also search
 | `.pow` | D4 skill/power definitions, SF names, damage formulas |
 | *(more formats via the plug-in interface)* | |
 
-### 5 -Preview and export
+### 5. Preview and export
 
 Click any file in the tree or search results to load it into the preview panel.
 
