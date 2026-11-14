@@ -10,6 +10,8 @@
 //! not on `CascExplorerApp`. The per-frame rotation is the only thing the
 //! callback struct itself carries.
 
+mod mips;
+
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
@@ -949,6 +951,9 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
             let mut material_bind_groups: Vec<wgpu::BindGroup> = Vec::new();
             for mat in &self.mesh.materials {
                 if let Some(rgba) = mat.rgba.as_deref() {
+                    // Upload a full mip chain: a large texture drawn small
+                    // then averages its texels instead of shimmering.
+                    let levels = mips::mip_chain(rgba, mat.width, mat.height);
                     let tex = device.create_texture(&wgpu::TextureDescriptor {
                         label: Some("wmo material tex"),
                         size: wgpu::Extent3d {
@@ -956,32 +961,34 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
                             height: mat.height,
                             depth_or_array_layers: 1,
                         },
-                        mip_level_count: 1,
+                        mip_level_count: levels.len() as u32,
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
                         format: wgpu::TextureFormat::Rgba8UnormSrgb,
                         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                         view_formats: &[],
                     });
-                    queue.write_texture(
-                        wgpu::TexelCopyTextureInfo {
-                            texture: &tex,
-                            mip_level: 0,
-                            origin: wgpu::Origin3d::ZERO,
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        rgba,
-                        wgpu::TexelCopyBufferLayout {
-                            offset: 0,
-                            bytes_per_row: Some(mat.width * 4),
-                            rows_per_image: Some(mat.height),
-                        },
-                        wgpu::Extent3d {
-                            width: mat.width,
-                            height: mat.height,
-                            depth_or_array_layers: 1,
-                        },
-                    );
+                    for (level, (pixels, w, h)) in levels.iter().enumerate() {
+                        queue.write_texture(
+                            wgpu::TexelCopyTextureInfo {
+                                texture: &tex,
+                                mip_level: level as u32,
+                                origin: wgpu::Origin3d::ZERO,
+                                aspect: wgpu::TextureAspect::All,
+                            },
+                            pixels,
+                            wgpu::TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(w * 4),
+                                rows_per_image: Some(*h),
+                            },
+                            wgpu::Extent3d {
+                                width: *w,
+                                height: *h,
+                                depth_or_array_layers: 1,
+                            },
+                        );
+                    }
                     let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
                     let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("wmo material bg"),
