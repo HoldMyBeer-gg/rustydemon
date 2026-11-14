@@ -291,7 +291,7 @@ n paints submesh n. rustydemon reads only `tBaseMap=<texture guid>` from
 each block, the base colour texture; an all zero GUID means no texture.
 
 Meshes whose materials have an empty `tBaseMap` (effect and fresnel meshes)
-show untextured. That is what the data says, not a reader fault.
+show untextured, because the data names no texture for them.
 
 | Step | Code |
 |---|---|
@@ -303,7 +303,7 @@ show untextured. That is what the data says, not a reader fault.
 Resource names are romanised Chinese (pinyin), e.g.
 `Mesh_m_crusader_toukui_half_sz06_009` (`toukui` is helmet). rustydemon
 glosses about 65 known words into English in the file list. A name with
-none of them gets no gloss rather than a guess. For `.texture2d` names the
+none of them gets no gloss. For `.texture2d` names the
 last token also names the map: `_d` colour, `_n` normal, `_e` glow, `_m`
 mix.
 
@@ -313,8 +313,6 @@ mix.
 | Shown in the file list | `rustydemon/src/ui/results.rs`, `row_meta_glossed` |
 
 ## Not known yet
-
-Each of these is unknown, not guessed at:
 
 - The low flag bit in an `.mpkinfo` entry's archive field.
 - The 5 bytes before each registry entry's GUID.
