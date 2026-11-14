@@ -2569,6 +2569,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lz4_flex"
+version = "0.11.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
 name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3981,8 +3990,18 @@ dependencies = [
  "globset",
  "hex-literal",
  "md-5",
+ "rustydemon-mpk",
  "thiserror 2.0.18",
  "ureq",
+]
+
+[[package]]
+name = "rustydemon-mpk"
+version = "0.6.0"
+dependencies = [
+ "lz4_flex",
+ "md-5",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -4618,6 +4637,12 @@ dependencies = [
  "nom 8.0.0",
  "petgraph",
 ]
+
+[[package]]
+name = "twox-hash"
+version = "2.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86a801b3cea342a06d468c8710662aa29e5e05e4f5c0d62f00bbb7f2ad7941c2"
 
 [[package]]
 name = "type-map"

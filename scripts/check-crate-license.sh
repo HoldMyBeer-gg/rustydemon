@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 status=0
-for crate in rustydemon-blp2 rustydemon-gr2 rustydemon-lib; do
+for crate in rustydemon-blp2 rustydemon-gr2 rustydemon-mpk rustydemon-lib; do
     if ! cargo package -p "$crate" --list --allow-dirty 2>/dev/null | grep -qx 'LICENSE'; then
         echo "FAIL $crate: LICENSE is not in the package" >&2
         status=1

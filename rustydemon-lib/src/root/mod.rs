@@ -2,6 +2,7 @@ pub mod d4;
 pub mod d4_texture;
 pub mod install;
 pub mod mndx;
+pub mod mpk;
 pub mod s1;
 pub mod tvfs;
 pub mod wow;

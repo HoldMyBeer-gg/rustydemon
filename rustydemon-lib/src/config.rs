@@ -199,6 +199,15 @@ impl CascConfig {
     /// `"wow"` for World of Warcraft).  Returns an empty vec if the file does
     /// not exist or has no `Product` column.
     pub fn detect_products(base_path: impl AsRef<Path>) -> Vec<String> {
+        // Diablo Immortal ships no `.build.info`; its MPK packages name it.
+        let mpk_index = base_path
+            .as_ref()
+            .join("Package")
+            .join("MPK")
+            .join("Resources.mpkinfo");
+        if mpk_index.is_file() {
+            return vec!["anbs".to_owned()];
+        }
         let path = base_path.as_ref().join(".build.info");
         let Ok(file) = std::fs::File::open(&path) else {
             return vec![];
@@ -291,6 +300,21 @@ impl CascConfig {
             cdn_hosts: Vec::new(),
             cdn_path: String::new(),
         })
+    }
+
+    /// Config for a Diablo Immortal install, whose content lives in Messiah
+    /// MPK packages rather than CASC.  There is no build or CDN config to read.
+    pub fn for_mpk(base_path: impl AsRef<Path>) -> Self {
+        CascConfig {
+            base_path: base_path.as_ref().to_path_buf(),
+            game_type: GameType::Anbs,
+            product: "anbs".to_owned(),
+            build: KeyValueConfig::default(),
+            cdn: KeyValueConfig::default(),
+            data_folder: None,
+            cdn_hosts: Vec::new(),
+            cdn_path: String::new(),
+        }
     }
 
     /// Load a local CASC installation.

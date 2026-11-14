@@ -201,6 +201,13 @@ The product UID is detected automatically:
 | Heroes of the Storm | `hero` |
 | StarCraft II | `s2` |
 | Overwatch | `pro` |
+| Diablo Immortal | `anbs` (MPK packages, see below) |
+
+Diablo Immortal installs through Battle.net but keeps its files in the
+Messiah engine's MPK packages under `Package/MPK/`, not in CASC. Rusty Demon
+reads those directly: every file has a path, so the tree fills in without a
+listfile. Files open as hex for now; the Messiah formats inside are not
+decoded yet.
 
 ### 2 -Load a listfile *(optional but recommended)*
 
