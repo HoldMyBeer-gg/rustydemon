@@ -8,9 +8,9 @@
 # Crates are published in dependency order so crates.io never sees a crate
 # that references an as-yet-unpublished dependency.
 #
-# Publish order:
-# Published library crates (none depends on another, so order is free):
-#   rustydemon-blp2, rustydemon-gr2, rustydemon-lib
+# Publish order (each after what it depends on):
+#   rustydemon-blp2, rustydemon-gr2, rustydemon-mpk, rustydemon-messiah
+#   (needs mpk), rustydemon-lib (needs mpk and messiah)
 #
 # The GUI (rustydemon) and CLI (rustydemon-cli) ship as release binaries, not
 # through crates.io.
@@ -53,9 +53,17 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 # ── Bump version in workspace Cargo.toml ──────────────────────────────────────
-info "Bumping workspace version to $NEW_VERSION …"
+OLD_VERSION="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' Cargo.toml | head -1)"
+info "Bumping workspace version $OLD_VERSION to $NEW_VERSION …"
 sed -i.bak "s/^version[[:space:]]*=[[:space:]]*\".*\"/version     = \"$NEW_VERSION\"/" Cargo.toml
 rm -f Cargo.toml.bak
+
+# Path dependencies between workspace crates pin a version too, because
+# crates.io needs one; move those pins along with the workspace.
+for manifest in */Cargo.toml; do
+    sed -i.bak -E "/^rustydemon-[a-z0-9-]+[[:space:]]*=/ s/version[[:space:]]*=[[:space:]]*\"$OLD_VERSION\"/version = \"$NEW_VERSION\"/" "$manifest"
+    rm -f "$manifest.bak"
+done
 
 # ── Verify everything still builds and tests pass ─────────────────────────────
 info "Running full test suite …"
@@ -63,13 +71,15 @@ cargo test --workspace
 
 # ── Commit and tag ────────────────────────────────────────────────────────────
 info "Committing version bump …"
-git add Cargo.toml Cargo.lock
-git commit -m "chore: release v${NEW_VERSION}"
+git add Cargo.toml Cargo.lock ./*/Cargo.toml
+git commit -m "Release v${NEW_VERSION}"
 git tag "v${NEW_VERSION}"
 
 # ── Publish ───────────────────────────────────────────────────────────────────
 publish rustydemon-blp2
 publish rustydemon-gr2
+publish rustydemon-mpk
+publish rustydemon-messiah
 publish rustydemon-lib
 
 info "Done. Push the commit and tag with:"
