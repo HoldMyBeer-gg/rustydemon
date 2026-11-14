@@ -1,5 +1,6 @@
 pub(crate) mod a11y;
 mod about;
+mod egg;
 mod menu;
 pub(crate) mod preview;
 pub(crate) mod results;
@@ -164,13 +165,16 @@ fn toolbar(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     }
 }
 
+/// Space between the status bar's top border and its text.
+const STATUS_BAR_MARGIN_Y: f32 = 4.0;
+
 fn draw_status_bar(ui: &mut egui::Ui, app: &CascExplorerApp) {
     egui::Panel::bottom("status_bar")
         .frame(
             egui::Frame::NONE
                 .fill(theme::rd::FROST_150)
                 .stroke(egui::Stroke::new(1.0_f32, theme::rd::BORDER_SUBTLE))
-                .inner_margin(egui::Margin::symmetric(12, 4)),
+                .inner_margin(egui::Margin::symmetric(12, STATUS_BAR_MARGIN_Y as i8)),
         )
         .show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -182,6 +186,7 @@ fn draw_status_bar(ui: &mut egui::Ui, app: &CascExplorerApp) {
                 // ("Opening…", "Loading…", "Searching…") read as hot while
                 // idle status stays calm.
                 status_line(ui, &app.status);
+                egg::show(ui);
             });
         });
 }
