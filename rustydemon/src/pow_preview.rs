@@ -113,19 +113,6 @@ impl PowPreview {
         }
         used_sfs.sort();
 
-        // Show SF values that are referenced in formulas
-        if !used_sfs.is_empty() {
-            writeln!(out, "\n--- Scaling Factors ({}) ---", used_sfs.len()).ok();
-            for &n in &used_sfs {
-                let val = self
-                    .sf_values
-                    .get(&n)
-                    .map(|s| format_sf_display(s))
-                    .unwrap_or_else(|| "???".to_string());
-                writeln!(out, "  SF_{n}  = {val}").ok();
-            }
-        }
-
         // Formulas grouped by classification
         if !self.formulas.is_empty() {
             let mut damage: Vec<&Formula> = Vec::new();
@@ -162,6 +149,20 @@ impl PowPreview {
             }
         }
 
+        // The scaling factors the formulas use, after the formulas: the plain
+        // lines above already carry their values.
+        if !used_sfs.is_empty() {
+            writeln!(out, "\n--- Scaling Factors ({}) ---", used_sfs.len()).ok();
+            for &n in &used_sfs {
+                let val = self
+                    .sf_values
+                    .get(&n)
+                    .map(|s| format_sf_display(s))
+                    .unwrap_or_else(|| "???".to_string());
+                writeln!(out, "  SF_{n}  = {val}").ok();
+            }
+        }
+
         if used_sfs.is_empty() && self.formulas.is_empty() {
             writeln!(out, "\n(No formulas or SF definitions found)").ok();
         }
@@ -170,99 +171,17 @@ impl PowPreview {
     }
 
     fn write_formula(&self, out: &mut String, f: &Formula) {
-        // Inline-resolve SF values in the formula display
-        let mut display = f.text.clone();
-        for r in &f.sf_refs {
-            if let Some(n) = r.strip_prefix("SF_").and_then(|s| s.parse::<u32>().ok()) {
-                if let Some(val) = self.sf_values.get(&n) {
-                    if !val.is_empty() && val != "0" {
-                        let resolved = format!("{r}({val})");
-                        display = display.replace(r.as_str(), &resolved);
-                    }
-                }
+        // The plain reading first, the formula as stored under it.
+        match plain_formula(&f.text, &self.sf_values) {
+            Some(plain) => {
+                writeln!(out, "  = {plain}").ok();
+                writeln!(out, "    {}", f.text).ok();
             }
-        }
-        writeln!(out, "  {display}").ok();
-
-        // Interpret formulas that multiply a game table lookup.
-        if let Some((mult, id, level)) = table_product(&f.text, &self.sf_values) {
-            let scale = if level.eq_ignore_ascii_case("sLevel") {
-                "level-scaled".to_string()
-            } else {
-                format!("at table level {level}")
-            };
-            let shown = format_number(mult);
-            match id {
-                34 => {
-                    let pct = format_number(mult * 100.0);
-                    writeln!(out, "    → {pct}% weapon damage ({scale})").ok();
-                }
-                35 => {
-                    writeln!(out, "    → {shown} sec base cooldown ({scale})").ok();
-                }
-                id => {
-                    writeln!(out, "    → {shown} × Table({id}, {level})").ok();
-                }
+            None => {
+                writeln!(out, "  {}", f.text).ok();
             }
         }
     }
-}
-
-/// Reduce a formula that is a plain product of numbers, scaling factors
-/// and exactly one `Table(id, level)` lookup to (multiplier, id, level).
-/// Returns `None` for anything else, or when a scaling factor in the
-/// product has no numeric value, so no hint is better than a wrong one.
-fn table_product(text: &str, sf_values: &HashMap<u32, String>) -> Option<(f64, u32, String)> {
-    let mut mult = 1.0;
-    let mut table = None;
-    for factor in split_top_level(text, '*')? {
-        let factor = factor.trim();
-        if let Some(args) = factor
-            .strip_prefix("Table(")
-            .and_then(|r| r.strip_suffix(')'))
-        {
-            if table.is_some() {
-                return None;
-            }
-            let (id, level) = args.split_once(',')?;
-            table = Some((id.trim().parse().ok()?, level.trim().to_string()));
-        } else if let Some(n) = factor.strip_prefix("SF_") {
-            let value = sf_values.get(&n.parse().ok()?)?;
-            mult *= value.trim().parse::<f64>().ok()?;
-        } else {
-            mult *= factor.parse::<f64>().ok()?;
-        }
-    }
-    let (id, level) = table?;
-    mult.is_finite().then_some((mult, id, level))
-}
-
-/// Split on `sep` outside parentheses. `None` if the parentheses don't balance.
-fn split_top_level(text: &str, sep: char) -> Option<Vec<&str>> {
-    let mut parts = Vec::new();
-    let mut depth = 0i32;
-    let mut start = 0;
-    for (i, c) in text.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => {
-                depth -= 1;
-                if depth < 0 {
-                    return None;
-                }
-            }
-            c if c == sep && depth == 0 => {
-                parts.push(&text[start..i]);
-                start = i + c.len_utf8();
-            }
-            _ => {}
-        }
-    }
-    if depth != 0 {
-        return None;
-    }
-    parts.push(&text[start..]);
-    Some(parts)
 }
 
 /// Up to four decimals, trailing zeros dropped (0.42 * 120 * 100 → "5040").
@@ -273,6 +192,392 @@ fn format_number(v: f64) -> String {
         "0".to_string()
     } else {
         s.to_string()
+    }
+}
+
+// ── Plain reading of a formula ───────────────────────────────────────────────
+
+/// A formula read as plain English, with scaling factors replaced by their
+/// values, `Table(34, …)` as weapon damage, `Table(35, …)` as base cooldown,
+/// `sLevel` as level and constant products folded (0.35 * 100 → 35).
+/// `None` when the text can't be parsed, or the reading would only repeat it.
+fn plain_formula(text: &str, sf_values: &HashMap<u32, String>) -> Option<String> {
+    let tokens = tokenize(text)?;
+    let mut p = Parser {
+        tokens: &tokens,
+        pos: 0,
+        sf: sf_values,
+        inlining: Vec::new(),
+    };
+    let expr = p.sum()?;
+    if p.pos != tokens.len() {
+        return None;
+    }
+    let shown = render(&expr, 0);
+    let squash = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    (squash(&shown) != squash(text)).then_some(shown)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum Tok {
+    Num(f64),
+    Ident(String),
+    Sym(char),
+}
+
+fn tokenize(text: &str) -> Option<Vec<Tok>> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_whitespace() {
+            i += 1;
+        } else if c.is_ascii_digit()
+            || (c == '.' && chars.get(i + 1).is_some_and(char::is_ascii_digit))
+        {
+            let start = i;
+            while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                i += 1;
+            }
+            let s: String = chars[start..i].iter().collect();
+            out.push(Tok::Num(s.parse().ok()?));
+        } else if c.is_ascii_alphabetic() || c == '_' {
+            let start = i;
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            out.push(Tok::Ident(chars[start..i].iter().collect()));
+        } else if "+-*/(),".contains(c) {
+            out.push(Tok::Sym(c));
+            i += 1;
+        } else {
+            return None;
+        }
+    }
+    Some(out)
+}
+
+#[derive(Clone, Debug)]
+enum Expr {
+    Num(f64),
+    /// A name shown as is: `level`, an unresolved `SF_n`, anything else.
+    Name(String),
+    /// `Table(34, level)`: weapon damage; level `None` means `sLevel`.
+    Weapon(Option<String>),
+    /// `Table(35, level)`: base cooldown.
+    Cooldown(Option<String>),
+    Call(String, Vec<Expr>),
+    /// Terms with their sign (true = added).
+    Sum(Vec<(bool, Expr)>),
+    /// Factors with their side (true = multiplied, false = divided).
+    Product(Vec<(bool, Expr)>),
+}
+
+struct Parser<'a> {
+    tokens: &'a [Tok],
+    pos: usize,
+    sf: &'a HashMap<u32, String>,
+    /// Scaling factors being inlined, outermost first, so one that refers
+    /// to itself stops instead of looping.
+    inlining: Vec<u32>,
+}
+
+/// How deep scaling factors that are formulas get inlined.
+const MAX_INLINE: usize = 4;
+
+impl Parser<'_> {
+    fn peek(&self) -> Option<&Tok> {
+        self.tokens.get(self.pos)
+    }
+
+    fn eat(&mut self, c: char) -> bool {
+        if self.peek() == Some(&Tok::Sym(c)) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn sum(&mut self) -> Option<Expr> {
+        let mut terms = vec![(true, self.product()?)];
+        loop {
+            if self.eat('+') {
+                terms.push((true, self.product()?));
+            } else if self.eat('-') {
+                terms.push((false, self.product()?));
+            } else {
+                break;
+            }
+        }
+        Some(if terms.len() == 1 {
+            terms.pop()?.1
+        } else {
+            Expr::Sum(terms)
+        })
+    }
+
+    fn product(&mut self) -> Option<Expr> {
+        let mut factors = vec![(true, self.unary()?)];
+        loop {
+            if self.eat('*') {
+                factors.push((true, self.unary()?));
+            } else if self.eat('/') {
+                factors.push((false, self.unary()?));
+            } else {
+                break;
+            }
+        }
+        Some(if factors.len() == 1 {
+            factors.pop()?.1
+        } else {
+            Expr::Product(factors)
+        })
+    }
+
+    fn unary(&mut self) -> Option<Expr> {
+        if self.eat('-') {
+            let inner = self.unary()?;
+            return Some(Expr::Product(vec![(true, Expr::Num(-1.0)), (true, inner)]));
+        }
+        self.atom()
+    }
+
+    fn atom(&mut self) -> Option<Expr> {
+        match self.peek()?.clone() {
+            Tok::Num(n) => {
+                self.pos += 1;
+                Some(Expr::Num(n))
+            }
+            Tok::Sym('(') => {
+                self.pos += 1;
+                let e = self.sum()?;
+                self.eat(')').then_some(e)
+            }
+            Tok::Ident(name) => {
+                self.pos += 1;
+                if self.eat('(') {
+                    let mut args = Vec::new();
+                    if !self.eat(')') {
+                        loop {
+                            args.push(self.sum()?);
+                            if self.eat(')') {
+                                break;
+                            }
+                            if !self.eat(',') {
+                                return None;
+                            }
+                        }
+                    }
+                    return Some(table_or_call(name, args));
+                }
+                Some(self.name(name))
+            }
+            Tok::Sym(_) => None,
+        }
+    }
+
+    fn name(&self, name: String) -> Expr {
+        if name.eq_ignore_ascii_case("sLevel") {
+            return Expr::Name("level".into());
+        }
+        let Some((n, text)) = name
+            .strip_prefix("SF_")
+            .and_then(|n| n.parse::<u32>().ok())
+            .and_then(|n| self.sf.get(&n).map(|t| (n, t.trim())))
+        else {
+            return Expr::Name(name);
+        };
+        if let Ok(v) = text.parse::<f64>() {
+            return Expr::Num(v);
+        }
+        // A scaling factor that is itself a formula: read that formula in
+        // its place, unless it is already being read or nests too deep.
+        if text.is_empty() || self.inlining.contains(&n) || self.inlining.len() >= MAX_INLINE {
+            return Expr::Name(name);
+        }
+        let Some(tokens) = tokenize(text) else {
+            return Expr::Name(name);
+        };
+        let mut inlining = self.inlining.clone();
+        inlining.push(n);
+        let mut inner = Parser {
+            tokens: &tokens,
+            pos: 0,
+            sf: self.sf,
+            inlining,
+        };
+        match inner.sum() {
+            Some(e) if inner.pos == tokens.len() => e,
+            _ => Expr::Name(name),
+        }
+    }
+}
+
+fn table_or_call(name: String, args: Vec<Expr>) -> Expr {
+    if name == "Table" && args.len() == 2 {
+        if let Expr::Num(id) = args[0] {
+            let level = match &args[1] {
+                Expr::Name(n) if n == "level" => None,
+                other => Some(render(other, 0)),
+            };
+            if id == 34.0 {
+                return Expr::Weapon(level);
+            }
+            if id == 35.0 {
+                return Expr::Cooldown(level);
+            }
+        }
+    }
+    Expr::Call(name, args)
+}
+
+/// Render with folding. `ctx` is the binding strength around it:
+/// 0 anywhere, 1 inside a product (sums need parentheses).
+fn render(e: &Expr, ctx: u8) -> String {
+    match e {
+        Expr::Num(n) => format_number(*n),
+        Expr::Name(n) => n.clone(),
+        Expr::Weapon(level) => format!("weapon damage{}", at_level(level)),
+        Expr::Cooldown(level) => format!("base cooldown{}", at_level(level)),
+        Expr::Call(name, args) => {
+            let args: Vec<String> = args.iter().map(|a| render(a, 0)).collect();
+            format!("{name}({})", args.join(", "))
+        }
+        Expr::Sum(terms) => {
+            // Constants fold into the place of the first one; the other
+            // terms keep the formula's order.
+            let constant: f64 = terms
+                .iter()
+                .filter_map(|(plus, t)| fold(t).map(|v| if *plus { v } else { -v }))
+                .sum();
+            let mut placed = false;
+            let mut parts: Vec<(bool, String)> = Vec::new();
+            for (plus, t) in terms {
+                if fold(t).is_some() {
+                    if !placed {
+                        placed = true;
+                        if constant != 0.0 || terms.iter().all(|(_, t)| fold(t).is_some()) {
+                            parts.push((constant >= 0.0, format_number(constant.abs())));
+                        }
+                    }
+                } else {
+                    parts.push((*plus, render(t, 1)));
+                }
+            }
+            let mut s = String::new();
+            for (plus, p) in parts {
+                if s.is_empty() {
+                    if !plus {
+                        s.push('-');
+                    }
+                } else {
+                    s.push_str(if plus { " + " } else { " - " });
+                }
+                s.push_str(&p);
+            }
+            if ctx >= 1 && s.contains([' ']) {
+                format!("({s})")
+            } else {
+                s
+            }
+        }
+        Expr::Product(factors) => {
+            let mut flat = Vec::new();
+            flatten(factors, true, &mut flat);
+            let (mut num, mut den) = (1.0, 1.0);
+            let mut weapon: Option<&Option<String>> = None;
+            let mut times: Vec<String> = Vec::new();
+            let mut over: Vec<String> = Vec::new();
+            for (mul, f) in flat {
+                match (fold(f), f) {
+                    (Some(v), _) => {
+                        if mul {
+                            num *= v;
+                        } else {
+                            den *= v;
+                        }
+                    }
+                    (None, Expr::Weapon(level)) if mul && weapon.is_none() => weapon = Some(level),
+                    (None, f) => {
+                        let shown = render(f, 1);
+                        if mul {
+                            times.push(shown);
+                        } else {
+                            over.push(shown);
+                        }
+                    }
+                }
+            }
+            let mut parts: Vec<String> = Vec::new();
+            match weapon {
+                // Weapon damage takes every number as one percentage.
+                Some(level) => {
+                    let pct = num / den * 100.0;
+                    den = 1.0;
+                    if pct == 100.0 && !times.is_empty() {
+                        parts.extend(times);
+                        parts.push(format!("weapon damage{}", at_level(level)));
+                    } else {
+                        parts.extend(times);
+                        parts.push(format!(
+                            "{}% weapon damage{}",
+                            format_number(pct),
+                            at_level(level)
+                        ));
+                    }
+                }
+                None => {
+                    if num != 1.0 || times.is_empty() {
+                        parts.push(format_number(num));
+                    }
+                    parts.extend(times);
+                }
+            }
+            let mut s = parts.join(" × ");
+            if den != 1.0 {
+                over.insert(0, format_number(den));
+            }
+            for o in over {
+                s.push_str(" / ");
+                s.push_str(&o);
+            }
+            s
+        }
+    }
+}
+
+/// Spread nested products into one list of (multiplied?, factor).
+fn flatten<'a>(factors: &'a [(bool, Expr)], outer: bool, out: &mut Vec<(bool, &'a Expr)>) {
+    for (mul, f) in factors {
+        let side = *mul == outer;
+        match f {
+            Expr::Product(inner) => flatten(inner, side, out),
+            f => out.push((side, f)),
+        }
+    }
+}
+
+fn at_level(level: &Option<String>) -> String {
+    level
+        .as_ref()
+        .map(|l| format!(" at level {l}"))
+        .unwrap_or_default()
+}
+
+/// The value of an expression made only of numbers, if it is one.
+fn fold(e: &Expr) -> Option<f64> {
+    match e {
+        Expr::Num(n) => Some(*n),
+        Expr::Sum(terms) => terms
+            .iter()
+            .map(|(plus, t)| fold(t).map(|v| if *plus { v } else { -v }))
+            .sum(),
+        Expr::Product(factors) => factors.iter().try_fold(1.0, |acc, (mul, f)| {
+            fold(f).map(|v| if *mul { acc * v } else { acc / v })
+        }),
+        _ => None,
     }
 }
 
@@ -681,30 +986,110 @@ mod tests {
         .summary()
     }
 
+    /// The plain line for one formula, or `None` when there is none.
+    fn plain_of(formula: &str, sfs: &[(u32, &str)]) -> Option<String> {
+        let sf: HashMap<u32, String> = sfs.iter().map(|(n, v)| (*n, v.to_string())).collect();
+        plain_formula(formula, &sf)
+    }
+
     #[test]
-    fn damage_hint_multiplies_every_factor() {
+    fn plain_line_multiplies_every_factor() {
+        assert_eq!(
+            plain_of("SF_2 * Table(34,sLevel) * 1.5", &[(2, "2")]).as_deref(),
+            Some("300% weapon damage")
+        );
+        assert_eq!(
+            plain_of("0.9* Table(34,sLevel)", &[]).as_deref(),
+            Some("90% weapon damage")
+        );
+    }
+
+    #[test]
+    fn plain_line_names_a_fixed_table_level() {
+        assert_eq!(
+            plain_of("SF_1 * 120 * Table(34, 3)", &[(1, "0.42")]).as_deref(),
+            Some("5040% weapon damage at level 3")
+        );
+    }
+
+    #[test]
+    fn plain_line_keeps_sums_and_reads_slevel_as_level() {
+        assert_eq!(
+            plain_of(
+                "(SF_1 + SF_2 * sLevel) * Table(34, sLevel)",
+                &[(1, "0.5"), (2, "0.1")]
+            )
+            .as_deref(),
+            Some("(0.5 + 0.1 × level) × weapon damage")
+        );
+    }
+
+    #[test]
+    fn plain_line_reads_the_cooldown_table() {
+        assert_eq!(
+            plain_of("Table(35, sLevel) * 0.8", &[]).as_deref(),
+            Some("0.8 × base cooldown")
+        );
+    }
+
+    #[test]
+    fn plain_line_keeps_unknown_scaling_factors_and_functions() {
+        assert_eq!(
+            plain_of("min(0.1 * Table(34, sLevel), SF_16)", &[(16, "24")]).as_deref(),
+            Some("min(10% weapon damage, 24)")
+        );
+        assert_eq!(
+            plain_of("SF_1 * Table(34, sLevel)", &[]).as_deref(),
+            Some("SF_1 × weapon damage")
+        );
+    }
+
+    #[test]
+    fn plain_line_folds_constants_and_skips_what_it_cannot_read() {
+        assert_eq!(
+            plain_of("SF_3 * 100", &[(3, "0.35")]).as_deref(),
+            Some("35")
+        );
+        assert_eq!(plain_of("2 + 3 / 2", &[]).as_deref(), Some("3.5"));
+        // Nothing to say beyond the formula itself.
+        assert_eq!(plain_of("0.5", &[]), None);
+        // Text it cannot parse gets no plain line rather than a wrong one.
+        assert_eq!(plain_of("PowerTag.\"Power\" * 2", &[]), None);
+    }
+
+    #[test]
+    fn plain_line_inlines_a_scaling_factor_that_is_a_formula() {
+        assert_eq!(
+            plain_of("SF_1 * 1.25", &[(1, "SF_5 * Table(34,sLevel)"), (5, "0.9")]).as_deref(),
+            Some("112.5% weapon damage")
+        );
+    }
+
+    #[test]
+    fn plain_line_keeps_division_and_puts_constants_last() {
+        assert_eq!(
+            plain_of("SF_49 / SF_48", &[(48, "4")]).as_deref(),
+            Some("SF_49 / 4")
+        );
+        assert_eq!(
+            plain_of("SF_9 - SF_3", &[(3, "1.5")]).as_deref(),
+            Some("SF_9 - 1.5")
+        );
+    }
+
+    #[test]
+    fn a_scaling_factor_that_names_itself_does_not_loop() {
+        let plain = plain_of("SF_1 * 2", &[(1, "SF_1 + 1")]);
+        assert!(plain.is_some());
+    }
+
+    #[test]
+    fn summary_puts_the_plain_line_above_the_formula_and_factors_after() {
         let s = summary_of("SF_2 * Table(34,sLevel) * 1.5", &[(2, "2")]);
-        assert!(s.contains("→ 300% weapon damage (level-scaled)"), "{s}");
-    }
-
-    #[test]
-    fn damage_hint_uses_scaling_factor_values() {
-        let s = summary_of("SF_1 * 120 * Table(34, 3)", &[(1, "0.42")]);
-        assert!(s.contains("→ 5040% weapon damage"), "{s}");
-        assert!(!s.contains("level-scaled"), "{s}");
-    }
-
-    #[test]
-    fn damage_hint_is_left_out_when_a_factor_is_unknown() {
-        let s = summary_of("SF_1 * Table(34, sLevel)", &[]);
-        assert!(!s.contains("weapon damage"), "{s}");
-        let s = summary_of("min(0.1 * Table(34, sLevel), SF_16)", &[(16, "24")]);
-        assert!(!s.contains("weapon damage"), "{s}");
-    }
-
-    #[test]
-    fn damage_hint_for_a_plain_coefficient() {
-        let s = summary_of("0.9* Table(34,sLevel)", &[]);
-        assert!(s.contains("→ 90% weapon damage (level-scaled)"), "{s}");
+        let plain = s.find("= 300% weapon damage").expect(&s);
+        let raw = s.find("SF_2 * Table(34,sLevel) * 1.5").expect(&s);
+        let factors = s.find("Scaling Factors").expect(&s);
+        assert!(plain < raw && raw < factors, "{s}");
+        assert!(!s.contains("SF_2(2)"), "{s}");
     }
 }
