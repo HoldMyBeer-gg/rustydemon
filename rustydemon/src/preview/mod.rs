@@ -20,6 +20,7 @@ pub mod grp;
 pub mod grp_format;
 pub mod m2;
 pub mod m2_lite;
+pub mod messiah;
 pub mod model3d;
 pub mod model_d2r;
 pub mod pcx;
@@ -230,6 +231,8 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         Box::new(m2::M2Preview),
         // D2R .model (Granny3D): 3D viewport + texture materials.
         Box::new(model_d2r::ModelD2rPreview),
+        // Diablo Immortal mesh objects: magic plus a vertex layout name.
+        Box::new(messiah::MessiahMeshPreview),
         Box::new(adt::AdtPreview),
         Box::new(pow::PowPreview),
         Box::new(vid::VidPreview),

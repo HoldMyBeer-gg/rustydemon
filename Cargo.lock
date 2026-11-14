@@ -3936,6 +3936,7 @@ dependencies = [
  "rustydemon-blp2",
  "rustydemon-gr2",
  "rustydemon-lib",
+ "rustydemon-messiah",
  "texture2ddecoder",
  "wgpu",
  "winresource",
@@ -3993,6 +3994,13 @@ dependencies = [
  "rustydemon-mpk",
  "thiserror 2.0.18",
  "ureq",
+]
+
+[[package]]
+name = "rustydemon-messiah"
+version = "0.6.0"
+dependencies = [
+ "thiserror 2.0.18",
 ]
 
 [[package]]
