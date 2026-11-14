@@ -28,6 +28,9 @@ pub mod d3_tex;
 #[cfg(test)]
 mod d3_tex_tests;
 pub mod db2;
+pub mod gltf;
+#[cfg(test)]
+mod gltf_tests;
 pub mod grp;
 pub mod grp_format;
 pub mod m2;
