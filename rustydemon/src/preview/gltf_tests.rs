@@ -138,3 +138,41 @@ fn animation_channels_target_bones_by_index() {
     assert!(!j.contains("\"path\":\"scale\""), "{j}");
     assert!(j.contains("\"max\":[0.5]"), "{j}");
 }
+
+#[test]
+fn the_scene_has_one_root_holding_bones_and_parts() {
+    let m = Model {
+        name: "goblin".into(),
+        bones: vec![
+            bone("Root", None, [0.0; 3]),
+            bone("Bag", None, [1.0, 0.0, 0.0]),
+        ],
+        parts: vec![triangle(None, true), triangle(None, true)],
+        ..Default::default()
+    };
+    let j = json(&to_glb(&m));
+    // Nodes: 2 bones, 2 parts, then the root at index 4.
+    assert!(j.contains("\"scenes\":[{\"nodes\":[4]}]"), "{j}");
+    assert!(
+        j.contains("{\"name\":\"goblin\",\"children\":[0,1,2,3]}"),
+        "{j}"
+    );
+}
+
+#[test]
+fn identical_textures_are_stored_once() {
+    let png = vec![0x89, b'P', b'N', b'G', 1, 2, 3];
+    let m = Model {
+        parts: vec![triangle(Some("a"), false), triangle(Some("b"), false)],
+        textures: vec![("a".into(), png.clone()), ("b".into(), png)],
+        ..Default::default()
+    };
+    let j = json(&to_glb(&m));
+    assert_eq!(j.matches("\"mimeType\"").count(), 1, "{j}");
+    // Two materials, one texture between them.
+    assert_eq!(
+        j.matches("\"baseColorTexture\":{\"index\":0}").count(),
+        2,
+        "{j}"
+    );
+}

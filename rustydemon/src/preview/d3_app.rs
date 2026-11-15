@@ -345,6 +345,7 @@ pub fn to_glb(
         });
     }
     gltf::to_glb(&gltf::Model {
+        name: String::new(),
         bones,
         parts,
         textures: textures.to_vec(),

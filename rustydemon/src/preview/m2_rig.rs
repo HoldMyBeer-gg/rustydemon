@@ -80,6 +80,7 @@ pub fn model(
     }
 
     gltf::Model {
+        name: String::new(),
         bones,
         parts,
         textures,
