@@ -28,6 +28,7 @@
 //! publish; they were checked here against models from a live install.
 //! Every offset and count is checked against the file before use.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::{dds, gltf};
@@ -50,6 +51,18 @@ pub struct Model {
     pub parts: Vec<Part>,
     pub bones: Vec<Bone>,
     pub materials: Vec<Material>,
+    /// The inverse bind matrix of every bone, as rows with the translation
+    /// in the last column. Empty when the file has none.
+    pub bind: Vec<[[f32; 4]; 4]>,
+    pub sequences: Vec<Sequence>,
+}
+
+/// One animation: the keys of every bone it moves, in seconds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sequence {
+    pub name: String,
+    pub length: f32,
+    pub channels: Vec<gltf::Channel>,
 }
 
 /// One draw: a run of `indices` and the material it uses.
@@ -382,6 +395,225 @@ fn bones(file: &File, r: Ref) -> Result<Vec<Bone>, String> {
         .collect()
 }
 
+/// The inverse bind matrices, stored a column at a time.
+fn bind(file: &File, bone_count: usize) -> Result<Vec<[[f32; 4]; 4]>, String> {
+    let Some(r) = file.first("IREF").filter(|r| r.entries == bone_count) else {
+        return Ok(Vec::new());
+    };
+    let Some(chunk) = file.chunk(r, "IREF", 64)? else {
+        return Ok(Vec::new());
+    };
+    chunk
+        .bytes
+        .as_chunks::<64>()
+        .0
+        .iter()
+        .map(|m| {
+            let mut rows = [[0.0; 4]; 4];
+            for (i, row) in rows.iter_mut().enumerate() {
+                for (j, cell) in row.iter_mut().enumerate() {
+                    *cell = f32_at(m, 16 * j + 4 * i)?;
+                }
+            }
+            Ok(rows)
+        })
+        .collect()
+}
+
+/// Which property of a bone an animation id drives.
+#[derive(Clone, Copy)]
+enum Driven {
+    Translation(usize),
+    Rotation(usize),
+    Scale(usize),
+}
+
+/// The animation ids of every bone: translation, rotation, scale.
+fn bone_ids(file: &File, r: Ref) -> Result<HashMap<u32, Driven>, String> {
+    let mut ids = HashMap::new();
+    let Some(chunk) = file.chunk(r, "BONE", 160)? else {
+        return Ok(ids);
+    };
+    for (i, b) in chunk.bytes.as_chunks::<160>().0.iter().enumerate() {
+        ids.insert(u32_at(b, 28)?, Driven::Translation(i));
+        ids.insert(u32_at(b, 64)?, Driven::Rotation(i));
+        ids.insert(u32_at(b, 108)?, Driven::Scale(i));
+    }
+    Ok(ids)
+}
+
+fn u32s(file: &File, r: Ref) -> Result<Vec<u32>, String> {
+    let Some(chunk) = file.chunk(r, "U32_", 4)? else {
+        return Ok(Vec::new());
+    };
+    Ok(chunk
+        .bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| u32::from_le_bytes(*b))
+        .collect())
+}
+
+/// Key times in seconds, and the value at each.
+type Keys<const N: usize> = (Vec<f32>, Vec<[f32; N]>);
+
+/// Entry `index` of a list of key blocks: its key times in seconds and its
+/// values, `N` numbers each.
+///
+/// Times that do not move forward are dropped, and a key past the end of
+/// the sequence is cut back to the end, since both break the glTF rules.
+fn keys<const N: usize>(
+    file: &File,
+    blocks: Ref,
+    block_tag: &str,
+    value_tag: &str,
+    index: usize,
+) -> Result<Option<Keys<N>>, String> {
+    let Some(chunk) = file.chunk(blocks, block_tag, 32)? else {
+        return Ok(None);
+    };
+    let Some(block) = chunk.bytes.as_chunks::<32>().0.get(index) else {
+        return Ok(None);
+    };
+    let end = u32_at(block, 16)? as f32;
+    let times = file.chunk(ref_at(block, 0)?, "I32_", 4)?;
+    let values = file.chunk(ref_at(block, 20)?, value_tag, 4 * N)?;
+    let (Some(times), Some(values)) = (times, values) else {
+        return Ok(None);
+    };
+    let mut out_times: Vec<f32> = Vec::new();
+    let mut out_values: Vec<[f32; N]> = Vec::new();
+    for (t, v) in times
+        .bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(values.bytes.chunks_exact(4 * N))
+    {
+        let t = i32::from_le_bytes(*t) as f32;
+        let mut value = [0.0; N];
+        for (k, c) in value.iter_mut().enumerate() {
+            *c = f32_at(v, 4 * k)?;
+        }
+        let last = out_times.last().copied().zip(out_values.last().copied());
+        if last.is_some_and(|(before, _)| t <= before) {
+            continue;
+        }
+        if t <= end {
+            out_times.push(t);
+            out_values.push(value);
+            continue;
+        }
+        if let Some((before, from)) = last.filter(|&(before, _)| before < end) {
+            let along = (end - before) / (t - before);
+            for (c, f) in value.iter_mut().zip(from) {
+                *c = f + (*c - f) * along;
+            }
+        }
+        if last.is_none_or(|(before, _)| before < end) {
+            out_times.push(end);
+            out_values.push(value);
+        }
+        break;
+    }
+    for t in &mut out_times {
+        *t /= 1000.0;
+    }
+    Ok(Some((out_times, out_values)))
+}
+
+fn sequence_size(version: u32) -> Option<usize> {
+    match version {
+        1 => Some(96),
+        2 => Some(92),
+        _ => None,
+    }
+}
+
+/// The sequences and, for each, the bone keys of the collections its group
+/// names. Sequence and group share a position in their lists.
+fn sequences(file: &File, modl: &[u8]) -> Result<Vec<Sequence>, String> {
+    let Some(seqs) = file.versioned(ref_at(modl, 16)?, "SEQS", sequence_size)? else {
+        return Ok(Vec::new());
+    };
+    let size = seqs.bytes.len() / seqs.entries;
+    let collections = file.versioned(ref_at(modl, 28)?, "STC_", |v| (v == 4).then_some(204))?;
+    let groups = file.chunk(ref_at(modl, 40)?, "STG_", 24)?;
+    let ids = bone_ids(file, ref_at(modl, 80)?)?;
+
+    let mut out = Vec::with_capacity(seqs.entries);
+    for (n, s) in seqs.bytes.chunks_exact(size).enumerate() {
+        let length = u32_at(s, 24)?.saturating_sub(u32_at(s, 20)?) as f32 / 1000.0;
+        let mut channels: Vec<gltf::Channel> = Vec::new();
+        // One channel per bone property; the first collection to give it wins.
+        let mut taken = HashSet::new();
+        let members = match groups
+            .as_ref()
+            .and_then(|g| g.bytes.as_chunks::<24>().0.get(n))
+        {
+            Some(group) => u32s(file, ref_at(group, 12)?)?,
+            None => Vec::new(),
+        };
+        for member in members {
+            let Some(stc) = collections
+                .as_ref()
+                .and_then(|c| c.bytes.as_chunks::<204>().0.get(member as usize))
+            else {
+                continue;
+            };
+            let anim_ids = u32s(file, ref_at(stc, 20)?)?;
+            let anim_refs = u32s(file, ref_at(stc, 32)?)?;
+            for (id, r) in anim_ids.into_iter().zip(anim_refs) {
+                let (kind, index) = (r >> 16, (r & 0xFFFF) as usize);
+                let Some(&driven) = ids.get(&id) else {
+                    continue;
+                };
+                let channel = match (driven, kind) {
+                    (Driven::Translation(bone), 2) => {
+                        keys::<3>(file, ref_at(stc, 72)?, "SD3V", "VEC3", index)?
+                            .map(|(t, v)| (bone, 0, t, gltf::Values::Translation(v)))
+                    }
+                    (Driven::Scale(bone), 2) => {
+                        keys::<3>(file, ref_at(stc, 72)?, "SD3V", "VEC3", index)?
+                            .map(|(t, v)| (bone, 2, t, gltf::Values::Scale(v)))
+                    }
+                    (Driven::Rotation(bone), 3) => {
+                        keys::<4>(file, ref_at(stc, 84)?, "SD4Q", "QUAT", index)?.map(
+                            |(t, mut v)| {
+                                for q in &mut v {
+                                    let len = q.iter().map(|c| c * c).sum::<f32>().sqrt();
+                                    if len > 0.0 {
+                                        *q = q.map(|c| c / len);
+                                    }
+                                }
+                                (bone, 1, t, gltf::Values::Rotation(v))
+                            },
+                        )
+                    }
+                    _ => None,
+                };
+                let Some((bone, property, times, values)) = channel else {
+                    continue;
+                };
+                if !times.is_empty() && taken.insert((bone, property)) {
+                    channels.push(gltf::Channel {
+                        bone,
+                        times,
+                        values,
+                    });
+                }
+            }
+        }
+        out.push(Sequence {
+            name: file.text(ref_at(s, 8)?)?,
+            length,
+            channels,
+        });
+    }
+    Ok(out)
+}
+
 pub fn parse(data: &[u8]) -> Result<Model, String> {
     let file = File::open(data)?;
     let modl = file
@@ -391,6 +623,8 @@ pub fn parse(data: &[u8]) -> Result<Model, String> {
 
     let name = file.text(ref_at(modl, 0)?)?;
     let bones = bones(&file, ref_at(modl, 80)?)?;
+    let bind = bind(&file, bones.len())?;
+    let sequences = sequences(&file, modl)?;
     let flags = u32_at(modl, 96)?;
 
     // ── Vertices ─────────────────────────────────────────────────────
@@ -529,6 +763,8 @@ pub fn parse(data: &[u8]) -> Result<Model, String> {
         parts,
         bones,
         materials,
+        bind,
+        sequences,
     })
 }
 
@@ -683,6 +919,12 @@ pub fn summary(model: &Model) -> String {
         let texture = m.diffuse.as_deref().unwrap_or("no colour texture");
         text.push_str(&format!("  {}: {texture}\n", m.name));
     }
+    if !model.sequences.is_empty() {
+        text.push_str(&format!("Animations   {}\n", model.sequences.len()));
+        for s in &model.sequences {
+            text.push_str(&format!("  {} ({:.1} s)\n", s.name, s.length));
+        }
+    }
     if !model.name.is_empty() {
         text.push_str(&format!("\nSource       {}\n", model.name));
     }
@@ -721,7 +963,7 @@ pub fn to_gltf(model: &Model, filename: &str) -> gltf::Model {
             let first = part.first_index as usize;
             let corners = &model.indices[first..first + part.index_count as usize];
             // Old vertex number to its number in this part.
-            let mut renumbered = std::collections::HashMap::new();
+            let mut renumbered = HashMap::new();
             let mut positions = Vec::new();
             let mut uvs = Vec::new();
             let mut skin = Vec::new();
@@ -762,8 +1004,16 @@ pub fn to_gltf(model: &Model, filename: &str) -> gltf::Model {
         bones,
         parts,
         textures: Vec::new(),
-        animations: Vec::new(),
+        animations: model
+            .sequences
+            .iter()
+            .map(|s| gltf::Animation {
+                name: s.name.clone(),
+                channels: s.channels.clone(),
+            })
+            .collect(),
         z_up: true,
+        inverse_bind: model.bind.clone(),
     }
 }
 

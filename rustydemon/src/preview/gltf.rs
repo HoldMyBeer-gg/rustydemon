@@ -65,6 +65,10 @@ pub struct Model {
     pub textures: Vec<(String, Vec<u8>)>,
     pub animations: Vec<Animation>,
     pub z_up: bool,
+    /// The inverse bind matrix of every bone, as rows with the translation
+    /// in the last column, for formats that store them. When the count
+    /// differs from the bones, they are worked out from the rest pose.
+    pub inverse_bind: Vec<[[f32; 4]; 4]>,
 }
 
 /// Z-up to glTF's Y-up.
@@ -77,6 +81,19 @@ fn y_up_rotation(q: [f32; 4]) -> [f32; 4] {
 }
 
 type Mat = [[f32; 4]; 4];
+
+/// A Z-up matrix in glTF's Y-up axes.
+fn y_up_matrix(m: &Mat) -> Mat {
+    // Row and column 1 and 2 trade places, and each trade flips a sign.
+    const FROM: [(usize, f32); 4] = [(0, 1.0), (2, 1.0), (1, -1.0), (3, 1.0)];
+    let mut r = [[0.0; 4]; 4];
+    for (i, row) in r.iter_mut().enumerate() {
+        for (j, cell) in row.iter_mut().enumerate() {
+            *cell = FROM[i].1 * FROM[j].1 * m[FROM[i].0][FROM[j].0];
+        }
+    }
+    r
+}
 
 fn matrix(q: [f32; 4], t: [f32; 3]) -> Mat {
     let [x, y, z, w] = q;
@@ -261,8 +278,13 @@ pub fn to_glb(m: &Model) -> Vec<u8> {
         n.push('}');
     }
     let ibm = skinned.then(|| {
-        let bytes = floats(world.iter().flat_map(|w| {
-            let inv = rigid_inverse(w);
+        let given = m.inverse_bind.len() == bone_count;
+        let bytes = floats(world.iter().enumerate().flat_map(|(i, w)| {
+            let inv = match (given, m.z_up) {
+                (true, true) => y_up_matrix(&m.inverse_bind[i]),
+                (true, false) => m.inverse_bind[i],
+                (false, _) => rigid_inverse(w),
+            };
             (0..16).map(move |k| inv[k % 4][k / 4])
         }));
         bin.accessor(&bytes, FLOAT, bone_count, "MAT4", None, None)

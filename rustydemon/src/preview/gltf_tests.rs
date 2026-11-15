@@ -176,3 +176,66 @@ fn identical_textures_are_stored_once() {
         "{j}"
     );
 }
+
+fn bin(glb: &[u8]) -> &[u8] {
+    let n = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+    &glb[20 + n + 8..]
+}
+
+/// Whether the numbers appear in a row; minus zero counts as zero.
+fn holds(haystack: &[u8], floats: &[f32]) -> bool {
+    let all: Vec<f32> = haystack
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
+        .collect();
+    all.windows(floats.len()).any(|w| w == floats)
+}
+
+#[test]
+fn bind_matrices_given_with_the_model_are_written_as_they_are() {
+    // The bone rests at x = 1, yet the model says its bind pose is x = 5.
+    let mut m = Model {
+        bones: vec![bone("Root", None, [1.0, 0.0, 0.0])],
+        parts: vec![triangle(None, true)],
+        ..Default::default()
+    };
+    m.parts[0].skin = vec![[(0, 1.0), (0, 0.0), (0, 0.0), (0, 0.0)]; 3];
+    let from_rest = [
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 1.0,
+    ];
+    assert!(holds(bin(&to_glb(&m)), &from_rest));
+
+    m.inverse_bind = vec![[
+        [1.0, 0.0, 0.0, -5.0],
+        [0.0, 1.0, 0.0, -6.0],
+        [0.0, 0.0, 1.0, -7.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]];
+    let given = [
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -5.0, -6.0, -7.0, 1.0,
+    ];
+    let glb = to_glb(&m);
+    assert!(holds(bin(&glb), &given));
+    assert!(!holds(bin(&glb), &from_rest));
+
+    // Turned Y-up with the rest of a Z-up model.
+    m.z_up = true;
+    let turned = [
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, -5.0, -7.0, 6.0, 1.0,
+    ];
+    assert!(holds(bin(&to_glb(&m)), &turned));
+}
+
+#[test]
+fn bind_matrices_that_do_not_match_the_bones_are_ignored() {
+    let mut m = Model {
+        bones: vec![bone("Root", None, [1.0, 0.0, 0.0])],
+        parts: vec![triangle(None, true)],
+        inverse_bind: vec![[[9.0; 4]; 4]; 2],
+        ..Default::default()
+    };
+    m.parts[0].skin = vec![[(0, 1.0), (0, 0.0), (0, 0.0), (0, 0.0)]; 3];
+    assert!(!holds(bin(&to_glb(&m)), &[9.0; 16]));
+}
