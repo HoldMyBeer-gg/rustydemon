@@ -69,7 +69,7 @@
 
         <Package Id='*'
             Keywords='Installer'
-            Description='CASC archive explorer for Blizzard games'
+            Description='CASC and MPK archive explorer for Blizzard games'
             Manufacturer='jabberwock'
             InstallerVersion='450'
             Languages='1033'
@@ -140,7 +140,7 @@
                     <Shortcut
                         Id='AppStartMenuShortcut'
                         Name='Rusty Demon'
-                        Description='CASC archive explorer for Blizzard games'
+                        Description='CASC and MPK archive explorer for Blizzard games'
                         Target='[Bin]rustydemon.exe'
                         WorkingDirectory='Bin'/>
                     <RegistryValue
