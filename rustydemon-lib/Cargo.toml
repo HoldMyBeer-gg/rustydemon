@@ -1,6 +1,6 @@
 [package]
 name         = "rustydemon-lib"
-description  = "Rust library for reading CASC storage files"
+description  = "Rust library for reading CASC storage and MPK archives"
 version.workspace    = true
 authors.workspace    = true
 edition.workspace    = true

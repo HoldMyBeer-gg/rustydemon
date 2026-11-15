@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Rusty Demon
-GenericName=CASC Archive Explorer
+GenericName=CASC and MPK Archive Explorer
 Comment=Browse, preview and export files from Blizzard game archives
 Exec=rustydemon %f
 Icon=rustydemon
