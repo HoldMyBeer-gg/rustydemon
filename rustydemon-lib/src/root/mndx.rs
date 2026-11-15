@@ -70,30 +70,51 @@ fn read_md5(r: &mut Cursor<&[u8]>) -> Result<Md5Hash, CascError> {
     Ok(Md5Hash::from_bytes(buf))
 }
 
-/// Read a CascLib-style array: 4-byte LE byte count, then that many bytes
-/// interpreted as `i32` values.
-fn read_array_i32(r: &mut Cursor<&[u8]>) -> Result<Vec<i32>, CascError> {
-    let byte_count = read_i32(r)? as usize;
-    if byte_count == 0 {
-        return Ok(Vec::new());
-    }
-    let count = byte_count / 4;
-    let mut out = Vec::with_capacity(count);
-    for _ in 0..count {
-        out.push(read_i32(r)?);
-    }
-    Ok(out)
-}
-
-/// Read a CascLib-style byte array.
-fn read_array_u8(r: &mut Cursor<&[u8]>) -> Result<Vec<u8>, CascError> {
-    let byte_count = read_i32(r)? as usize;
-    if byte_count == 0 {
-        return Ok(Vec::new());
-    }
+/// Read the raw bytes of a MAR array: the byte count as a u64, the bytes,
+/// then padding up to the next multiple of 8.  The count is checked against
+/// what is left of the file before anything is allocated.
+fn read_array_bytes(r: &mut Cursor<&[u8]>) -> Result<Vec<u8>, CascError> {
+    let byte_count = read_i64(r)?;
+    let left = r.get_ref().len() as u64 - r.position().min(r.get_ref().len() as u64);
+    let byte_count = u64::try_from(byte_count)
+        .ok()
+        .filter(|&n| n <= left)
+        .ok_or_else(|| {
+            CascError::InvalidData(format!(
+                "MAR array of {byte_count} bytes does not fit in the {left} left"
+            ))
+        })? as usize;
     let mut buf = vec![0u8; byte_count];
     r.read_exact(&mut buf)?;
+    let padding = byte_count.next_multiple_of(8) - byte_count;
+    r.seek(SeekFrom::Current(padding as i64))?;
     Ok(buf)
+}
+
+/// The `i32` at the start of `bytes`, which holds at least four.
+fn i32_at(bytes: &[u8], offset: usize) -> i32 {
+    i32::from_le_bytes([
+        bytes[offset],
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+    ])
+}
+
+/// Read a MAR array of `i32` values.
+fn read_array_i32(r: &mut Cursor<&[u8]>) -> Result<Vec<i32>, CascError> {
+    let bytes = read_array_bytes(r)?;
+    Ok(bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| i32::from_le_bytes(*c))
+        .collect())
+}
+
+/// Read a MAR byte array.
+fn read_array_u8(r: &mut Cursor<&[u8]>) -> Result<Vec<u8>, CascError> {
+    read_array_bytes(r)
 }
 
 // ── Popcount helper ──────────────────────────────────────────────────────────
@@ -125,20 +146,17 @@ struct Triplet {
 }
 
 fn read_array_triplet(r: &mut Cursor<&[u8]>) -> Result<Vec<Triplet>, CascError> {
-    let byte_count = read_i32(r)? as usize;
-    if byte_count == 0 {
-        return Ok(Vec::new());
-    }
-    let count = byte_count / 12;
-    let mut out = Vec::with_capacity(count);
-    for _ in 0..count {
-        out.push(Triplet {
-            base_value: read_i32(r)?,
-            value2: read_i32(r)?,
-            value3: read_i32(r)?,
-        });
-    }
-    Ok(out)
+    let bytes = read_array_bytes(r)?;
+    Ok(bytes
+        .as_chunks::<12>()
+        .0
+        .iter()
+        .map(|c| Triplet {
+            base_value: i32_at(c, 0),
+            value2: i32_at(c, 4),
+            value3: i32_at(c, 8),
+        })
+        .collect())
 }
 
 // ── TSparseArray ─────────────────────────────────────────────────────────────
@@ -508,20 +526,17 @@ struct NameFrag {
 }
 
 fn read_array_name_frag(r: &mut Cursor<&[u8]>) -> Result<Vec<NameFrag>, CascError> {
-    let byte_count = read_i32(r)? as usize;
-    if byte_count == 0 {
-        return Ok(Vec::new());
-    }
-    let count = byte_count / 12;
-    let mut out = Vec::with_capacity(count);
-    for _ in 0..count {
-        out.push(NameFrag {
-            item_index: read_i32(r)?,
-            next_index: read_i32(r)?,
-            frag_offs: read_i32(r)?,
-        });
-    }
-    Ok(out)
+    let bytes = read_array_bytes(r)?;
+    Ok(bytes
+        .as_chunks::<12>()
+        .0
+        .iter()
+        .map(|c| NameFrag {
+            item_index: i32_at(c, 0),
+            next_index: i32_at(c, 4),
+            frag_offs: i32_at(c, 8),
+        })
+        .collect())
 }
 
 // ── TNameIndexStruct ─────────────────────────────────────────────────────────
@@ -1594,5 +1609,52 @@ fn locale_from_code(code: &str) -> Option<LocaleFlags> {
         "itit" => Some(LocaleFlags::IT_IT),
         "ptpt" => Some(LocaleFlags::PT_PT),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An array in a MAR database: byte count as a u64, the bytes, then
+    /// zero padding up to the next multiple of 8.
+    fn stored(bytes: &[u8]) -> Vec<u8> {
+        let mut out = (bytes.len() as u64).to_le_bytes().to_vec();
+        out.extend_from_slice(bytes);
+        out.resize(out.len().next_multiple_of(8), 0);
+        out
+    }
+
+    #[test]
+    fn an_array_length_is_eight_bytes_and_the_data_is_padded_to_eight() {
+        let mut data = stored(&[1, 2, 3, 4, 5]);
+        data.extend_from_slice(&0x1122_3344i32.to_le_bytes());
+        let mut r = Cursor::new(data.as_slice());
+        assert_eq!(read_array_u8(&mut r).unwrap(), [1, 2, 3, 4, 5]);
+        // The value after the array starts past the padding.
+        assert_eq!(read_i32(&mut r).unwrap(), 0x1122_3344);
+    }
+
+    #[test]
+    fn an_array_of_numbers_follows_the_same_layout() {
+        let mut body = Vec::new();
+        for v in [7i32, -1, 9] {
+            body.extend_from_slice(&v.to_le_bytes());
+        }
+        let mut data = stored(&body);
+        data.extend_from_slice(&5i32.to_le_bytes());
+        let mut r = Cursor::new(data.as_slice());
+        assert_eq!(read_array_i32(&mut r).unwrap(), [7, -1, 9]);
+        assert_eq!(read_i32(&mut r).unwrap(), 5);
+    }
+
+    #[test]
+    fn an_array_longer_than_the_file_is_an_error() {
+        let mut data = 1_000_000u64.to_le_bytes().to_vec();
+        data.extend_from_slice(&[0; 16]);
+        let mut r = Cursor::new(data.as_slice());
+        assert!(read_array_u8(&mut r).is_err());
+        let mut r = Cursor::new(data.as_slice());
+        assert!(read_array_i32(&mut r).is_err());
     }
 }

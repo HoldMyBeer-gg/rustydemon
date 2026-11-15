@@ -52,7 +52,7 @@ impl GameType {
         if uid.starts_with("s1") || uid.starts_with("sc1") {
             return Ok(Self::StarCraft);
         }
-        if uid.starts_with("s2") {
+        if uid.starts_with("s2") || uid.starts_with("sc2") {
             return Ok(Self::StarCraft2);
         }
         if uid.starts_with("wow") {
@@ -147,5 +147,18 @@ impl GameType {
             Self::Overwatch => Some("data/casc"),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GameType;
+
+    /// A StarCraft II `.build.info` can leave the Product column empty, so
+    /// the id comes from the CDN path `tpr/sc2`.
+    #[test]
+    fn the_cdn_path_name_of_starcraft_two_is_recognised() {
+        assert_eq!(GameType::from_uid("sc2").ok(), Some(GameType::StarCraft2));
+        assert_eq!(GameType::from_uid("s2").ok(), Some(GameType::StarCraft2));
     }
 }
