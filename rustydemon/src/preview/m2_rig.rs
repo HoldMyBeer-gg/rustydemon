@@ -87,6 +87,7 @@ pub fn model(
         textures,
         animations: Vec::new(),
         z_up: true,
+        inverse_bind: Vec::new(),
     }
 }
 

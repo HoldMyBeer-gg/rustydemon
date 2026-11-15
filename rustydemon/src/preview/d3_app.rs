@@ -351,6 +351,7 @@ pub fn to_glb(
         textures: textures.to_vec(),
         animations,
         z_up: true,
+        inverse_bind: Vec::new(),
     })
 }
 

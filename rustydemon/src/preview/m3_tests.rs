@@ -137,6 +137,12 @@ fn bone(name_chunk: u32, name_len: u32, parent: i16, at: [f32; 3]) -> Vec<u8> {
 /// A model of two regions: a triangle of vertices 0 to 2, then a triangle
 /// of vertices 3 to 5 whose indices start again at 0.
 fn two_regions(region_version: u32) -> Vec<u8> {
+    file(&two_region_chunks(region_version))
+}
+
+/// The chunks of [`two_regions`]; the model is the first of them and the
+/// bones are the twelfth.
+fn two_region_chunks(region_version: u32) -> Vec<Chunk> {
     let mut vertices = Vec::new();
     for i in 0..6u8 {
         vertices.extend(vertex(
@@ -179,7 +185,7 @@ fn two_regions(region_version: u32) -> Vec<u8> {
     let mut bones = bone(13, 5, -1, [0.0, 0.0, 1.0]);
     bones.extend(bone(13, 5, 0, [0.0, 2.0, 0.0]));
 
-    file(&[
+    vec![
         ("MODL", 23, 1, modl),                        // 1
         chars("Unit"),                                // 2
         ("U8__", 0, vertices.len() as u32, vertices), // 3
@@ -195,7 +201,7 @@ fn two_regions(region_version: u32) -> Vec<u8> {
         chars("Root"),                                // 13
         chars("Assets\\Textures\\unit.dds"),          // 14
         u16s("U16_", &[0, 1]),                        // 15
-    ])
+    ]
 }
 
 #[test]
@@ -471,4 +477,147 @@ fn the_rigged_export_carries_each_texture_under_its_material_name() {
     g.textures = export_textures(&m, &[Some(vec![9, 9, 9])]);
     assert_eq!(g.textures, [("Skin".to_owned(), vec![9, 9, 9])]);
     assert!(export_textures(&m, &[None]).is_empty());
+}
+
+fn u32s(v: &[u32]) -> Chunk {
+    let b = v.iter().flat_map(|x| x.to_le_bytes()).collect();
+    ("U32_", 0, v.len() as u32, b)
+}
+
+fn f32s(tag: &'static str, width: usize, v: &[f32]) -> Chunk {
+    let b = v.iter().flat_map(|x| x.to_le_bytes()).collect();
+    (tag, 0, (v.len() / width) as u32, b)
+}
+
+/// A block of keys: when they fall, where the sequence ends, the values.
+fn key_block(frames: Vec<u8>, end: u32, keys: Vec<u8>) -> Vec<u8> {
+    let mut b = vec![0u8; 32];
+    put(&mut b, 0, &frames);
+    put(&mut b, 16, &end.to_le_bytes());
+    put(&mut b, 20, &keys);
+    b
+}
+
+const MOVE_ID: u32 = 0xA1;
+const TURN_ID: u32 = 0xB2;
+
+/// [`two_regions`] with bind matrices and one sequence, "Walk", a second
+/// long, that moves and turns the second bone.
+fn animated() -> Vec<u8> {
+    let mut chunks = two_region_chunks(3);
+    let modl = &mut chunks[0].3;
+    put(modl, 16, &rf(1, 16));
+    put(modl, 28, &rf(1, 20));
+    put(modl, 40, &rf(1, 18));
+    let bones = &mut chunks[11].3;
+    put(bones, 160 + 28, &MOVE_ID.to_le_bytes());
+    put(bones, 160 + 64, &TURN_ID.to_le_bytes());
+
+    let mut seq = vec![0u8; 96];
+    put(&mut seq, 8, &rf(5, 17));
+    put(&mut seq, 24, &1000u32.to_le_bytes());
+    let mut group = rf(5, 17);
+    group.extend(rf(1, 19));
+    let mut stc = vec![0u8; 204];
+    put(&mut stc, 0, &rf(5, 17));
+    put(&mut stc, 20, &rf(3, 21));
+    put(&mut stc, 32, &rf(3, 22));
+    put(&mut stc, 72, &rf(1, 23));
+    put(&mut stc, 84, &rf(1, 26));
+    let frames = |v: &[i32]| -> Chunk {
+        let b = v.iter().flat_map(|x| x.to_le_bytes()).collect();
+        ("I32_", 0, v.len() as u32, b)
+    };
+    // Bone 0 sits at z = 1 in its bind pose; bone 1 two further along y.
+    #[rustfmt::skip]
+    let bind = [
+        1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, 0.0, -1.0, 1.0,
+        1.0, 0.0, 0.0, 0.0,  0.0, 1.0, 0.0, 0.0,  0.0, 0.0, 1.0, 0.0,  0.0, -2.0, -1.0, 1.0,
+    ];
+    chunks.extend([
+        ("SEQS", 1, 1, seq),   // 16
+        chars("Walk"),         // 17
+        ("STG_", 0, 1, group), // 18
+        u32s(&[0]),            // 19
+        ("STC_", 4, 1, stc),   // 20
+        // The third id belongs to no bone.
+        u32s(&[MOVE_ID, TURN_ID, 0x999]), // 21
+        // Kind of key block in the high half, which block in the low.
+        u32s(&[2 << 16, 3 << 16, 0]),                          // 22
+        ("SD3V", 0, 1, key_block(rf(4, 24), 1000, rf(4, 25))), // 23
+        frames(&[0, 0, 500, 2000]),                            // 24
+        f32s(
+            "VEC3",
+            3,
+            &[0.0, 0.0, 0.0, 9.0, 9.0, 9.0, 1.0, 0.0, 0.0, 4.0, 0.0, 0.0],
+        ), // 25
+        ("SD4Q", 0, 1, key_block(rf(2, 27), 1000, rf(2, 28))), // 26
+        frames(&[0, 1000]),                                    // 27
+        f32s("QUAT", 4, &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0]), // 28
+        f32s("IREF", 16, &bind),                               // 29
+    ]);
+    file(&chunks)
+}
+
+#[test]
+fn a_sequence_gathers_the_keys_of_the_bones_it_moves() {
+    use super::gltf::Values;
+    let m = parse(&animated()).unwrap();
+    assert_eq!(m.sequences.len(), 1);
+    let walk = &m.sequences[0];
+    assert_eq!(walk.name, "Walk");
+    assert_eq!(walk.length, 1.0);
+    assert_eq!(walk.channels.len(), 2);
+
+    // Two keys share the first instant, so the second is dropped; the key
+    // past the end is cut back to the end, a third of the way along.
+    let moved = &walk.channels[0];
+    assert_eq!(moved.bone, 1);
+    assert_eq!(moved.times, [0.0, 0.5, 1.0]);
+    assert_eq!(
+        moved.values,
+        Values::Translation(vec![[0.0; 3], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
+    );
+
+    let turned = &walk.channels[1];
+    assert_eq!(turned.bone, 1);
+    assert_eq!(turned.times, [0.0, 1.0]);
+    assert_eq!(
+        turned.values,
+        Values::Rotation(vec![[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 0.0]])
+    );
+}
+
+#[test]
+fn a_model_without_sequences_has_none() {
+    let m = parse(&two_regions(3)).unwrap();
+    assert!(m.sequences.is_empty());
+    assert!(m.bind.is_empty());
+}
+
+#[test]
+fn bind_matrices_are_read_one_per_bone() {
+    let m = parse(&animated()).unwrap();
+    assert_eq!(m.bind.len(), 2);
+    // Stored a column at a time; kept as rows.
+    assert_eq!(m.bind[1][1], [0.0, 1.0, 0.0, -2.0]);
+    assert_eq!(m.bind[1][2], [0.0, 0.0, 1.0, -1.0]);
+    assert_eq!(m.bind[1][3], [0.0, 0.0, 0.0, 1.0]);
+}
+
+#[test]
+fn the_rigged_export_carries_the_sequences_and_the_bind_pose() {
+    let m = parse(&animated()).unwrap();
+    let g = to_gltf(&m, "Unit.m3");
+    assert_eq!(g.animations.len(), 1);
+    assert_eq!(g.animations[0].name, "Walk");
+    assert_eq!(g.animations[0].channels, m.sequences[0].channels);
+    assert_eq!(g.inverse_bind, m.bind);
+}
+
+#[test]
+fn the_summary_lists_the_sequences() {
+    let text = summary(&parse(&animated()).unwrap());
+    assert!(text.contains("Animations   1"), "{text}");
+    assert!(text.contains("  Walk (1.0 s)"), "{text}");
 }
