@@ -38,6 +38,9 @@ pub mod m2_lite;
 pub mod m2_rig;
 #[cfg(test)]
 mod m2_rig_tests;
+pub mod m3;
+#[cfg(test)]
+mod m3_tests;
 pub mod messiah;
 pub mod model3d;
 pub mod model_d2r;
@@ -248,6 +251,7 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         Box::new(d3_tex::D3TexPreview),
         Box::new(d3_stl::D3StlPreview),
         Box::new(d3_app::D3AppPreview),
+        Box::new(m3::M3Preview),
         Box::new(d3_ani::D3AniPreview),
         Box::new(tex::TexPreview),
         // Structured-data format summaries.
