@@ -878,7 +878,7 @@ impl eframe::App for CascExplorerApp {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /// Window title, shared by the native window and the accessibility root.
-pub const APP_TITLE: &str = "Rusty Demon - CASC Explorer";
+pub const APP_TITLE: &str = "Rusty Demon - CASC & MPK Explorer";
 
 /// Give the accessibility root node the window title.
 ///
@@ -1054,5 +1054,11 @@ mod window_name_tests {
             .find(|(_, n)| n.role() == egui::accesskit::Role::Window)
             .expect("root window node");
         assert_eq!(root.1.label(), Some(APP_TITLE));
+    }
+
+    /// The title names both archive kinds the app opens.
+    #[test]
+    fn title_names_casc_and_mpk() {
+        assert_eq!(APP_TITLE, "Rusty Demon - CASC & MPK Explorer");
     }
 }
