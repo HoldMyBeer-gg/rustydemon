@@ -129,3 +129,107 @@ fn writes_a_glb_through_the_shared_writer() {
     let glb = gltf::to_glb(&model(&m2(), &[0, 1, 0], &[batch(0, 3, 0)], Vec::new()));
     assert_eq!(&glb[..4], b"glTF");
 }
+
+mod animation {
+    use super::super::m2_anim::{BoneKeys, Clip, Sequence};
+    use super::super::m2_rig::animations;
+    use super::{gltf, m2};
+
+    fn sequence(variation: u16) -> Sequence {
+        Sequence {
+            id: 60,
+            variation,
+            duration_ms: 500,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn clips_become_animations_on_the_skeleton() {
+        let clip = Clip {
+            sequence: sequence(1),
+            bones: vec![
+                BoneKeys {
+                    translation: vec![(0, [0.0, 0.0, 0.0]), (500, [1.0, 0.0, 0.0])],
+                    rotation: vec![(250, [0.0, 0.0, 0.0, 1.0])],
+                    scale: vec![],
+                },
+                BoneKeys::default(),
+                BoneKeys {
+                    scale: vec![(0, [2.0, 2.0, 2.0])],
+                    ..Default::default()
+                },
+            ],
+        };
+        let anims = animations(&m2(), &[clip]);
+        assert_eq!(anims.len(), 1);
+        assert_eq!(anims[0].name, "0060-01");
+        // Bone 0 is a root: its translation keys are the pivot plus the key,
+        // with times in seconds.
+        assert_eq!(
+            anims[0].channels[0],
+            gltf::Channel {
+                bone: 0,
+                times: vec![0.0, 0.5],
+                values: gltf::Values::Translation(vec![[0.0, 0.0, 1.0], [1.0, 0.0, 1.0]]),
+            }
+        );
+        assert_eq!(
+            anims[0].channels[1],
+            gltf::Channel {
+                bone: 0,
+                times: vec![0.25],
+                values: gltf::Values::Rotation(vec![[0.0, 0.0, 0.0, 1.0]]),
+            }
+        );
+        assert_eq!(
+            anims[0].channels[2],
+            gltf::Channel {
+                bone: 2,
+                times: vec![0.0],
+                values: gltf::Values::Scale(vec![[2.0; 3]]),
+            }
+        );
+        assert_eq!(anims[0].channels.len(), 3);
+    }
+
+    #[test]
+    fn a_child_bone_translates_from_its_parent_pivot() {
+        let clip = Clip {
+            sequence: sequence(0),
+            bones: vec![
+                BoneKeys::default(),
+                BoneKeys {
+                    translation: vec![(0, [0.0, 0.0, 0.0]), (100, [0.0, 1.0, 0.0])],
+                    ..Default::default()
+                },
+                BoneKeys::default(),
+            ],
+        };
+        let anims = animations(&m2(), &[clip]);
+        assert_eq!(
+            anims[0].channels[0].values,
+            gltf::Values::Translation(vec![[0.0, 0.0, 1.5], [0.0, 1.0, 1.5]])
+        );
+    }
+
+    #[test]
+    fn a_clip_with_no_keys_is_left_out() {
+        let clip = Clip {
+            sequence: sequence(2),
+            bones: vec![BoneKeys::default(); 3],
+        };
+        assert!(animations(&m2(), &[clip]).is_empty());
+    }
+
+    #[test]
+    fn keys_for_bones_the_skeleton_lacks_are_ignored() {
+        let clip = Clip {
+            sequence: sequence(0),
+            bones: vec![BoneKeys::default(); 5],
+        };
+        let mut clip = clip;
+        clip.bones[4].scale = vec![(0, [1.0; 3])];
+        assert!(animations(&m2(), &[clip]).is_empty());
+    }
+}
