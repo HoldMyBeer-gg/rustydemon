@@ -28,6 +28,9 @@ pub mod d3_tex;
 #[cfg(test)]
 mod d3_tex_tests;
 pub mod db2;
+pub mod dds;
+#[cfg(test)]
+mod dds_tests;
 pub mod gltf;
 #[cfg(test)]
 mod gltf_tests;
@@ -252,6 +255,7 @@ pub fn registry() -> Vec<Box<dyn PreviewPlugin>> {
         Box::new(d3_stl::D3StlPreview),
         Box::new(d3_app::D3AppPreview),
         Box::new(m3::M3Preview),
+        Box::new(dds::DdsPreview),
         Box::new(d3_ani::D3AniPreview),
         Box::new(tex::TexPreview),
         // Structured-data format summaries.
