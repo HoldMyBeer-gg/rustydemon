@@ -30,6 +30,7 @@
 
 use std::sync::Arc;
 
+use super::gltf;
 use super::{ExportAction, Mesh3dCpu, MeshBatch, PreviewOutput, PreviewPlugin, SiblingFetcher};
 
 /// A model, as far as the preview and the export need it.
@@ -591,6 +592,84 @@ pub fn summary(model: &Model) -> String {
     text
 }
 
+/// The model for the shared glTF writer: the skeleton in its rest pose and
+/// one part per draw, each with only the vertices it uses.
+///
+/// `filename` names the parts, since the name stored in the file is the
+/// path of the artist's source scene.
+pub fn to_gltf(model: &Model, filename: &str) -> gltf::Model {
+    let stem = filename
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(filename)
+        .rsplit_once('.')
+        .map_or(filename, |(stem, _)| stem);
+    let bones: Vec<gltf::Bone> = model
+        .bones
+        .iter()
+        .map(|b| gltf::Bone {
+            name: b.name.clone(),
+            parent: b.parent,
+            rotation: b.rotation,
+            translation: b.translation,
+            scale: b.scale,
+        })
+        .collect();
+
+    let parts = model
+        .parts
+        .iter()
+        .enumerate()
+        .map(|(n, part)| {
+            let first = part.first_index as usize;
+            let corners = &model.indices[first..first + part.index_count as usize];
+            // Old vertex number to its number in this part.
+            let mut renumbered = std::collections::HashMap::new();
+            let mut positions = Vec::new();
+            let mut uvs = Vec::new();
+            let mut skin = Vec::new();
+            let mut indices = Vec::with_capacity(corners.len());
+            for &old in corners {
+                let new = *renumbered.entry(old).or_insert_with(|| {
+                    let v = old as usize;
+                    positions.push(model.positions[v]);
+                    uvs.push(model.uvs[v]);
+                    if !bones.is_empty() {
+                        // A pair that names a bone the model lacks is
+                        // dropped, so the writer never sees a bad joint.
+                        skin.push(model.skin[v].map(|(bone, weight)| {
+                            if (bone as usize) < bones.len() {
+                                (bone, weight)
+                            } else {
+                                (0, 0.0)
+                            }
+                        }));
+                    }
+                    positions.len() as u32 - 1
+                });
+                indices.push(new);
+            }
+            gltf::Part {
+                name: format!("{stem}_{n}"),
+                material: part.material.map(|m| model.materials[m].name.clone()),
+                positions,
+                uvs,
+                skin,
+                indices,
+            }
+        })
+        .collect();
+
+    gltf::Model {
+        name: stem.to_owned(),
+        bones,
+        parts,
+        textures: Vec::new(),
+        animations: Vec::new(),
+        z_up: true,
+    }
+}
+
 pub struct M3Preview;
 
 impl PreviewPlugin for M3Preview {
@@ -604,7 +683,7 @@ impl PreviewPlugin for M3Preview {
 
     fn build(
         &self,
-        _filename: &str,
+        filename: &str,
         data: &[u8],
         _ctx: &egui::Context,
         _siblings: &SiblingFetcher<'_>,
@@ -628,6 +707,19 @@ impl PreviewPlugin for M3Preview {
                 build: Arc::new(move |_raw, _path| Ok(super::encode_obj(&for_obj))),
             });
             out.mesh3d = Some(mesh);
+
+            let label = if model.bones.is_empty() {
+                "Export As glTF"
+            } else {
+                "Export As glTF (rigged)"
+            };
+            let name = filename.to_owned();
+            out.extra_exports.push(ExportAction {
+                label,
+                default_extension: "glb",
+                filter_name: "glTF binary",
+                build: Arc::new(move |_raw, _path| Ok(gltf::to_glb(&to_gltf(&model, &name)))),
+            });
         }
         out
     }

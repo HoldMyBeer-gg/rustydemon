@@ -367,3 +367,44 @@ fn the_summary_counts_the_model_and_lists_its_textures() {
         assert!(text.contains(line), "missing {line:?} in:\n{text}");
     }
 }
+
+#[test]
+fn the_rigged_export_gives_each_part_its_own_vertices_and_skin() {
+    let m = parse(&two_regions(3)).unwrap();
+    let g = to_gltf(&m, "Unit.m3");
+    assert!(g.z_up);
+    assert_eq!(g.name, "Unit");
+    assert_eq!(g.bones.len(), 2);
+    assert_eq!(g.bones[1].name, "Root");
+    assert_eq!(g.bones[1].parent, Some(0));
+    assert_eq!(g.bones[1].translation, [0.0, 2.0, 0.0]);
+
+    assert_eq!(g.parts.len(), 2);
+    // The second part drew vertices 5, 4, 3; it keeps only those three,
+    // numbered from zero in the order they are first used.
+    let second = &g.parts[1];
+    assert_eq!(second.indices, [0, 1, 2]);
+    assert_eq!(second.positions.len(), 3);
+    assert_eq!(second.positions[0], [5.0, 2.0, 3.0]);
+    assert_eq!(second.uvs[0], [0.5, 0.25]);
+    assert_eq!(second.skin[0][0], (1, 1.0));
+    assert_eq!(second.material.as_deref(), Some("Skin"));
+    assert_eq!(second.name, "Unit_1");
+}
+
+#[test]
+fn a_model_without_bones_exports_unskinned() {
+    let mut m = parse(&two_regions(3)).unwrap();
+    m.bones.clear();
+    let g = to_gltf(&m, "Unit.m3");
+    assert!(g.bones.is_empty());
+    assert!(g.parts.iter().all(|p| p.skin.is_empty()));
+}
+
+#[test]
+fn a_weight_on_a_bone_that_is_not_there_is_dropped() {
+    let mut m = parse(&two_regions(3)).unwrap();
+    m.skin[0][1] = (99, 0.5);
+    let g = to_gltf(&m, "Unit.m3");
+    assert_eq!(g.parts[0].skin[0][1], (0, 0.0));
+}
