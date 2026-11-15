@@ -56,6 +56,9 @@ pub struct Animation {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Model {
+    /// Name of the one root node that holds the skeleton and the parts
+    /// (`model` when empty).
+    pub name: String,
     pub bones: Vec<Bone>,
     pub parts: Vec<Part>,
     /// (material name, PNG bytes)
@@ -267,15 +270,23 @@ pub fn to_glb(m: &Model) -> Vec<u8> {
 
     let mut images = Vec::new();
     let mut materials = Vec::new();
+    // Identical images (one texture on several materials) are stored once.
+    let mut stored: Vec<&[u8]> = Vec::new();
     for (name, png) in &m.textures {
-        let view = bin.view(png, None);
-        images.push(format!(
-            "{{\"bufferView\":{view},\"mimeType\":\"image/png\"}}"
-        ));
+        let image = match stored.iter().position(|b| *b == png.as_slice()) {
+            Some(i) => i,
+            None => {
+                let view = bin.view(png, None);
+                images.push(format!(
+                    "{{\"bufferView\":{view},\"mimeType\":\"image/png\"}}"
+                ));
+                stored.push(png);
+                images.len() - 1
+            }
+        };
         materials.push(format!(
-            "{{\"name\":{},\"pbrMetallicRoughness\":{{\"baseColorTexture\":{{\"index\":{}}},\"metallicFactor\":0,\"roughnessFactor\":0.9}}}}",
-            quote(name),
-            images.len() - 1
+            "{{\"name\":{},\"pbrMetallicRoughness\":{{\"baseColorTexture\":{{\"index\":{image}}},\"metallicFactor\":0,\"roughnessFactor\":0.9}}}}",
+            quote(name)
         ));
     }
 
@@ -432,6 +443,18 @@ pub fn to_glb(m: &Model) -> Vec<u8> {
         .map(|(i, _)| i.to_string())
         .collect();
     scene.extend(mesh_nodes.iter().map(usize::to_string));
+    // One root over everything, so an importer makes a single object.
+    let root_name = if m.name.is_empty() {
+        "model"
+    } else {
+        m.name.as_str()
+    };
+    nodes.push(format!(
+        "{{\"name\":{},\"children\":[{}]}}",
+        quote(root_name),
+        scene.join(",")
+    ));
+    let scene = [(nodes.len() - 1).to_string()];
     let mut json = format!(
         "{{\"asset\":{{\"version\":\"2.0\",\"generator\":\"rustydemon\"}},\"scene\":0,\"scenes\":[{{\"nodes\":[{}]}}],\"nodes\":[{}],\"meshes\":[{}]",
         scene.join(","),
