@@ -5,11 +5,12 @@
 //! the preview showed: the same skin, the same texture per batch.  Bones
 //! rest at their pivot with no rotation, placed relative to the parent's
 //! pivot, which is how the game composes them before any animation.
-//! Animation tracks are not exported yet.
+//! Sequences become animations by [`animations`].
 
 use std::collections::HashMap;
 
 use super::gltf;
+use super::m2_anim::Clip;
 use super::m2_lite::M2Lite;
 use super::MeshBatch;
 
@@ -99,6 +100,66 @@ fn influences(m2: &M2Lite, vi: usize, bone_count: usize) -> [(u16, f32); 4] {
     for k in 0..4 {
         if weights[k] > 0 && usize::from(bones[k]) < bone_count {
             out[k] = (u16::from(bones[k]), f32::from(weights[k]) / 255.0);
+        }
+    }
+    out
+}
+
+/// Every clip with keys as an animation on the skeleton, times in
+/// seconds.  A translation key is relative to the bone's pivot, so the
+/// node's rest translation (pivot minus the parent's pivot) is added to
+/// it; rotation and scale go in as they are.  Keys for bones the
+/// skeleton does not have are ignored.
+pub fn animations(m2: &M2Lite, clips: &[Clip]) -> Vec<gltf::Animation> {
+    let rest: Vec<[f32; 3]> = m2
+        .bones
+        .iter()
+        .map(|b| {
+            let origin = usize::try_from(b.parent)
+                .ok()
+                .and_then(|p| m2.bones.get(p))
+                .map(|p| p.pivot)
+                .unwrap_or_default();
+            [0, 1, 2].map(|k| b.pivot[k] - origin[k])
+        })
+        .collect();
+    let secs = |ms: u32| ms as f32 / 1000.0;
+    let mut out = Vec::new();
+    for clip in clips {
+        let mut channels = Vec::new();
+        for (bone, keys) in clip.bones.iter().enumerate().take(rest.len()) {
+            if !keys.translation.is_empty() {
+                channels.push(gltf::Channel {
+                    bone,
+                    times: keys.translation.iter().map(|k| secs(k.0)).collect(),
+                    values: gltf::Values::Translation(
+                        keys.translation
+                            .iter()
+                            .map(|k| [0, 1, 2].map(|a| rest[bone][a] + k.1[a]))
+                            .collect(),
+                    ),
+                });
+            }
+            if !keys.rotation.is_empty() {
+                channels.push(gltf::Channel {
+                    bone,
+                    times: keys.rotation.iter().map(|k| secs(k.0)).collect(),
+                    values: gltf::Values::Rotation(keys.rotation.iter().map(|k| k.1).collect()),
+                });
+            }
+            if !keys.scale.is_empty() {
+                channels.push(gltf::Channel {
+                    bone,
+                    times: keys.scale.iter().map(|k| secs(k.0)).collect(),
+                    values: gltf::Values::Scale(keys.scale.iter().map(|k| k.1).collect()),
+                });
+            }
+        }
+        if !channels.is_empty() {
+            out.push(gltf::Animation {
+                name: clip.sequence.name(),
+                channels,
+            });
         }
     }
     out

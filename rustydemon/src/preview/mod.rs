@@ -34,6 +34,9 @@ mod gltf_tests;
 pub mod grp;
 pub mod grp_format;
 pub mod m2;
+pub mod m2_anim;
+#[cfg(test)]
+mod m2_anim_tests;
 pub mod m2_lite;
 pub mod m2_rig;
 #[cfg(test)]

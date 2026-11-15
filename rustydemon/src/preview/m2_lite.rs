@@ -81,8 +81,8 @@ const BONE_PIVOT: usize = 0x4C;
 // Header fields, as offsets into the MD20 body.  Arrays are a `(count,
 // offset)` pair of `u32`s; the offset is from the start of the body.
 const F_NAME: usize = 0x08;
-const F_ANIMATIONS: usize = 0x1C;
-const F_BONES: usize = 0x2C;
+pub(crate) const F_ANIMATIONS: usize = 0x1C;
+pub(crate) const F_BONES: usize = 0x2C;
 const F_VERTICES: usize = 0x3C;
 const F_TEXTURES: usize = 0x50;
 const F_MATERIALS: usize = 0x70;
@@ -126,6 +126,31 @@ fn u32s(bytes: &[u8]) -> Vec<u32> {
         .iter()
         .map(|c| u32::from_le_bytes(*c))
         .collect()
+}
+
+/// The MD20 body of a model: the file itself, or the `MD21` chunk of a
+/// chunked one.  Every offset in the header counts from its start.
+#[allow(dead_code)] // The CLI shares this file and reads only the header.
+pub(crate) fn body_of(data: &[u8]) -> Result<&[u8], String> {
+    match data.get(..4) {
+        Some(b"MD20") => Ok(data),
+        Some(b"MD21") => {
+            let mut at = 0usize;
+            while at < data.len() {
+                let size = u32_at(data, at + 4).ok_or("chunk header cut short")? as usize;
+                let chunk = (at + 8)
+                    .checked_add(size)
+                    .and_then(|end| data.get(at + 8..end))
+                    .ok_or("a chunk runs past the end of the file")?;
+                if &data[at..at + 4] == b"MD21" {
+                    return Ok(chunk);
+                }
+                at += 8 + size;
+            }
+            Err("no MD21 chunk".into())
+        }
+        _ => Err("not an M2 file (no MD20 or MD21 magic)".into()),
+    }
 }
 
 impl M2Lite {
@@ -289,7 +314,7 @@ pub(crate) mod tests {
     use super::*;
 
     /// A header-only MD20 body: `0x130` zero bytes with magic and version.
-    fn md20(version: u32) -> Vec<u8> {
+    pub(crate) fn md20(version: u32) -> Vec<u8> {
         let mut b = vec![0u8; 0x130];
         b[..4].copy_from_slice(b"MD20");
         b[4..8].copy_from_slice(&version.to_le_bytes());
@@ -297,7 +322,7 @@ pub(crate) mod tests {
     }
 
     /// Append `bytes` and point the `(count, offset)` pair at `field` to it.
-    fn put(b: &mut Vec<u8>, field: usize, count: u32, bytes: &[u8]) {
+    pub(crate) fn put(b: &mut Vec<u8>, field: usize, count: u32, bytes: &[u8]) {
         let off = b.len() as u32;
         b[field..field + 4].copy_from_slice(&count.to_le_bytes());
         b[field + 4..field + 8].copy_from_slice(&off.to_le_bytes());
@@ -308,7 +333,12 @@ pub(crate) mod tests {
         skinned_vertex(pos, uv, [0; 4], [0; 4])
     }
 
-    fn skinned_vertex(pos: [f32; 3], uv: [f32; 2], weights: [u8; 4], bones: [u8; 4]) -> Vec<u8> {
+    pub(crate) fn skinned_vertex(
+        pos: [f32; 3],
+        uv: [f32; 2],
+        weights: [u8; 4],
+        bones: [u8; 4],
+    ) -> Vec<u8> {
         let mut v = Vec::with_capacity(VERTEX_SIZE);
         for f in pos {
             v.extend_from_slice(&f.to_le_bytes());
@@ -325,14 +355,14 @@ pub(crate) mod tests {
         v
     }
 
-    fn chunk(tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
+    pub(crate) fn chunk(tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
         let mut c = tag.to_vec();
         c.extend_from_slice(&(body.len() as u32).to_le_bytes());
         c.extend_from_slice(body);
         c
     }
 
-    fn le(v: &[u32]) -> Vec<u8> {
+    pub(crate) fn le(v: &[u32]) -> Vec<u8> {
         v.iter().flat_map(|x| x.to_le_bytes()).collect()
     }
 
@@ -367,7 +397,7 @@ pub(crate) mod tests {
     /// One 88-byte bone record: key bone, flags, parent, three empty
     /// tracks (interpolation, global sequence, two empty arrays each) and
     /// the pivot.
-    fn bone(key: i32, flags: u32, parent: i16, pivot: [f32; 3]) -> Vec<u8> {
+    pub(crate) fn bone(key: i32, flags: u32, parent: i16, pivot: [f32; 3]) -> Vec<u8> {
         let mut b = Vec::with_capacity(BONE_SIZE);
         b.extend_from_slice(&key.to_le_bytes());
         b.extend_from_slice(&flags.to_le_bytes());

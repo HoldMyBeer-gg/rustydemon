@@ -14,6 +14,7 @@
 //!
 //! No animation, no doodad placement: those layer on later.
 
+use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Arc;
 
@@ -308,7 +309,36 @@ impl PreviewPlugin for M2Preview {
         }
 
         // Rigged glTF: the skeleton from the model, the parts from the
-        // batches drawn above, the textures as PNG.
+        // batches drawn above, the textures as PNG, and every sequence as
+        // an animation.  Sequences kept in .anim files are read now, while
+        // the archive is at hand; a model's set of them is small.
+        let sequences = super::m2_anim::sequences(data).unwrap_or_default();
+        let wanted: Vec<(u16, u16)> = sequences
+            .iter()
+            .filter(|s| !s.stored_in_model() && !s.is_alias())
+            .map(|s| (s.id, s.variation))
+            .collect();
+        let anim_files: HashMap<(u16, u16), Vec<u8>> = super::m2_anim::anim_files(data)
+            .into_iter()
+            .filter(|(id, variation, fdid)| *fdid != 0 && wanted.contains(&(*id, *variation)))
+            .filter_map(|(id, variation, fdid)| Some(((id, variation), (siblings.by_fdid)(fdid)?)))
+            .collect();
+        let external = wanted.len();
+        let missing = wanted
+            .iter()
+            .filter(|k| !anim_files.contains_key(k))
+            .count();
+        if !m2.bones.is_empty() {
+            text.push_str(&format!(
+                "\nanimations: {} sequences, {} in .anim files",
+                sequences.iter().filter(|s| !s.is_alias()).count(),
+                external
+            ));
+            if missing > 0 {
+                text.push_str(&format!(" ({missing} not in this install)"));
+            }
+        }
+        let anim_files = Arc::new(anim_files);
         let mesh_for_glb = Arc::clone(&mesh);
         out.extra_exports.push(ExportAction {
             label: "Export As glTF (rigged)",
@@ -325,12 +355,16 @@ impl PreviewPlugin for M2Preview {
                         ));
                     }
                 }
-                let model = super::m2_rig::model(
+                let mut model = super::m2_rig::model(
                     &m2,
                     &mesh_for_glb.indices,
                     &mesh_for_glb.batches,
                     textures,
                 );
+                let clips = super::m2_anim::clips(raw, &|id, variation| {
+                    anim_files.get(&(id, variation)).cloned()
+                })?;
+                model.animations = super::m2_rig::animations(&m2, &clips);
                 Ok(super::gltf::to_glb(&model))
             }),
         });
