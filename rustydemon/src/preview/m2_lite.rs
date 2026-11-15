@@ -384,7 +384,7 @@ pub(crate) mod tests {
 
     /// `body()` with two skinned vertices, a three-bone skeleton and a
     /// bone lookup table.
-    fn rigged() -> Vec<u8> {
+    pub(crate) fn rigged() -> Vec<u8> {
         let mut b = body();
         let mut verts = skinned_vertex([1.0, 2.0, 3.0], [0.25, 0.5], [255, 0, 0, 0], [1, 0, 0, 0]);
         verts.extend(skinned_vertex(
