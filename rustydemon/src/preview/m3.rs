@@ -30,8 +30,10 @@
 
 use std::sync::Arc;
 
-use super::gltf;
-use super::{ExportAction, Mesh3dCpu, MeshBatch, PreviewOutput, PreviewPlugin, SiblingFetcher};
+use super::{dds, gltf};
+use super::{
+    ExportAction, Mesh3dCpu, MeshBatch, MeshMaterial, PreviewOutput, PreviewPlugin, SiblingFetcher,
+};
 
 /// A model, as far as the preview and the export need it.
 #[derive(Debug, Clone, PartialEq)]
@@ -532,9 +534,81 @@ pub fn parse(data: &[u8]) -> Result<Model, String> {
 
 // ── Preview ──────────────────────────────────────────────────────────────
 
-/// The model as the 3D viewer draws it: one batch per part, in flat
-/// colours.
-pub fn to_mesh(model: &Model) -> Mesh3dCpu {
+/// The archives a texture can sit in when it is not beside the model, in
+/// the order they are tried.
+const BASE_ARCHIVES: [&str; 9] = [
+    "mods/liberty.sc2mod",
+    "mods/core.sc2mod",
+    "mods/swarm.sc2mod",
+    "mods/void.sc2mod",
+    "campaigns/liberty.sc2campaign",
+    "campaigns/swarm.sc2campaign",
+    "campaigns/void.sc2campaign",
+    "mods/novastoryassets.sc2mod",
+    "mods/war3.sc2mod",
+];
+
+/// Where in the archive a texture can be, most likely first.
+///
+/// A model names its texture from the top of an asset archive
+/// (`Assets/Textures/x.dds`).  The file is in the model's own archive or
+/// in one of the base ones.
+pub fn texture_paths(model_path: &str, texture: &str) -> Vec<String> {
+    let texture = texture.replace('\\', "/");
+    let model_path = model_path.replace('\\', "/");
+    let mut out = Vec::new();
+    // Up to and including the archive folder, e.g. `x.sc2mod/base.sc2assets/`.
+    let lower = model_path.to_ascii_lowercase();
+    if let Some(end) = lower.find(".sc2assets/") {
+        out.push(format!(
+            "{}{texture}",
+            &model_path[..end + ".sc2assets/".len()]
+        ));
+    }
+    for archive in BASE_ARCHIVES {
+        let path = format!("{archive}/base.sc2assets/{texture}");
+        if !out.iter().any(|p| p.eq_ignore_ascii_case(&path)) {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// The colour texture of every material, decoded; `None` where a material
+/// has none or it cannot be found or read.
+fn load_textures(
+    model: &Model,
+    model_path: &str,
+    siblings: &SiblingFetcher<'_>,
+) -> Vec<Option<dds::Image>> {
+    model
+        .materials
+        .iter()
+        .map(|m| {
+            let texture = m.diffuse.as_deref()?;
+            texture_paths(model_path, texture)
+                .iter()
+                .find_map(|path| (siblings.by_name)(path))
+                .and_then(|data| dds::decode(&data).ok())
+        })
+        .collect()
+}
+
+/// Textures for the glTF writer: each material's name with its picture as
+/// PNG bytes.  `pngs` runs parallel to the model's materials.
+pub fn export_textures(model: &Model, pngs: &[Option<Vec<u8>>]) -> Vec<(String, Vec<u8>)> {
+    model
+        .materials
+        .iter()
+        .zip(pngs)
+        .filter_map(|(m, png)| Some((m.name.clone(), png.clone()?)))
+        .collect()
+}
+
+/// The model as the 3D viewer draws it: one batch per part.  `textures`
+/// runs parallel to the model's materials; a part whose material has no
+/// texture is drawn in a flat colour.
+pub fn to_mesh(model: &Model, textures: &[Option<dds::Image>]) -> Mesh3dCpu {
     let mut bbox_min = [f32::MAX; 3];
     let mut bbox_max = [f32::MIN; 3];
     for p in &model.positions {
@@ -559,11 +633,34 @@ pub fn to_mesh(model: &Model) -> Mesh3dCpu {
             .map(|p| MeshBatch {
                 start_index: p.first_index,
                 index_count: p.index_count,
-                material_id: u32::MAX,
+                material_id: p
+                    .material
+                    .filter(|&m| textures.get(m).is_some_and(Option::is_some))
+                    .map_or(u32::MAX, |m| m as u32),
                 blend: Default::default(),
             })
             .collect(),
-        materials: Vec::new(),
+        // Left empty when nothing decoded, so the viewer uses its flat
+        // colours for every batch.
+        materials: if textures.iter().any(Option::is_some) {
+            textures
+                .iter()
+                .map(|t| match t {
+                    Some(t) => MeshMaterial {
+                        rgba: Some(t.rgba.clone()),
+                        width: t.width,
+                        height: t.height,
+                    },
+                    None => MeshMaterial {
+                        rgba: None,
+                        width: 0,
+                        height: 0,
+                    },
+                })
+                .collect()
+        } else {
+            Vec::new()
+        },
     }
 }
 
@@ -686,7 +783,7 @@ impl PreviewPlugin for M3Preview {
         filename: &str,
         data: &[u8],
         _ctx: &egui::Context,
-        _siblings: &SiblingFetcher<'_>,
+        siblings: &SiblingFetcher<'_>,
     ) -> PreviewOutput {
         let mut out = PreviewOutput::new();
         let model = match parse(data) {
@@ -696,9 +793,20 @@ impl PreviewPlugin for M3Preview {
                 return out;
             }
         };
-        out.text = Some(summary(&model));
+        let textures = load_textures(&model, filename, siblings);
+        let mut text = summary(&model);
+        let wanted = model
+            .materials
+            .iter()
+            .filter(|m| m.diffuse.is_some())
+            .count();
+        let found = textures.iter().flatten().count();
+        if wanted > 0 {
+            text.push_str(&format!("\nTextures     {found} of {wanted} found\n"));
+        }
+        out.text = Some(text);
         if !model.indices.is_empty() {
-            let mesh = Arc::new(to_mesh(&model));
+            let mesh = Arc::new(to_mesh(&model, &textures));
             let for_obj = Arc::clone(&mesh);
             out.extra_exports.push(ExportAction {
                 label: "Export As OBJ",
@@ -714,11 +822,23 @@ impl PreviewPlugin for M3Preview {
                 "Export As glTF (rigged)"
             };
             let name = filename.to_owned();
+            let textures = Arc::new(textures);
             out.extra_exports.push(ExportAction {
                 label,
                 default_extension: "glb",
                 filter_name: "glTF binary",
-                build: Arc::new(move |_raw, _path| Ok(gltf::to_glb(&to_gltf(&model, &name)))),
+                build: Arc::new(move |_raw, _path| {
+                    let mut pngs = Vec::with_capacity(textures.len());
+                    for t in textures.iter() {
+                        pngs.push(match t {
+                            Some(t) => Some(super::encode_png(&t.rgba, t.width, t.height)?),
+                            None => None,
+                        });
+                    }
+                    let mut out = to_gltf(&model, &name);
+                    out.textures = export_textures(&model, &pngs);
+                    Ok(gltf::to_glb(&out))
+                }),
             });
         }
         out

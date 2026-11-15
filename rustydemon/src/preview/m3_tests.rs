@@ -338,7 +338,7 @@ fn a_triangle_index_past_its_regions_vertices_is_an_error() {
 #[test]
 fn the_viewer_mesh_has_one_batch_per_part_and_the_models_bounds() {
     let m = parse(&two_regions(3)).unwrap();
-    let mesh = to_mesh(&m);
+    let mesh = to_mesh(&m, &[None]);
     assert_eq!(mesh.positions.len(), 6);
     assert_eq!(mesh.indices, m.indices);
     assert_eq!(mesh.batches.len(), 2);
@@ -346,7 +346,7 @@ fn the_viewer_mesh_has_one_batch_per_part_and_the_models_bounds() {
         (mesh.batches[1].start_index, mesh.batches[1].index_count),
         (3, 3)
     );
-    // No texture is decoded yet, so every batch falls back to flat colour.
+    // Without a decoded texture every batch falls back to flat colour.
     assert!(mesh.materials.is_empty());
     assert_eq!(mesh.batches[0].material_id, u32::MAX);
     assert_eq!(mesh.bbox_min, [0.0, 2.0, 3.0]);
@@ -407,4 +407,68 @@ fn a_weight_on_a_bone_that_is_not_there_is_dropped() {
     m.skin[0][1] = (99, 0.5);
     let g = to_gltf(&m, "Unit.m3");
     assert_eq!(g.parts[0].skin[0][1], (0, 0.0));
+}
+
+#[test]
+fn a_decoded_texture_becomes_the_material_its_parts_draw_with() {
+    let m = parse(&two_regions(3)).unwrap();
+    let texture = super::dds::Image {
+        width: 1,
+        height: 1,
+        rgba: vec![1, 2, 3, 4],
+        format: "DXT1",
+    };
+    let mesh = to_mesh(&m, &[Some(texture)]);
+    assert_eq!(mesh.materials.len(), 1);
+    assert_eq!(mesh.materials[0].rgba.as_deref(), Some(&[1u8, 2, 3, 4][..]));
+    assert_eq!((mesh.materials[0].width, mesh.materials[0].height), (1, 1));
+    assert_eq!(mesh.batches[0].material_id, 0);
+    assert_eq!(mesh.batches[1].material_id, 0);
+}
+
+#[test]
+fn a_texture_is_looked_for_beside_the_model_first_then_in_the_base_archives() {
+    let found = texture_paths(
+        "campaigns/void.sc2campaign/base.sc2assets/Assets/Units/Protoss/Zealot/Zealot.m3",
+        "Assets\\Textures\\zealot_diffuse.dds",
+    );
+    assert_eq!(
+        found[0],
+        "campaigns/void.sc2campaign/base.sc2assets/Assets/Textures/zealot_diffuse.dds"
+    );
+    assert_eq!(
+        found[1],
+        "mods/liberty.sc2mod/base.sc2assets/Assets/Textures/zealot_diffuse.dds"
+    );
+    // The model's own archive is not tried twice.
+    assert_eq!(
+        found
+            .iter()
+            .filter(|p| p.starts_with("campaigns/void"))
+            .count(),
+        1
+    );
+    assert!(found.contains(
+        &"mods/core.sc2mod/base.sc2assets/Assets/Textures/zealot_diffuse.dds".to_owned()
+    ));
+}
+
+#[test]
+fn a_model_known_only_by_its_file_name_still_gets_the_base_archives() {
+    let found = texture_paths("Marine.m3", "Assets/Textures/marine_diffuse.dds");
+    assert_eq!(
+        found[0],
+        "mods/liberty.sc2mod/base.sc2assets/Assets/Textures/marine_diffuse.dds"
+    );
+    assert!(found.len() > 3);
+}
+
+#[test]
+fn the_rigged_export_carries_each_texture_under_its_material_name() {
+    let m = parse(&two_regions(3)).unwrap();
+    let mut g = to_gltf(&m, "Unit.m3");
+    assert!(g.textures.is_empty());
+    g.textures = export_textures(&m, &[Some(vec![9, 9, 9])]);
+    assert_eq!(g.textures, [("Skin".to_owned(), vec![9, 9, 9])]);
+    assert!(export_textures(&m, &[None]).is_empty());
 }
