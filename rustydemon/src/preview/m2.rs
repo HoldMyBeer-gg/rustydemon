@@ -307,6 +307,34 @@ impl PreviewPlugin for M2Preview {
             });
         }
 
+        // Rigged glTF: the skeleton from the model, the parts from the
+        // batches drawn above, the textures as PNG.
+        let mesh_for_glb = Arc::clone(&mesh);
+        out.extra_exports.push(ExportAction {
+            label: "Export As glTF (rigged)",
+            default_extension: "glb",
+            filter_name: "glTF binary",
+            build: Arc::new(move |raw, _path| {
+                let m2 = M2Lite::parse(raw)?;
+                let mut textures = Vec::new();
+                for (slot, material) in mesh_for_glb.materials.iter().enumerate() {
+                    if let Some(rgba) = &material.rgba {
+                        textures.push((
+                            super::m2_rig::texture_name(slot),
+                            super::encode_png(rgba, material.width, material.height)?,
+                        ));
+                    }
+                }
+                let model = super::m2_rig::model(
+                    &m2,
+                    &mesh_for_glb.indices,
+                    &mesh_for_glb.batches,
+                    textures,
+                );
+                Ok(super::gltf::to_glb(&model))
+            }),
+        });
+
         let batch_count = mesh.batches.len();
         out.mesh3d = Some(mesh);
 

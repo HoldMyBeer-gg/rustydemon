@@ -35,6 +35,9 @@ pub mod grp;
 pub mod grp_format;
 pub mod m2;
 pub mod m2_lite;
+pub mod m2_rig;
+#[cfg(test)]
+mod m2_rig_tests;
 pub mod messiah;
 pub mod model3d;
 pub mod model_d2r;
