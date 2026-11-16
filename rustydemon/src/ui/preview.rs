@@ -176,8 +176,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     // of `app.selected`) is live, so collect intents here and run them after.
     let mut pcx_load_palette = false;
     let mut pcx_clear_palette = false;
-    let mut export_action_clicked: Option<usize> = None;
-    let mut export_raw_clicked = false;
+    let mut export_choice: Option<ExportChoice> = None;
     let mut audio_action: Option<crate::app::AudioAction> = None;
 
     if is_pcx {
@@ -311,19 +310,13 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     // ── Export buttons ─────────────────────────────────────────────────────────
     if sel.data.is_some() {
         theme::section_label(ui, "Export");
-        ui.horizontal(|ui| {
-            // Plugin-provided exports (e.g. "Export As PNG", "Export As BK2").
-            if let Some(preview) = &sel.preview {
-                for (i, action) in preview.extra_exports.iter().enumerate() {
-                    if ui.button(action.label).clicked() {
-                        export_action_clicked = Some(i);
-                    }
-                }
-            }
-            if ui.button("Export Raw").clicked() {
-                export_raw_clicked = true;
-            }
-        });
+        // Plugin-provided exports (e.g. "Export As PNG", "Export As BK2").
+        let labels: Vec<&str> = sel
+            .preview
+            .iter()
+            .flat_map(|p| p.extra_exports.iter().map(|a| a.label))
+            .collect();
+        export_choice = export_menu(ui, &labels);
     }
 
     // Drop the `sel` immutable borrow before touching `app` mutably.
@@ -350,7 +343,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         app.pcx_palette_name = None;
         reload_current_pcx(app, ui.ctx());
     }
-    if let Some(idx) = export_action_clicked {
+    if let Some(ExportChoice::Plugin(idx)) = export_choice {
         // Re-borrow the action: it lives on `app.selected.preview.extra_exports`.
         let action = app
             .selected
@@ -362,9 +355,43 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
             run_plugin_export(app, &a);
         }
     }
-    if export_raw_clicked {
+    if export_choice == Some(ExportChoice::Raw) {
         export_raw(app);
     }
+}
+
+/// What was picked from the export menu.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ExportChoice {
+    /// A plugin's export, by its place in the preview's list.
+    Plugin(usize),
+    /// The file as it is stored.
+    Raw,
+}
+
+/// One button that opens the exports as a menu: a model can offer several,
+/// and a row of buttons runs out of panel.
+fn export_menu(ui: &mut egui::Ui, labels: &[&str]) -> Option<ExportChoice> {
+    ui.menu_button("Export", |ui| export_items(ui, labels))
+        .inner
+        .flatten()
+}
+
+/// The menu's items: the plugin exports in their order, then the raw file.
+fn export_items(ui: &mut egui::Ui, labels: &[&str]) -> Option<ExportChoice> {
+    let mut choice = None;
+    for (i, label) in labels.iter().enumerate() {
+        if ui.button(*label).clicked() {
+            choice = Some(ExportChoice::Plugin(i));
+        }
+    }
+    if ui.button("Export Raw").clicked() {
+        choice = Some(ExportChoice::Raw);
+    }
+    if choice.is_some() {
+        ui.close();
+    }
+    choice
 }
 
 /// Apply a new viewer override to the current selection and re-run
@@ -648,5 +675,59 @@ fn format_size(bytes: usize) -> String {
         format!("{:.1} KiB", bytes as f64 / 1024.0)
     } else {
         format!("{:.2} MiB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+#[cfg(test)]
+mod export_menu_tests {
+    use super::{export_items, export_menu, ExportChoice};
+    use crate::ui::a11y::testing::nodes;
+    use egui::accesskit::Role;
+
+    fn button_names(draw: impl FnMut(&mut egui::Ui)) -> Vec<String> {
+        nodes(draw)
+            .iter()
+            .filter(|n| n.role() == Role::Button)
+            .filter_map(|n| n.label().map(str::to_owned))
+            .collect()
+    }
+
+    /// However many exports a file offers, the panel shows one button.
+    #[test]
+    fn the_exports_sit_behind_one_button() {
+        let names = button_names(|ui| {
+            export_menu(
+                ui,
+                &[
+                    "Export As OBJ",
+                    "Export As OBJ + MTL",
+                    "Export As glTF (rigged)",
+                ],
+            );
+        });
+        assert_eq!(names, ["Export"]);
+    }
+
+    #[test]
+    fn the_menu_lists_the_plugin_exports_then_the_raw_file() {
+        let names = button_names(|ui| {
+            export_items(ui, &["Export As PNG", "Export As BK2"]);
+        });
+        assert_eq!(names, ["Export As PNG", "Export As BK2", "Export Raw"]);
+    }
+
+    #[test]
+    fn a_file_with_no_plugin_exports_still_offers_the_raw_file() {
+        let names = button_names(|ui| {
+            export_items(ui, &[]);
+        });
+        assert_eq!(names, ["Export Raw"]);
+    }
+
+    #[test]
+    fn nothing_is_chosen_until_an_item_is_pressed() {
+        let mut chosen: Option<ExportChoice> = Some(ExportChoice::Raw);
+        nodes(|ui| chosen = export_items(ui, &["Export As PNG"]));
+        assert_eq!(chosen, None);
     }
 }
