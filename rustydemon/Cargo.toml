@@ -52,16 +52,21 @@ texture2ddecoder = "0.1"
 #
 # rodio -> cpal, which uses WASAPI on Windows, CoreAudio on macOS,
 # and ALSA on Linux.  The Linux path needs `pkg-config` + the
-# `libasound2-dev` (Debian/Ubuntu) / `alsa-lib` (Arch) system
-# headers, which aren't available on a stock SteamOS install
-# without disabling read-only mode.  We therefore restrict the
-# dependency to non-Linux targets and stub it out on Linux: the
-# preview panel still renders disabled playback controls so the
-# UI is consistent across OSes.  Linux devs who have the system
-# deps can re-enable it by dropping the target cfg.
+# `libasound2-dev` (Debian/Ubuntu) / `alsa-lib` (Arch) development
+# package at build time, which a stock SteamOS install does not have.
+# So on Linux the dependency is optional, behind the `audio` feature,
+# and a build without it compiles a stub that says playback is not
+# built in.
 [target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
 rodio = { version = "0.19", default-features = false, features = ["mp3", "vorbis", "wav"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rodio = { version = "0.19", default-features = false, features = ["mp3", "vorbis", "wav"], optional = true }
 
 # Embeds the icon in the Windows executable (see build.rs).
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
+
+[features]
+# Sound in the preview panel on Linux, through ALSA.
+audio = ["dep:rodio"]

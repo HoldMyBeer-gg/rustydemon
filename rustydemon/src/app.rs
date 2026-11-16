@@ -286,7 +286,8 @@ impl CascExplorerApp {
     }
 
     /// Access the audio player, initialising it on first use.  Returns
-    /// `None` if the machine has no working audio device.
+    /// `None` if the player cannot start: no output device, or a build
+    /// without playback.
     pub fn audio_player_mut(&mut self) -> Option<&mut crate::audio::AudioPlayer> {
         let slot = self
             .audio_player
@@ -303,7 +304,7 @@ impl CascExplorerApp {
             return;
         };
         let Some(player) = self.audio_player_mut() else {
-            self.status = "Audio playback unavailable (no output device).".into();
+            self.status = crate::audio::UNAVAILABLE.into();
             return;
         };
         match action {

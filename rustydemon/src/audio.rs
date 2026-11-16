@@ -13,11 +13,12 @@
 //!
 //! ## Platform story
 //!
-//! rodio pulls in cpal, which needs ALSA development headers on Linux.
-//! SteamOS doesn't ship them in a read-only-root-friendly way, so we
-//! compile a stub on Linux that always reports "unavailable" and keep
-//! the real implementation for Windows/macOS where cpal's backends
-//! (WASAPI / CoreAudio) are built-in.
+//! rodio pulls in cpal, whose backends on Windows and macOS (WASAPI,
+//! CoreAudio) need nothing installed. On Linux it plays through ALSA,
+//! and its binding crate asks `pkg-config` for the ALSA development
+//! package at build time, which SteamOS does not ship. So Linux playback
+//! sits behind the `audio` feature: without it a stub reports that
+//! playback is not built in, and a plain `cargo build` works anywhere.
 
 /// Returns `true` if `filename` looks like a format our AudioPlayer
 /// can decode via rodio: WAV / MP3 / OGG / FLAC.  Used by the preview
@@ -31,10 +32,13 @@ pub fn is_audio_filename(filename: &str) -> bool {
         || lower.ends_with(".flac")
 }
 
-// ── Real implementation: Windows + macOS ─────────────────────────────────────
+// ── Real implementation: Windows, macOS, and Linux with `audio` ──────────────
 
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", feature = "audio"))]
 mod imp {
+    /// What the status bar says when the player cannot start.
+    pub const UNAVAILABLE: &str = "Audio playback unavailable (no output device).";
+
     use std::io::Cursor;
     use std::time::Instant;
 
@@ -148,8 +152,12 @@ mod imp {
 // playback as permanently unavailable, and the UI renders the same
 // control row with every button disabled.
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_os = "macos", feature = "audio")))]
 mod imp {
+    /// What the status bar says when the player cannot start.
+    pub const UNAVAILABLE: &str =
+        "Audio playback is not built into this version (build with --features audio).";
+
     pub struct AudioPlayer {
         _never: (),
     }
@@ -184,4 +192,26 @@ mod imp {
     }
 }
 
-pub use imp::AudioPlayer;
+pub use imp::{AudioPlayer, UNAVAILABLE};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A build without playback says so. It used to blame the machine:
+    /// "no output device" on a Steam Deck whose sound works.
+    #[cfg(not(any(target_os = "windows", target_os = "macos", feature = "audio")))]
+    #[test]
+    fn a_build_without_playback_does_not_blame_the_sound_device() {
+        assert!(AudioPlayer::try_new().is_none());
+        assert!(UNAVAILABLE.contains("not built"), "{UNAVAILABLE}");
+        assert!(!UNAVAILABLE.contains("device"), "{UNAVAILABLE}");
+    }
+
+    /// A build with playback can only fail to start for want of a device.
+    #[cfg(any(target_os = "windows", target_os = "macos", feature = "audio"))]
+    #[test]
+    fn a_build_with_playback_names_the_output_device() {
+        assert!(UNAVAILABLE.contains("no output device"), "{UNAVAILABLE}");
+    }
+}
