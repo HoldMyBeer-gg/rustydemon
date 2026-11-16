@@ -7,7 +7,8 @@
 //! 0x24  bones, 312 bytes each
 //!         [64] name, i32 parent (-1 for a root), [40] bounds,
 //!         then 8-float transforms (quaternion x y z w, translation, scale):
-//!         0x6C world, 0x8C inverse world, 0xAC local to the parent
+//!         0x6C world, 0x8C inverse world, 0xAC local to the parent,
+//!         0xCC world in the bind pose, 0xEC its inverse
 //! 0xA8  parts, 400 bytes each
 //!         +0x04 u32 vertex count, +0x08 vertices (44 bytes each)
 //!         +0x18 skin weights (24 bytes each), +0x1C their size
@@ -20,6 +21,13 @@
 //!         SNO at +0x10; slot 1 is the colour map
 //! 0x1C8 looks: offset and size of a list of 64-byte names
 //! ```
+//!
+//! A transform places a point as `rotate(scale * p) + translation`. The
+//! first three are the rest pose, which animations are keyed against. The
+//! mesh is skinned in the bind pose, and that is a different pose in 313
+//! of the 3,359 rigged models: Greed rests with his arms straight out but
+//! was skinned with them lowered, so binding the mesh to the rest pose
+//! bends his arms by the difference in every animation.
 //!
 //! A vertex is a position (3 f32) at 0 and a UV (2 u16, `(v - 0x8000) /
 //! 512`) at 24. A skin weight is three (u32 bone, f32 weight) pairs.
@@ -56,6 +64,9 @@ pub struct Bone {
     pub rotation: [f32; 4],
     pub translation: [f32; 3],
     pub scale: f32,
+    /// Bind pose space from model space, as rows with the translation in
+    /// the last column. `None` when the file holds no rotation for it.
+    pub inverse_bind: Option<[[f32; 4]; 4]>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -150,6 +161,7 @@ pub fn parse(data: &[u8]) -> Result<Appearance, String> {
             rotation: [f(0)?, f(1)?, f(2)?, f(3)?],
             translation: [f(4)?, f(5)?, f(6)?],
             scale: f(7)?,
+            inverse_bind: inverse_bind(&r, b + 0xEC)?,
         });
     }
 
@@ -177,6 +189,41 @@ pub fn parse(data: &[u8]) -> Result<Appearance, String> {
         }
     }
     Ok(app)
+}
+
+/// The matrix of the transform at `at` (quaternion x y z w, translation,
+/// scale), or `None` when the quaternion is not a rotation.
+fn inverse_bind(r: &Reader, at: usize) -> Result<Option<[[f32; 4]; 4]>, String> {
+    let mut f = [0f32; 8];
+    for (k, v) in f.iter_mut().enumerate() {
+        *v = r.f32(at + k * 4)?;
+    }
+    let [x, y, z, w, tx, ty, tz, s] = f;
+    let len = (x * x + y * y + z * z + w * w).sqrt();
+    if (len - 1.0).abs() > 1e-2 || !s.is_finite() {
+        return Ok(None);
+    }
+    Ok(Some([
+        [
+            s * (1.0 - 2.0 * (y * y + z * z)),
+            s * 2.0 * (x * y - z * w),
+            s * 2.0 * (x * z + y * w),
+            tx,
+        ],
+        [
+            s * 2.0 * (x * y + z * w),
+            s * (1.0 - 2.0 * (x * x + z * z)),
+            s * 2.0 * (y * z - x * w),
+            ty,
+        ],
+        [
+            s * 2.0 * (x * z - y * w),
+            s * 2.0 * (y * z + x * w),
+            s * (1.0 - 2.0 * (x * x + y * y)),
+            tz,
+        ],
+        [0.0, 0.0, 0.0, 1.0],
+    ]))
 }
 
 fn parse_part(r: &Reader, p: usize) -> Result<Part, String> {
@@ -269,13 +316,23 @@ pub fn drawn_parts(app: &Appearance) -> Vec<usize> {
 
 // ── glTF export ──────────────────────────────────────────────────────────
 
-/// The model, and the animation when given, in the shared glTF writer's
-/// terms.
+/// The model, and the animation when given, as a glTF binary.
 pub fn to_glb(
     app: &Appearance,
     textures: &[(String, Vec<u8>)],
     anim: Option<&super::d3_ani::Animation>,
 ) -> Vec<u8> {
+    super::gltf::to_glb(&to_gltf(app, textures, anim))
+}
+
+/// The model, and the animation when given, in the shared glTF writer's
+/// terms. The skin is bound in the model's bind pose when every bone has
+/// one, and in the rest pose otherwise.
+pub fn to_gltf(
+    app: &Appearance,
+    textures: &[(String, Vec<u8>)],
+    anim: Option<&super::d3_ani::Animation>,
+) -> super::gltf::Model {
     use super::gltf;
     let bones: Vec<gltf::Bone> = app
         .bones
@@ -344,15 +401,20 @@ pub fn to_glb(
             channels,
         });
     }
-    gltf::to_glb(&gltf::Model {
+    gltf::Model {
         name: String::new(),
         bones,
         parts,
         textures: textures.to_vec(),
         animations,
         z_up: true,
-        inverse_bind: Vec::new(),
-    })
+        inverse_bind: app
+            .bones
+            .iter()
+            .map(|b| b.inverse_bind)
+            .collect::<Option<Vec<_>>>()
+            .unwrap_or_default(),
+    }
 }
 
 // ── Preview ──────────────────────────────────────────────────────────────
