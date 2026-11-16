@@ -19,6 +19,20 @@ mod viewport3d;
 
 use app::CascExplorerApp;
 
+/// The main window. The app id is what a Wayland desktop matches against
+/// installed desktop entries to find the icon; the icon given here only
+/// reaches X11 and Windows.
+fn viewport() -> egui::ViewportBuilder {
+    egui::ViewportBuilder::default()
+        .with_title(app::APP_TITLE)
+        .with_app_id(app::APP_ID)
+        .with_inner_size([1100.0, 700.0])
+        .with_min_inner_size([800.0, 500.0])
+        .with_icon(
+            eframe::icon_data::from_png_bytes(include_bytes!("../icon.png")).unwrap_or_default(),
+        )
+}
+
 fn main() -> eframe::Result {
     // `rustydemon [GAME_DIR] [--listfile FILE]`, both optional.  Relative
     // paths (including `.`) are resolved against the current directory.
@@ -28,14 +42,7 @@ fn main() -> eframe::Result {
     let problem = args.problem;
 
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title(app::APP_TITLE)
-            .with_inner_size([1100.0, 700.0])
-            .with_min_inner_size([800.0, 500.0])
-            .with_icon(
-                eframe::icon_data::from_png_bytes(include_bytes!("../icon.png"))
-                    .unwrap_or_default(),
-            ),
+        viewport: viewport(),
         ..Default::default()
     };
 
@@ -91,5 +98,31 @@ mod exe_icon_tests {
             FindResourceW(exe, id(ICON_ID), id(RT_GROUP_ICON))
         };
         assert!(!found.is_null(), "no icon group resource in the executable");
+    }
+}
+
+#[cfg(test)]
+mod app_id_tests {
+    /// A Wayland desktop finds a window's icon by looking up a desktop
+    /// entry named after its app id. Left unset, the id was the window
+    /// title, no entry matched, and KDE drew its stand-in icon.
+    #[test]
+    fn the_window_is_identified_by_the_name_of_its_desktop_entry() {
+        assert_eq!(
+            super::viewport().app_id.as_deref(),
+            Some(crate::app::APP_ID)
+        );
+        let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../packaging/aur/rustydemon-bin")
+            .join(format!("{}.desktop", crate::app::APP_ID));
+        assert!(entry.is_file(), "no desktop entry at {}", entry.display());
+    }
+
+    #[test]
+    fn the_window_keeps_its_title() {
+        assert_eq!(
+            super::viewport().title.as_deref(),
+            Some(crate::app::APP_TITLE)
+        );
     }
 }
