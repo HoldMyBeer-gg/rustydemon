@@ -881,6 +881,10 @@ impl eframe::App for CascExplorerApp {
 /// Window title, shared by the native window and the accessibility root.
 pub const APP_TITLE: &str = "Rusty Demon - CASC & MPK Explorer";
 
+/// The window's app id on Linux: the name of the desktop entry the
+/// packages install (`rustydemon.desktop`).
+pub const APP_ID: &str = "rustydemon";
+
 /// Give the accessibility root node the window title.
 ///
 /// egui creates the root as an unnamed `Window`, so without this the
