@@ -144,6 +144,7 @@ fn glb_carries_the_animation_on_bones_matched_by_name() {
                 rotation: [0.0, 0.0, 0.0, 1.0],
                 translation: [0.0; 3],
                 scale: 1.0,
+                inverse_bind: None,
             },
             Bone {
                 name: "Pelvis".into(),
@@ -151,6 +152,7 @@ fn glb_carries_the_animation_on_bones_matched_by_name() {
                 rotation: [0.0, 0.0, 0.0, 1.0],
                 translation: [0.0, 0.0, 1.0],
                 scale: 1.0,
+                inverse_bind: None,
             },
         ],
         ..Default::default()
