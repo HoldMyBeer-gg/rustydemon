@@ -123,7 +123,7 @@
         {
           "action": "wait_for_element",
           "window_id": "$WINDOW",
-          "name": "Export As OBJ",
+          "name": "3D preview: drag to rotate, Shift+drag to pan, scroll to zoom",
           "timeout": 20
         },
         {

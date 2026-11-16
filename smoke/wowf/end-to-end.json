@@ -117,10 +117,12 @@
         {
           "action": "wait_for_element",
           "window_id": "$WINDOW",
-          "name": "Export Raw",
-          "timeout": 20
+          "name": "Export",
+          "timeout": 20,
+          "role": "button"
         }
-      ]
+      ],
+      "note": "The Export heading and the Export button share a name, so the button is asked for by role."
     },
     {
       "name": "glob search for a model",
@@ -175,7 +177,7 @@
         {
           "action": "wait_for_element",
           "window_id": "$WINDOW",
-          "name": "Export As OBJ",
+          "name": "3D preview: drag to rotate, Shift+drag to pan, scroll to zoom",
           "timeout": 20
         }
       ],
@@ -223,6 +225,10 @@
       "learn": {
         "hit": {
           "name": "inv_misc_questionmark.blp"
+        },
+        "export": {
+          "name": "Export",
+          "role": "button"
         }
       },
       "steps": [
@@ -231,12 +237,17 @@
           "target": "hit"
         },
         {
+          "action": "click",
+          "target": "export"
+        },
+        {
           "action": "wait_for_element",
           "window_id": "$WINDOW",
           "name": "Export As PNG",
           "timeout": 20
         }
-      ]
+      ],
+      "note": "The exports sit in a menu behind the Export button. Opening it and waiting for Export As PNG is what shows the texture has decoded; the menu is left open for the next phase."
     },
     {
       "name": "open the save dialog",
@@ -329,7 +340,8 @@
       "checks": [
         {
           "present": {
-            "name": "Export As PNG"
+            "name": "Export",
+            "role": "button"
           },
           "note": "The main window is back in charge once the dialog closes."
         }
