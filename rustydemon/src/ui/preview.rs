@@ -108,8 +108,21 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
             texture_image(ui, tex);
         }
 
-        // 3D mesh viewport (currently only WMO group geometry).
-        if let Some(mesh) = preview.mesh3d.clone() {
+        // 3D mesh viewport. A file with variants (a model's looks) gets a
+        // dropdown, and the chosen one is drawn; exports read the same
+        // choice.
+        if let Some(variants) = &preview.variants {
+            theme::section_label(ui, variants.label);
+            ui.horizontal(|ui| {
+                if let Some(k) =
+                    variant_combo(ui, variants.label, &variants.names, variants.chosen())
+                {
+                    variants.choose(k);
+                }
+            });
+            theme::section_label(ui, "Mesh");
+            crate::viewport3d::paint_mesh(ui, variants.mesh());
+        } else if let Some(mesh) = preview.mesh3d.clone() {
             theme::section_label(ui, "Mesh");
             crate::viewport3d::paint_mesh(ui, mesh);
         }
@@ -577,6 +590,30 @@ fn export_raw(app: &CascExplorerApp) {
     }
 }
 
+/// A dropdown over a file's variants, named `label`. Returns the entry the
+/// user picked, if they picked one this frame.
+pub(crate) fn variant_combo(
+    ui: &mut egui::Ui,
+    label: &str,
+    names: &[String],
+    current: usize,
+) -> Option<usize> {
+    let mut picked = None;
+    let combo = egui::ComboBox::from_id_salt(("preview_variant", label))
+        .selected_text(names.get(current).map_or("", String::as_str))
+        .show_ui(ui, |ui| {
+            for (i, name) in names.iter().enumerate() {
+                if ui.selectable_label(current == i, name.as_str()).clicked() {
+                    picked = Some(i);
+                }
+            }
+        });
+    // The dropdown has no label of its own; the heading above it is a
+    // separate node.
+    super::a11y::name(ui.ctx(), combo.response.id, label);
+    picked
+}
+
 /// The viewer override dropdown. Returns the new choice when the user picks
 /// one: `Some(None)` for Auto, `Some(Some(i))` for plugin `i`.
 pub(crate) fn viewer_combo(
@@ -729,5 +766,36 @@ mod export_menu_tests {
         let mut chosen: Option<ExportChoice> = Some(ExportChoice::Raw);
         nodes(|ui| chosen = export_items(ui, &["Export As PNG"]));
         assert_eq!(chosen, None);
+    }
+}
+
+#[cfg(test)]
+mod variant_tests {
+    use super::variant_combo;
+    use crate::ui::a11y::testing::nodes;
+    use egui::accesskit::Role;
+
+    /// The dropdown is named after what it chooses, so a screen reader and
+    /// a smoke script can both find "Look".
+    #[test]
+    fn the_dropdown_carries_the_name_of_the_choice() {
+        let names = vec!["A".to_string(), "chestOnly".to_string()];
+        let all = nodes(|ui| {
+            variant_combo(ui, "Look", &names, 1);
+        });
+        let combo = all
+            .iter()
+            .find(|n| n.role() == Role::ComboBox)
+            .expect("a dropdown");
+        assert_eq!(combo.label(), Some("Look"));
+        assert_eq!(combo.value(), Some("chestOnly"));
+    }
+
+    #[test]
+    fn nothing_changes_until_an_entry_is_picked() {
+        let names = vec!["A".to_string(), "chestOnly".to_string()];
+        let mut picked = Some(7);
+        nodes(|ui| picked = variant_combo(ui, "Look", &names, 0));
+        assert_eq!(picked, None);
     }
 }

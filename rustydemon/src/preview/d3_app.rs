@@ -15,8 +15,11 @@
 //!         +0x28 u32 index count, +0x2C u16 indices
 //!         +0x5C [64] material name
 //! 0x1B4 materials, 144 bytes each
-//!         [128] name, u32 offset of a parameter block
-//!         block +0x08 offset of texture bindings, +0x0C their count;
+//!         [128] name, u32 offset and u32 size of its per-look records,
+//!         248 bytes each, one for every look in the order of the list at
+//!         0x1C8
+//!         record +0x00 flags, bit 0 set when the look shows the material
+//!         record +0x08 offset of texture bindings, +0x0C their count;
 //!         a binding is 160 bytes with the slot at +0x08 and the texture
 //!         SNO at +0x10; slot 1 is the colour map
 //! 0x1C8 looks: offset and size of a list of 64-byte names
@@ -34,8 +37,13 @@
 //!
 //! Parts are alternatives as often as they are pieces: the treasure goblin
 //! ships its body with and without its backpack, and the sack lying on the
-//! floor. Which parts make up each look is not decoded, so the preview
-//! draws the parts whose material is named `normal` when there are any.
+//! floor. A look is the set of parts whose material it shows. Greed's
+//! death chest has five: `chestOnly` leaves her body out, and only
+//! `A_death2` shows the gore strands, the blood pool and a bloodied cloth
+//! that sticks out in front. `FX_EMIT`, the surfaces effects emit from, is
+//! shown by no look of any model checked. The preview draws the first look
+//! and offers the others; a model whose records show nothing falls back to
+//! the parts whose material is named `normal`.
 //!
 //! Some materials keep their bindings in a layout that is not decoded;
 //! for those the colour map candidates are every SNO that follows a slot 1
@@ -55,6 +63,7 @@ const LOOK: usize = 64;
 const VERTEX: usize = 44;
 const WEIGHT: usize = 24;
 const BINDING: usize = 160;
+const LOOK_RECORD: usize = 248;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Bone {
@@ -84,6 +93,9 @@ pub struct Material {
     pub name: String,
     /// Colour map SNO candidates, most likely first.
     pub colour_maps: Vec<u32>,
+    /// Whether each look shows this material, in the order of
+    /// [`Appearance::looks`].
+    pub shown: Vec<bool>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -175,9 +187,15 @@ pub fn parse(data: &[u8]) -> Result<Appearance, String> {
         let e = start + i * MATERIAL;
         let name = r.name(e, 128)?;
         let block = DATA_BASE + r.u32(e + 128)? as usize;
+        let records = r.u32(e + 132)? as usize / LOOK_RECORD;
+        let shown = (0..records)
+            .map_while(|k| r.u32(block + k * LOOK_RECORD).ok())
+            .map(|flags| flags & 1 != 0)
+            .collect();
         app.materials.push(Material {
             name,
             colour_maps: colour_maps(&r, block).unwrap_or_default(),
+            shown,
         });
     }
 
@@ -296,9 +314,36 @@ fn colour_maps(r: &Reader, block: usize) -> Result<Vec<u32>, String> {
     Ok(out)
 }
 
-/// The parts the preview draws: those whose material is named `normal`,
-/// or every part when none is.
+/// The parts look `look` shows: those whose material it shows.
+pub fn parts_in_look(app: &Appearance, look: usize) -> Vec<usize> {
+    (0..app.parts.len())
+        .filter(|&i| {
+            app.material(&app.parts[i].material)
+                .and_then(|m| m.shown.get(look))
+                .copied()
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// The looks worth choosing between, each with its place in the file:
+/// those that show at least one part.
+pub fn offered_looks(app: &Appearance) -> Vec<(usize, String)> {
+    app.looks
+        .iter()
+        .enumerate()
+        .filter(|(k, _)| !parts_in_look(app, *k).is_empty())
+        .map(|(k, name)| (k, name.clone()))
+        .collect()
+}
+
+/// The parts the preview draws at first: the first look that shows any.
+/// A model whose records show nothing gets the older rule: the parts whose
+/// material is named `normal`, or every part when none is.
 pub fn drawn_parts(app: &Appearance) -> Vec<usize> {
+    if let Some((look, _)) = offered_looks(app).first() {
+        return parts_in_look(app, *look);
+    }
     let normal: Vec<usize> = (0..app.parts.len())
         .filter(|&i| {
             app.parts[i]
@@ -316,22 +361,26 @@ pub fn drawn_parts(app: &Appearance) -> Vec<usize> {
 
 // ── glTF export ──────────────────────────────────────────────────────────
 
-/// The model, and the animation when given, as a glTF binary.
+/// The given parts of the model, and the animation when given, as a glTF
+/// binary.
 pub fn to_glb(
     app: &Appearance,
     textures: &[(String, Vec<u8>)],
     anim: Option<&super::d3_ani::Animation>,
+    parts: &[usize],
 ) -> Vec<u8> {
-    super::gltf::to_glb(&to_gltf(app, textures, anim))
+    super::gltf::to_glb(&to_gltf(app, textures, anim, parts))
 }
 
-/// The model, and the animation when given, in the shared glTF writer's
-/// terms. The skin is bound in the model's bind pose when every bone has
-/// one, and in the rest pose otherwise.
+/// The given parts of the model (a look's, usually), and the animation
+/// when given, in the shared glTF writer's terms. The skin is bound in the
+/// model's bind pose when every bone has one, and in the rest pose
+/// otherwise.
 pub fn to_gltf(
     app: &Appearance,
     textures: &[(String, Vec<u8>)],
     anim: Option<&super::d3_ani::Animation>,
+    parts: &[usize],
 ) -> super::gltf::Model {
     use super::gltf;
     let bones: Vec<gltf::Bone> = app
@@ -345,9 +394,9 @@ pub fn to_gltf(
             scale: [1.0; 3],
         })
         .collect();
-    let parts = app
-        .parts
+    let parts = parts
         .iter()
+        .filter_map(|&i| app.parts.get(i))
         .map(|p| gltf::Part {
             name: p.material.clone(),
             material: Some(p.material.clone()),
@@ -455,6 +504,61 @@ pub fn colour_maps_for(
         .collect()
 }
 
+/// The viewer's mesh of the given parts, one batch per part, with each
+/// material's colour map.
+fn mesh_of(
+    app: &Appearance,
+    maps: &[(String, Option<super::d3_tex::Image>)],
+    parts: &[usize],
+) -> Mesh3dCpu {
+    let mut cpu = Mesh3dCpu {
+        positions: Vec::new(),
+        uvs: Vec::new(),
+        indices: Vec::new(),
+        bbox_min: [f32::MAX; 3],
+        bbox_max: [f32::MIN; 3],
+        batches: Vec::new(),
+        materials: Vec::new(),
+    };
+    let mut used: Vec<&str> = Vec::new();
+    for p in parts.iter().filter_map(|&i| app.parts.get(i)) {
+        let base = cpu.positions.len() as u32;
+        let start = cpu.indices.len() as u32;
+        cpu.positions.extend_from_slice(&p.positions);
+        cpu.uvs.extend_from_slice(&p.uvs);
+        cpu.indices.extend(p.indices.iter().map(|&k| k + base));
+        let material_id = match used.iter().position(|&n| n == p.material) {
+            Some(m) => m as u32,
+            None => {
+                let img = maps
+                    .iter()
+                    .find(|(n, _)| *n == p.material)
+                    .and_then(|(_, i)| i.as_ref());
+                cpu.materials.push(MeshMaterial {
+                    rgba: img.map(|i| i.rgba.clone()),
+                    width: img.map_or(0, |i| i.width),
+                    height: img.map_or(0, |i| i.height),
+                });
+                used.push(&p.material);
+                (used.len() - 1) as u32
+            }
+        };
+        cpu.batches.push(MeshBatch {
+            start_index: start,
+            index_count: p.indices.len() as u32,
+            material_id,
+            blend: Default::default(),
+        });
+    }
+    for p in &cpu.positions {
+        for k in 0..3 {
+            cpu.bbox_min[k] = cpu.bbox_min[k].min(p[k]);
+            cpu.bbox_max[k] = cpu.bbox_max[k].max(p[k]);
+        }
+    }
+    cpu
+}
+
 pub struct D3AppPreview;
 
 impl super::PreviewPlugin for D3AppPreview {
@@ -483,56 +587,13 @@ impl super::PreviewPlugin for D3AppPreview {
         };
 
         // One decode per material, shared by the viewer and the export.
-        let maps = colour_maps_for(&app, fetch);
+        let maps = Arc::new(colour_maps_for(&app, fetch));
+        let app = Arc::new(app);
 
         let drawn = drawn_parts(&app);
-        let mut cpu = Mesh3dCpu {
-            positions: Vec::new(),
-            uvs: Vec::new(),
-            indices: Vec::new(),
-            bbox_min: [f32::MAX; 3],
-            bbox_max: [f32::MIN; 3],
-            batches: Vec::new(),
-            materials: Vec::new(),
-        };
-        let mut used: Vec<&str> = Vec::new();
-        for &i in &drawn {
-            let p = &app.parts[i];
-            let base = cpu.positions.len() as u32;
-            let start = cpu.indices.len() as u32;
-            cpu.positions.extend_from_slice(&p.positions);
-            cpu.uvs.extend_from_slice(&p.uvs);
-            cpu.indices.extend(p.indices.iter().map(|&k| k + base));
-            let material_id = match used.iter().position(|&n| n == p.material) {
-                Some(m) => m as u32,
-                None => {
-                    let img = maps
-                        .iter()
-                        .find(|(n, _)| *n == p.material)
-                        .and_then(|(_, i)| i.as_ref());
-                    cpu.materials.push(MeshMaterial {
-                        rgba: img.map(|i| i.rgba.clone()),
-                        width: img.map_or(0, |i| i.width),
-                        height: img.map_or(0, |i| i.height),
-                    });
-                    used.push(&p.material);
-                    (used.len() - 1) as u32
-                }
-            };
-            cpu.batches.push(MeshBatch {
-                start_index: start,
-                index_count: p.indices.len() as u32,
-                material_id,
-                blend: Default::default(),
-            });
-        }
-        for p in &cpu.positions {
-            for k in 0..3 {
-                cpu.bbox_min[k] = cpu.bbox_min[k].min(p[k]);
-                cpu.bbox_max[k] = cpu.bbox_max[k].max(p[k]);
-            }
-        }
+        let cpu = mesh_of(&app, &maps, &drawn);
 
+        let looks = offered_looks(&app);
         let mut text = format!(
             "Diablo III model: {} bones, {} parts\n\nParts (drawn marked *):\n",
             app.bones.len(),
@@ -559,13 +620,29 @@ impl super::PreviewPlugin for D3AppPreview {
             out.mesh3d = Some(Arc::new(cpu));
         }
 
-        let maps = Arc::new(maps);
+        // The pane's choice of look, which the export follows.
+        let chosen = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        if looks.len() > 1 {
+            let (app, maps, looks) = (Arc::clone(&app), Arc::clone(&maps), looks.clone());
+            out.variants = Some(super::MeshVariants::new(
+                "Look",
+                looks.iter().map(|(_, name)| name.clone()).collect(),
+                Arc::clone(&chosen),
+                Arc::new(move |k| {
+                    let parts = looks
+                        .get(k)
+                        .map(|(look, _)| parts_in_look(&app, *look))
+                        .unwrap_or_default();
+                    Arc::new(mesh_of(&app, &maps, &parts))
+                }),
+            ));
+        }
+
         out.extra_exports.push(ExportAction {
             label: "Export As glTF (rigged)",
             default_extension: "glb",
             filter_name: "glTF binary",
-            build: Arc::new(move |data, _path| {
-                let app = parse(data)?;
+            build: Arc::new(move |_data, _path| {
                 let mut pngs = Vec::new();
                 for (name, img) in maps.iter() {
                     if let Some(img) = img {
@@ -575,7 +652,12 @@ impl super::PreviewPlugin for D3AppPreview {
                         ));
                     }
                 }
-                Ok(to_glb(&app, &pngs, None))
+                let k = chosen.load(std::sync::atomic::Ordering::Relaxed);
+                let parts = match looks.get(k) {
+                    Some((look, _)) => parts_in_look(&app, *look),
+                    None => drawn_parts(&app),
+                };
+                Ok(to_glb(&app, &pngs, None, &parts))
             }),
         });
         out

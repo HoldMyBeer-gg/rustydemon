@@ -260,7 +260,7 @@ fn truncated_appearance_is_an_error() {
 fn glb_holds_skin_meshes_and_textures() {
     let app = parse(&goblin()).unwrap();
     let png = vec![0x89, b'P', b'N', b'G'];
-    let glb = to_glb(&app, &[("A_normal_mat".to_owned(), png)], None);
+    let glb = to_glb(&app, &[("A_normal_mat".to_owned(), png)], None, &[0, 1]);
     assert_eq!(&glb[..4], b"glTF");
     assert_eq!(u32::from_le_bytes(glb[4..8].try_into().unwrap()), 2);
     assert_eq!(
@@ -329,7 +329,7 @@ fn a_bone_without_a_bind_rotation_has_no_bind_pose() {
 #[test]
 fn the_export_skins_the_model_in_its_bind_pose() {
     let app = parse(&bound_goblin()).unwrap();
-    let model = to_gltf(&app, &[], None);
+    let model = to_gltf(&app, &[], None, &[0]);
     assert_eq!(model.inverse_bind.len(), 2);
     assert_eq!(model.inverse_bind[1], app.bones[1].inverse_bind.unwrap());
     // The rest pose the animations are keyed against is left alone.
@@ -339,5 +339,123 @@ fn the_export_skins_the_model_in_its_bind_pose() {
 #[test]
 fn the_export_falls_back_to_the_rest_pose_when_a_bind_pose_is_missing() {
     let app = parse(&goblin()).unwrap();
-    assert!(to_gltf(&app, &[], None).inverse_bind.is_empty());
+    assert!(to_gltf(&app, &[], None, &[0, 1]).inverse_bind.is_empty());
+}
+
+/// A material with one 248-byte record per look, shown where `shown` says.
+fn material_in_looks(b: &mut Builder, name: &str, shown: &[bool]) -> Vec<u8> {
+    let mut blk = Vec::new();
+    for &on in shown {
+        let mut e = vec![0u8; 248];
+        e[0..4].copy_from_slice(&(4u32 | on as u32).to_le_bytes());
+        e[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+        blk.extend(e);
+    }
+    let blo = b.region(&blk);
+    let mut e = name_field(name, 128);
+    e.extend_from_slice(&blo.to_le_bytes());
+    e.extend_from_slice(&(blk.len() as u32).to_le_bytes());
+    e.resize(144, 0);
+    e
+}
+
+/// Greed's death chest in miniature: her body, the chest, the bloody cloth
+/// that only the second death shows, and an emitter surface no look shows.
+fn chest() -> Appearance {
+    let looks = ["A", "invisible", "noChest", "chestOnly", "A_death2"];
+    let mats: [(&str, [bool; 5]); 4] = [
+        ("A_normal_mat", [true, false, true, false, true]),
+        ("Chest_mat", [true, false, false, true, true]),
+        ("A_Cloth_Mat", [false, false, false, false, true]),
+        ("FX_EMIT", [false; 5]),
+    ];
+    let mut b = Builder::new();
+    let bones = bone("Root", -1, [0.0; 3]);
+    b.table(0x24, 1, &bones);
+    let mut parts = Vec::new();
+    for m in [
+        "FX_EMIT",
+        "A_Cloth_Mat",
+        "A_normal_mat",
+        "Chest_mat",
+        "A_Cloth_Mat",
+    ] {
+        parts.extend(part(&mut b, m));
+    }
+    b.table(0xa8, 5, &parts);
+    let mut table = Vec::new();
+    for (name, shown) in &mats {
+        table.extend(material_in_looks(&mut b, name, shown));
+    }
+    b.table(0x1b4, mats.len(), &table);
+    let names: Vec<u8> = looks.iter().flat_map(|l| name_field(l, 64)).collect();
+    let lo = b.region(&names);
+    b.put(0x1c8, lo);
+    b.put(0x1cc, names.len() as u32);
+    parse(&b.b).unwrap()
+}
+
+#[test]
+fn a_material_records_the_looks_it_is_shown_in() {
+    let app = chest();
+    assert_eq!(
+        app.material("Chest_mat").unwrap().shown,
+        [true, false, false, true, true]
+    );
+    assert_eq!(app.material("FX_EMIT").unwrap().shown, [false; 5]);
+}
+
+#[test]
+fn a_look_shows_the_parts_whose_material_it_shows() {
+    let app = chest();
+    assert_eq!(parts_in_look(&app, 0), vec![2, 3], "A: body and chest");
+    assert_eq!(parts_in_look(&app, 3), vec![3], "chestOnly");
+    assert_eq!(
+        parts_in_look(&app, 4),
+        vec![1, 2, 3, 4],
+        "A_death2 adds the cloth"
+    );
+    assert!(parts_in_look(&app, 1).is_empty(), "invisible");
+    assert!(parts_in_look(&app, 9).is_empty(), "no such look");
+}
+
+#[test]
+fn the_first_look_is_what_gets_drawn() {
+    // Not every part, and not the old guess by material name: the cloth
+    // and the emitter surface stay out.
+    assert_eq!(drawn_parts(&chest()), vec![2, 3]);
+}
+
+#[test]
+fn looks_that_show_nothing_are_not_offered() {
+    let offered: Vec<(usize, String)> = offered_looks(&chest());
+    let names: Vec<&str> = offered.iter().map(|(_, n)| n.as_str()).collect();
+    assert_eq!(names, ["A", "noChest", "chestOnly", "A_death2"]);
+    assert_eq!(offered[3].0, 4, "each keeps its place in the file");
+}
+
+#[test]
+fn a_model_without_look_records_offers_no_looks() {
+    // The goblin fixture's records show nothing anywhere, so the old rule
+    // picks the parts and there is nothing to choose between.
+    let app = parse(&goblin()).unwrap();
+    assert!(offered_looks(&app).is_empty());
+    assert_eq!(drawn_parts(&app), vec![1]);
+}
+
+#[test]
+fn the_export_holds_the_parts_it_is_given() {
+    let app = chest();
+    let names = |parts: &[usize]| -> Vec<String> {
+        to_gltf(&app, &[], None, parts)
+            .parts
+            .into_iter()
+            .map(|p| p.name)
+            .collect()
+    };
+    assert_eq!(names(&parts_in_look(&app, 3)), ["Chest_mat"]);
+    assert_eq!(
+        names(&parts_in_look(&app, 4)),
+        ["A_Cloth_Mat", "A_normal_mat", "Chest_mat", "A_Cloth_Mat"]
+    );
 }
