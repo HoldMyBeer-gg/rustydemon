@@ -158,7 +158,7 @@ fn glb_carries_the_animation_on_bones_matched_by_name() {
         ..Default::default()
     };
     let a = parse(&sample()).unwrap();
-    let glb = to_glb(&app, &[], Some(&a));
+    let glb = to_glb(&app, &[], Some(&a), &[]);
     let n = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
     let json = std::str::from_utf8(&glb[20..20 + n]).unwrap();
     assert!(json.contains("\"animations\""), "{json}");

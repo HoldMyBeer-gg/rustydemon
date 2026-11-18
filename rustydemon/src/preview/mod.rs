@@ -90,6 +90,68 @@ pub struct PreviewOutput {
     /// preview pane allocates an inline 3D rect and feeds this to
     /// [`crate::viewport3d::paint_mesh`].
     pub mesh3d: Option<Arc<Mesh3dCpu>>,
+    /// Alternative meshes of the same file to choose between, such as a
+    /// model's looks. When present the pane shows a dropdown and draws the
+    /// chosen one in place of `mesh3d`.
+    pub variants: Option<MeshVariants>,
+}
+
+/// Builds the mesh of one variant, by its place in [`MeshVariants::names`].
+pub type VariantBuilder = Arc<dyn Fn(usize) -> Arc<Mesh3dCpu> + Send + Sync>;
+
+/// A file's alternative meshes. Each is built when first chosen, since a
+/// character can have dozens and every one carries its textures.
+pub struct MeshVariants {
+    /// What the choice is called in the pane ("Look").
+    pub label: &'static str,
+    pub names: Vec<String>,
+    /// The chosen variant. Shared with export actions, so an export writes
+    /// what the pane shows.
+    pub selected: Arc<std::sync::atomic::AtomicUsize>,
+    make: VariantBuilder,
+    shown: std::sync::Mutex<Option<(usize, Arc<Mesh3dCpu>)>>,
+}
+
+impl MeshVariants {
+    pub fn new(
+        label: &'static str,
+        names: Vec<String>,
+        selected: Arc<std::sync::atomic::AtomicUsize>,
+        make: VariantBuilder,
+    ) -> Self {
+        Self {
+            label,
+            names,
+            selected,
+            make,
+            shown: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// The chosen variant's place in `names`.
+    pub fn chosen(&self) -> usize {
+        let k = self.selected.load(std::sync::atomic::Ordering::Relaxed);
+        k.min(self.names.len().saturating_sub(1))
+    }
+
+    pub fn choose(&self, k: usize) {
+        self.selected.store(k, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The chosen variant's mesh, built on first use and kept until the
+    /// choice changes.
+    pub fn mesh(&self) -> Arc<Mesh3dCpu> {
+        let k = self.chosen();
+        let mut shown = self.shown.lock().unwrap_or_else(|e| e.into_inner());
+        match shown.as_ref() {
+            Some((have, mesh)) if *have == k => Arc::clone(mesh),
+            _ => {
+                let mesh = (self.make)(k);
+                *shown = Some((k, Arc::clone(&mesh)));
+                mesh
+            }
+        }
+    }
 }
 
 /// CPU-side indexed mesh handed from a preview plugin to the 3D viewport.
@@ -159,6 +221,7 @@ impl PreviewOutput {
             texture_pixels: None,
             extra_exports: vec![],
             mesh3d: None,
+            variants: None,
         }
     }
 

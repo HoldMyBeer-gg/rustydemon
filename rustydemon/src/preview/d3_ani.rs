@@ -216,7 +216,8 @@ impl super::PreviewPlugin for D3AniPreview {
                                 ));
                             }
                         }
-                        Ok(super::d3_app::to_glb(&app, &pngs, Some(&anim)))
+                        let parts = super::d3_app::drawn_parts(&app);
+                        Ok(super::d3_app::to_glb(&app, &pngs, Some(&anim), &parts))
                     }),
                 });
             }
