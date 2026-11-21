@@ -4,6 +4,7 @@
 //!
 //! ```text
 //! 0x24  u32  SNO of the Appearance (model) the animation is made for
+//! 0x90  f32  keys played per sixtieth of a second
 //! 0xA0  f32  half the number of key frames
 //! 0xC0  u32  bone count, 0xC4 offset of their 64-byte names
 //! 0xD8  translation tracks, 0xEC rotation tracks, 0xFC scale tracks:
@@ -14,10 +15,11 @@
 //!       scale        u32 frame, f32
 //! ```
 //!
-//! Across all 15,258 animations in the game, 14,865 store exactly half
-//! their key frame count at 0xA0. That fits keys at 60 a second against a
-//! 30 a second game clock, so the export plays keys at 60 a second; the
-//! playback rate itself is not stored where this reader has found it.
+//! The header also stores how fast the keys play, at 0x90: keys per
+//! sixtieth of a second. Most animations store 0.5, which is 30 keys a
+//! second; a few are tuned by hand, like Greed's run at two thirds, 40
+//! keys a second. Times 60 the stored value is a whole number in all 38
+//! of Greed's animations. 0xA0 is half the key count whatever the rate.
 //! Transforms are relative to the parent bone, as in the model, and bones
 //! are matched to the model by name.
 
@@ -28,8 +30,10 @@ use super::{ExportAction, PreviewOutput, SiblingFetcher};
 const SNO_MAGIC: u32 = 0xDEAD_BEEF;
 const DATA_BASE: usize = 16;
 
-/// Key frames per second assumed for playback (see the module notes).
-pub const KEYS_PER_SECOND: f32 = 60.0;
+/// The clock the stored rate counts against: sixtieths of a second.
+const TICKS_PER_SECOND: f32 = 60.0;
+/// The rate nearly every animation stores, used when one stores none.
+const USUAL_KEYS_PER_TICK: f32 = 0.5;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct BoneTrack {
@@ -43,12 +47,24 @@ pub struct BoneTrack {
 pub struct Animation {
     pub model_sno: u32,
     pub key_frames: u32,
+    /// Keys played per sixtieth of a second, as stored.
+    pub keys_per_tick: f32,
     pub bones: Vec<BoneTrack>,
 }
 
 impl Animation {
+    /// How fast the game plays this animation's keys.
+    pub fn keys_per_second(&self) -> f32 {
+        let rate = if self.keys_per_tick.is_finite() && self.keys_per_tick > 0.0 {
+            self.keys_per_tick
+        } else {
+            USUAL_KEYS_PER_TICK
+        };
+        rate * TICKS_PER_SECOND
+    }
+
     pub fn seconds(&self) -> f32 {
-        self.key_frames as f32 / KEYS_PER_SECOND
+        self.key_frames as f32 / self.keys_per_second()
     }
 }
 
@@ -99,6 +115,7 @@ pub fn parse(d: &[u8]) -> Result<Animation, String> {
         } else {
             0
         },
+        keys_per_tick: f32_at(d, 0x90)?,
         bones: Vec::new(),
     };
     let count = u32_at(d, 0xC0)? as usize;
@@ -179,7 +196,7 @@ impl super::PreviewPlugin for D3AniPreview {
             "Diablo III animation: {} key frames, {:.2} s at {} keys a second\n{} bones, {} with keys\nModel: SNO {}",
             anim.key_frames,
             anim.seconds(),
-            KEYS_PER_SECOND,
+            anim.keys_per_second(),
             anim.bones.len(),
             animated,
             anim.model_sno
