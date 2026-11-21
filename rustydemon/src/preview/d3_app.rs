@@ -415,7 +415,8 @@ pub fn to_gltf(
         .collect();
     let mut animations = Vec::new();
     if let Some(anim) = anim {
-        let secs = |f: u32| f as f32 / super::d3_ani::KEYS_PER_SECOND;
+        let rate = anim.keys_per_second();
+        let secs = |f: u32| f as f32 / rate;
         let mut channels = Vec::new();
         for track in &anim.bones {
             let Some(bone) = app.bones.iter().position(|b| b.name == track.name) else {

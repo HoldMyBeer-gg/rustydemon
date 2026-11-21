@@ -78,7 +78,15 @@ fn anim(model: u32, bones: &[&str], keys: &[Keys]) -> Vec<u8> {
     }
     let half = (last + 1) as f32 / 2.0;
     b[0xa0..0xa4].copy_from_slice(&half.to_le_bytes());
+    // What all but a few of the game's animations store.
+    b[0x90..0x94].copy_from_slice(&0.5f32.to_le_bytes());
     b
+}
+
+/// `data` with its stored rate (keys per sixtieth of a second) replaced.
+fn with_rate(mut data: Vec<u8>, rate: f32) -> Vec<u8> {
+    data[0x90..0x94].copy_from_slice(&rate.to_le_bytes());
+    data
 }
 
 fn sample() -> Vec<u8> {
@@ -98,7 +106,25 @@ fn header_names_the_model_and_the_length() {
     let a = parse(&sample()).unwrap();
     assert_eq!(a.model_sno, 16482);
     assert_eq!(a.key_frames, 60);
-    assert!((a.seconds() - 1.0).abs() < 1e-6);
+    // Half a key each sixtieth of a second: 30 keys a second.
+    assert!((a.keys_per_second() - 30.0).abs() < 1e-6);
+    assert!((a.seconds() - 2.0).abs() < 1e-6);
+}
+
+#[test]
+fn each_animation_plays_at_its_own_stored_rate() {
+    // p1_Greed_BreakFree_run_01 stores two thirds: 40 keys a second.
+    let a = parse(&with_rate(sample(), 40.0 / 60.0)).unwrap();
+    assert!((a.keys_per_second() - 40.0).abs() < 1e-4);
+    assert!((a.seconds() - 1.5).abs() < 1e-4);
+}
+
+#[test]
+fn an_unusable_stored_rate_falls_back_to_the_usual_one() {
+    for bad in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        let a = parse(&with_rate(sample(), bad)).unwrap();
+        assert!((a.keys_per_second() - 30.0).abs() < 1e-6, "{bad}");
+    }
 }
 
 #[test]
@@ -176,6 +202,27 @@ fn glb_carries_the_animation_on_bones_matched_by_name() {
         "{json}"
     );
     assert!(!json.contains("\"node\":0,\"path\""), "{json}");
-    // Key 59 at 60 keys a second ends just under one second.
-    assert!(json.contains("\"max\":[0.98333"), "{json}");
+    // Key 59 at 30 keys a second ends just under two seconds.
+    assert!(json.contains("\"max\":[1.96666"), "{json}");
+}
+
+#[test]
+fn glb_key_times_follow_the_stored_rate() {
+    let app = Appearance {
+        bones: vec![Bone {
+            name: "Pelvis".into(),
+            parent: -1,
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            translation: [0.0; 3],
+            scale: 1.0,
+            inverse_bind: None,
+        }],
+        ..Default::default()
+    };
+    let a = parse(&with_rate(sample(), 40.0 / 60.0)).unwrap();
+    let glb = to_glb(&app, &[], Some(&a), &[]);
+    let n = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+    let json = std::str::from_utf8(&glb[20..20 + n]).unwrap();
+    // Key 59 at 40 keys a second.
+    assert!(json.contains("\"max\":[1.475"), "{json}");
 }
