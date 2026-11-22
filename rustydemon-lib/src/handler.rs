@@ -150,12 +150,8 @@ impl CascHandler {
         // Steam-style static-container installs ship only a `.build.config`
         // (no `.build.info`, no CDN config).  Detect that case by looking
         // for the file directly and route to the static path.
-        let static_candidates = [
-            base_path.join(".build.config"),
-            base_path.join("Data").join(".build.config"),
-        ];
         let has_build_info = base_path.join(".build.info").is_file();
-        let has_static_cfg = static_candidates.iter().any(|p| p.is_file());
+        let has_static_cfg = CascConfig::static_build_config(base_path).is_some();
 
         if has_static_cfg {
             // Prefer the static container path whenever a `.build.config`
