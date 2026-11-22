@@ -873,11 +873,15 @@ mod static_install_tests {
     #[test]
     fn a_build_config_in_a_lowercase_data_folder_is_found() {
         let dir = d2r("found");
+        // Case-insensitive filesystems answer to `Data` as well, so ask what
+        // the paths lead to and not how they are spelled.
         let found = CascConfig::static_build_config(&dir);
-        let config = CascConfig::load_local_static(&dir).map(|c| c.static_container_path());
+        let container = CascConfig::load_local_static(&dir).map(|c| c.static_container_path());
+        let config_found = found.is_some_and(|p| p.is_file());
+        let container_holds_it = container.is_ok_and(|p| p.join(".build.config").is_file());
         fs::remove_dir_all(&dir).unwrap();
-        assert_eq!(found, Some(dir.join("data/.build.config")));
-        assert_eq!(config.unwrap(), dir.join("data"));
+        assert!(config_found);
+        assert!(container_holds_it);
     }
 
     #[test]
