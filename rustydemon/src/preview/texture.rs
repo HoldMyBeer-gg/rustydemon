@@ -310,3 +310,30 @@ impl PreviewPlugin for TextureDePreview {
         out
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A 4x4 texture holding one BC1 block, both endpoint colours pure
+    /// red (RGB565 0xF800).
+    fn red_bc1_texture() -> Vec<u8> {
+        let mut t = vec![0u8; 0x2C];
+        t[..4].copy_from_slice(MAGIC);
+        t[4] = 0x39;
+        t[0x08..0x0C].copy_from_slice(&4u32.to_le_bytes());
+        t[0x0C..0x10].copy_from_slice(&4u32.to_le_bytes());
+        t[0x1C..0x20].copy_from_slice(&1u32.to_le_bytes());
+        t[0x24..0x28].copy_from_slice(&8u32.to_le_bytes());
+        t[0x28..0x2C].copy_from_slice(&4u32.to_le_bytes());
+        t.extend_from_slice(&[0x00, 0xF8, 0x00, 0xF8, 0, 0, 0, 0]);
+        t
+    }
+
+    #[test]
+    fn a_red_block_decodes_to_red_pixels() {
+        let (rgba, w, h, fmt) = decode_mip0(&red_bc1_texture(), "red_alb.texture").unwrap();
+        assert_eq!((w, h, fmt), (4, 4, "BC1"));
+        assert_eq!(&rgba[..4], &[255, 0, 0, 255]);
+    }
+}
