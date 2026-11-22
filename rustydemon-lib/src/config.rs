@@ -210,7 +210,10 @@ impl CascConfig {
         }
         let path = base_path.as_ref().join(".build.info");
         let Ok(file) = std::fs::File::open(&path) else {
-            return vec![];
+            // Steam's static containers have no `.build.info` to ask.
+            return Self::static_product(base_path.as_ref())
+                .into_iter()
+                .collect();
         };
         let Ok(info) = VerBarConfig::from_reader(file) else {
             return vec![];
@@ -256,6 +259,29 @@ impl CascConfig {
         products
     }
 
+    /// The `.build.config` of a Steam-style static-container install: in the
+    /// game folder itself or in its `Data` folder, however that is cased
+    /// (Diablo IV ships `Data`, Diablo II: Resurrected `data`).
+    pub fn static_build_config(base_path: &Path) -> Option<std::path::PathBuf> {
+        let data = resolve_folder_case(base_path, "Data");
+        [
+            base_path.join(".build.config"),
+            base_path.join(data).join(".build.config"),
+        ]
+        .into_iter()
+        .find(|p| p.is_file())
+    }
+
+    /// Product UID of a static-container install, `None` when `base_path`
+    /// is not one.  The config rarely names its product, so the game's
+    /// executable decides.
+    pub fn static_product(base_path: &Path) -> Option<String> {
+        Self::load_local_static(base_path)
+            .ok()
+            .filter(Self::is_static_container)
+            .map(|c| c.product)
+    }
+
     /// Load a Steam-style static-container installation.
     ///
     /// Static containers ship only a `.build.config` file (typically under
@@ -266,28 +292,18 @@ impl CascConfig {
     pub fn load_local_static(base_path: impl AsRef<Path>) -> Result<Self, CascError> {
         let base_path = base_path.as_ref().to_path_buf();
 
-        // Steam D4 puts .build.config inside "Data/"; Overwatch uses a
-        // similar layout.  Try both the game root and Data/.
-        let candidates = [
-            base_path.join(".build.config"),
-            base_path.join("Data").join(".build.config"),
-        ];
-        let build_cfg_path = candidates
-            .iter()
-            .find(|p| p.is_file())
-            .ok_or_else(|| {
-                CascError::Config(format!(
-                    "No .build.config found under {}",
-                    base_path.display()
-                ))
-            })?
-            .clone();
+        let build_cfg_path = Self::static_build_config(&base_path).ok_or_else(|| {
+            CascError::Config(format!(
+                "No .build.config found under {}",
+                base_path.display()
+            ))
+        })?;
 
         let build = KeyValueConfig::from_reader(std::fs::File::open(&build_cfg_path)?)?;
 
-        // Product UID: infer from `build-uid` if present, otherwise default
-        // to "fenris" (D4) since that's the most common static-container game.
-        let product = build.get_first("build-uid").unwrap_or("fenris").to_owned();
+        let product = build
+            .get_first("build-uid")
+            .map_or_else(|| product_by_exe(&base_path).to_owned(), str::to_owned);
         let game_type = GameType::from_uid(&product).unwrap_or(GameType::DiabloIV);
 
         Ok(CascConfig {
@@ -696,7 +712,9 @@ impl CascConfig {
     /// returned instead.
     pub fn static_container_path(&self) -> std::path::PathBuf {
         // Prefer <base>/Data if it exists, otherwise use <base> directly.
-        let data_dir = self.base_path.join("Data");
+        let data_dir = self
+            .base_path
+            .join(resolve_folder_case(&self.base_path, "Data"));
         if data_dir.is_dir() {
             data_dir
         } else {
@@ -751,6 +769,16 @@ fn resolve_folder_case(base: &Path, expected: &str) -> String {
     }
 
     expected.to_owned()
+}
+
+/// Product UID of a static-container install whose config does not name
+/// one.  Diablo IV ("fenris") is the default: it was the first such game.
+fn product_by_exe(base_path: &Path) -> &'static str {
+    if base_path.join("D2R.exe").is_file() {
+        "osi"
+    } else {
+        "fenris"
+    }
 }
 
 #[cfg(test)]
@@ -819,5 +847,59 @@ mod resolve_folder_case_tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.path);
         }
+    }
+}
+
+#[cfg(test)]
+mod static_install_tests {
+    use super::CascConfig;
+    use crate::game::GameType;
+    use std::fs;
+
+    const D2R_CONFIG: &str = "# Static Build Configuration\n\n\
+        vfs-root = dcdf5a6b329dd2dc41357f3a03d5d824 a5ebfef2622d96d913001100004fc713\n\
+        key-layout-index-bits = 0\nkey-layout-0 = 8 8 40 1\n";
+
+    /// A folder laid out like Steam's Diablo II: Resurrected.
+    fn d2r(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("rd-static-cfg-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("data")).unwrap();
+        fs::write(dir.join("data/.build.config"), D2R_CONFIG).unwrap();
+        fs::write(dir.join("D2R.exe"), "").unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_build_config_in_a_lowercase_data_folder_is_found() {
+        let dir = d2r("found");
+        let found = CascConfig::static_build_config(&dir);
+        let config = CascConfig::load_local_static(&dir).map(|c| c.static_container_path());
+        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(found, Some(dir.join("data/.build.config")));
+        assert_eq!(config.unwrap(), dir.join("data"));
+    }
+
+    #[test]
+    fn a_static_install_with_d2r_exe_is_diablo_ii_resurrected() {
+        let dir = d2r("product");
+        let config = CascConfig::load_local_static(&dir);
+        let products = CascConfig::detect_products(&dir);
+        fs::remove_dir_all(&dir).unwrap();
+        let config = config.unwrap();
+        assert_eq!(config.product, "osi");
+        assert_eq!(config.game_type, GameType::DiabloIIResurrected);
+        assert_eq!(products, vec!["osi".to_owned()]);
+    }
+
+    #[test]
+    fn a_static_install_without_a_known_exe_is_still_diablo_iv() {
+        let dir = d2r("fenris");
+        fs::remove_file(dir.join("D2R.exe")).unwrap();
+        let config = CascConfig::load_local_static(&dir);
+        let products = CascConfig::detect_products(&dir);
+        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(config.unwrap().product, "fenris");
+        assert_eq!(products, vec!["fenris".to_owned()]);
     }
 }

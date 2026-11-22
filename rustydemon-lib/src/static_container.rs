@@ -17,13 +17,14 @@
 //! ```
 //!
 //! The 4th value (`flags`) is specific to the D4 Steam format and is the
-//! physical-offset alignment: TACTLib's Overwatch handler ignores it.  Two
+//! physical-offset alignment: TACTLib's Overwatch handler ignores it.  Three
 //! values are known:
 //!
 //! | flags | Meaning                                          |
 //! |-------|--------------------------------------------------|
 //! | 0     | Byte offset into a `-meta.dat` file              |
 //! | 4096  | 4 KiB-aligned offset into a `-payload.dat` file  |
+//! | 1     | Byte offset into a flat `CC-AAAAAAAA.data` file  |
 //!
 //! Layout 1 (offsetBits = 0) describes a whole loose file: child content
 //! stored as `{chunk}/{archive}-child.dat` or `-payload.dat`.
@@ -37,6 +38,11 @@ use std::{
 use flate2::bufread::ZlibDecoder;
 
 use crate::{blte, config::CascConfig, error::CascError, types::Md5Hash};
+
+/// `flags` value of a layout whose archives are `CC-AAAAAAAA.data` files
+/// (chunk and archive in hex) sitting directly in the container folder,
+/// addressed by byte offset.  Steam's Diablo II: Resurrected uses it.
+const FLAT_DATA_FILES: u32 = 1;
 
 // ── Key layout ────────────────────────────────────────────────────────────────
 
@@ -187,6 +193,12 @@ impl StaticContainer {
     /// file whose suffix is unknown without probing. We try both
     /// `-child.dat` and `-payload.dat`.
     pub fn candidate_paths(&self, loc: &StorageLocation) -> Vec<PathBuf> {
+        if loc.layout.flags == FLAT_DATA_FILES {
+            return vec![self
+                .container_dir
+                .join(format!("{:02x}-{:08x}.data", loc.chunk, loc.archive))];
+        }
+
         let chunk_dir = format!("{:03}", loc.chunk);
         let base = self.container_dir.join(&chunk_dir);
 
@@ -419,5 +431,60 @@ mod tests {
         assert_eq!(extract_bits(0x0000_0000_0000_00FF, 0, 8), 0xFF);
         assert_eq!(extract_bits(0xDEAD_BEEF_CAFE_BABE, 16, 16), 0xCAFE);
         assert_eq!(extract_bits(0x1234_5678_9ABC_DEF0, 0, 0), 0);
+    }
+
+    /// The layout Steam's Diablo II: Resurrected ships: `8 8 40 1`.
+    fn d2r(dir: &Path) -> StaticContainer {
+        StaticContainer {
+            container_dir: dir.to_path_buf(),
+            index_bits: 0,
+            layouts: vec![Some(KeyLayout {
+                chunk_bits: 8,
+                archive_bits: 8,
+                offset_bits: 40,
+                flags: 1,
+            })],
+        }
+    }
+
+    fn ekey(hex: &str) -> Md5Hash {
+        let mut out = [0u8; 16];
+        for (i, b) in out.iter_mut().enumerate() {
+            *b = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap();
+        }
+        Md5Hash(out)
+    }
+
+    #[test]
+    fn a_flags_one_layout_names_flat_data_files() {
+        let c = d2r(Path::new("/games/d2r/data"));
+        // vfs-root of a real install: archive 0x11, byte offset 0x4fc713.
+        let loc = c
+            .extract_location(&ekey("a5ebfef2622d96d913001100004fc713"))
+            .unwrap();
+        assert_eq!(
+            (loc.chunk, loc.archive, loc.byte_offset),
+            (0, 0x11, 0x4f_c713)
+        );
+        assert_eq!(
+            c.candidate_paths(&loc),
+            vec![PathBuf::from("/games/d2r/data/00-00000011.data")]
+        );
+    }
+
+    #[test]
+    fn a_blob_is_read_from_a_flat_data_file() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("rd-static-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        z.write_all(b"deckard cain").unwrap();
+        let mut bytes = vec![0u8; 5];
+        bytes.extend(z.finish().unwrap());
+        fs::write(dir.join("00-00000011.data"), bytes).unwrap();
+
+        let got = d2r(&dir).open_by_ekey(&ekey("00000000000000001300110000000005"));
+        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(got.unwrap(), b"deckard cain");
     }
 }

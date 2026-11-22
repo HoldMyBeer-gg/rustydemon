@@ -695,13 +695,7 @@ fn load_from_archive(
         CascConfig::detect_products(archive_path)
             .into_iter()
             .next()
-            .unwrap_or_else(|| {
-                if archive_path.join("Data").join(".build.config").is_file() {
-                    "fenris".into()
-                } else {
-                    "wow".into()
-                }
-            })
+            .unwrap_or_else(|| "wow".into())
     });
 
     eprintln!("Opening {} (product: {product})", archive_path.display());

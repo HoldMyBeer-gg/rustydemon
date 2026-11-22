@@ -122,7 +122,7 @@ fn subdirs(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Every folder under `places` that holds a `.build.info`, each once.
+/// Every game install under `places` (see [`is_game`]), each once.
 pub fn game_dirs(places: &[Place]) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for place in places {
@@ -135,13 +135,16 @@ pub fn game_dirs(places: &[Place]) -> Vec<PathBuf> {
     found
 }
 
+/// Whether `dir` is a game install: a `.build.info`, or the `.build.config`
+/// that is all a Steam static container has.
+fn is_game(dir: &Path) -> bool {
+    dir.join(".build.info").exists()
+        || rustydemon_lib::CascConfig::static_build_config(dir).is_some()
+}
+
 fn look(place: &Place, found: &mut Vec<PathBuf>) {
     match place {
-        Place::Games(dir) => found.extend(
-            subdirs(dir)
-                .into_iter()
-                .filter(|p| p.join(".build.info").exists()),
-        ),
+        Place::Games(dir) => found.extend(subdirs(dir).into_iter().filter(|p| is_game(p))),
         Place::Steam(root) => {
             let mut libraries = vec![root.clone()];
             for vdf in ["steamapps/libraryfolders.vdf", "config/libraryfolders.vdf"] {
@@ -436,6 +439,27 @@ mod tests {
         .unwrap();
         let found = game_dirs(&[Place::Steam(s.0.join("Steam"))]);
         assert_eq!(found, [near, far]);
+    }
+
+    /// Steam's Diablo II: Resurrected has no `.build.info`: its only config
+    /// is `data/.build.config`.
+    #[test]
+    fn finds_a_steam_install_that_has_only_a_build_config() {
+        let s = Scratch::new("static");
+        let d2r = s.0.join("Steam/steamapps/common/Diablo II Resurrected");
+        std::fs::create_dir_all(d2r.join("data")).unwrap();
+        std::fs::write(
+            d2r.join("data/.build.config"),
+            "vfs-root = 00 11\nkey-layout-index-bits = 0\nkey-layout-0 = 8 8 40 1\n",
+        )
+        .unwrap();
+        std::fs::write(d2r.join("D2R.exe"), "").unwrap();
+        let found = game_dirs(&[Place::Steam(s.0.join("Steam"))]);
+        assert_eq!(found, vec![d2r.clone()]);
+        assert_eq!(
+            labelled(found),
+            [("Diablo II: Resurrected [Steam]".to_owned(), d2r)]
+        );
     }
 
     #[test]

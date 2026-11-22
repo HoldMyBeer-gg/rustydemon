@@ -173,15 +173,10 @@ fn run_export(args: &ExportArgs) -> Result<()> {
     }
 
     // ── Open archive ──────────────────────────────────────────────────────
-    let product = args.product.clone().unwrap_or_else(|| {
-        detect_product(&args.archive).unwrap_or_else(|| {
-            if args.archive.join("Data").join(".build.config").is_file() {
-                "fenris".into()
-            } else {
-                "wow".into()
-            }
-        })
-    });
+    let product = args
+        .product
+        .clone()
+        .unwrap_or_else(|| detect_product(&args.archive).unwrap_or_else(|| "wow".into()));
 
     eprintln!("Opening {} (product: {product})", args.archive.display());
     let t_open = Instant::now();
