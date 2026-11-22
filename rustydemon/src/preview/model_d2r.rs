@@ -120,6 +120,12 @@ impl PreviewPlugin for ModelD2rPreview {
                 ));
             }
 
+            // One material per distinct colour texture; meshes
+            // without one share an untextured slot.
+            let albedo_names: Vec<Option<String>> =
+                meshes.iter().map(|m| m.albedo_texture.clone()).collect();
+            let (slot_textures, slot_ids) = material_slots(&albedo_names);
+
             // Flatten all meshes into one combined buffer with a
             // per-mesh MeshBatch so the renderer can colour-code them.
             let mut positions: Vec<[f32; 3]> = Vec::new();
@@ -139,7 +145,7 @@ impl PreviewPlugin for ModelD2rPreview {
                 batches.push(MeshBatch {
                     start_index: ibase,
                     index_count: m.indices.len() as u32,
-                    material_id: m.material_index.unwrap_or(mesh_i as u32),
+                    material_id: slot_ids[mesh_i],
                     blend: Default::default(),
                 });
                 for axis in 0..3 {
@@ -156,54 +162,46 @@ impl PreviewPlugin for ModelD2rPreview {
                 bbox_max = [0.0; 3];
             }
 
-            // ── Resolve sibling .texture files as materials ──────────
-            // Texture filenames from the Granny tree (in order).  Each
-            // mesh's material_index typically maps 1:1 to this array.
-            let tex_names = gf.texture_filenames();
-            let mut materials: Vec<MeshMaterial> = Vec::with_capacity(tex_names.len());
+            // ── Resolve each slot's .texture file ────────────────────
+            let mut materials: Vec<MeshMaterial> = Vec::with_capacity(slot_textures.len());
+            let mut tex_wanted: u32 = 0;
             let mut tex_loaded: u32 = 0;
-            let mut tex_failed: u32 = 0;
-            for tex_name in &tex_names {
-                // D2R texture paths look like
-                //   "data:data/hd/env/act1/outdoors/…/foo.texture"
-                // The sibling fetcher expects the virtual path without
-                // the "data:" prefix, or just the bare filename. Try
-                // progressively shorter forms.
-                let candidates = texture_lookup_candidates(tex_name);
-                let bytes = candidates.iter().find_map(|c| (fetch.by_name)(c));
-                let decoded = bytes
-                    .as_deref()
-                    .and_then(|b| super::texture::decode_mip0(b, tex_name));
-                match decoded {
+            for slot in &slot_textures {
+                let decoded = slot.as_deref().and_then(|tex_name| {
+                    tex_wanted += 1;
+                    let bytes = texture_lookup_candidates(tex_name)
+                        .iter()
+                        .find_map(|c| (fetch.by_name)(c))?;
+                    super::texture::decode_mip0(&bytes, tex_name)
+                });
+                materials.push(match decoded {
                     Some((rgba, w, h, _fmt)) => {
                         tex_loaded += 1;
-                        materials.push(MeshMaterial {
+                        MeshMaterial {
                             rgba: Some(rgba),
                             width: w,
                             height: h,
-                        });
+                        }
                     }
-                    None => {
-                        tex_failed += 1;
-                        materials.push(MeshMaterial {
-                            rgba: None,
-                            width: 1,
-                            height: 1,
-                        });
-                    }
-                }
+                    None => MeshMaterial {
+                        rgba: None,
+                        width: 1,
+                        height: 1,
+                    },
+                });
             }
 
-            if !tex_names.is_empty() {
+            if tex_wanted > 0 {
                 text.push_str(&format!(
-                    "\nTexture materials: {tex_loaded}/{} loaded{}",
-                    tex_names.len(),
-                    if tex_failed > 0 {
-                        format!(" ({tex_failed} fallback)")
-                    } else {
-                        String::new()
-                    },
+                    "\nColour textures: {tex_loaded}/{tex_wanted} loaded\n"
                 ));
+                for (m, name) in meshes.iter().zip(&albedo_names) {
+                    text.push_str(&format!(
+                        "  {}: {}\n",
+                        m.name,
+                        name.as_deref().unwrap_or("none")
+                    ));
+                }
             }
 
             let mesh = Arc::new(Mesh3dCpu {
@@ -281,13 +279,17 @@ fn find_f32(elements: &[Element], name: &str) -> Option<f32> {
 /// prefix, so we try the full path, without prefix, and just the
 /// filename, in that order.
 fn texture_lookup_candidates(raw: &str) -> Vec<String> {
-    let mut out = Vec::with_capacity(3);
+    let mut out = Vec::with_capacity(4);
     // Full path as-is.
     out.push(raw.to_string());
     // Strip `data:` URI prefix.
-    if let Some(stripped) = raw.strip_prefix("data:") {
-        out.push(stripped.to_string());
+    let bare = raw.strip_prefix("data:").unwrap_or(raw);
+    if bare != raw {
+        out.push(bare.to_string());
     }
+    // Models name `data/hd/...`; the archive files it one `data`
+    // folder deeper.
+    out.push(format!("data/{bare}"));
     // Bare filename.
     if let Some(slash) = raw.rfind('/') {
         let basename = &raw[slash + 1..];
@@ -296,6 +298,24 @@ fn texture_lookup_candidates(raw: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// Give each distinct texture name one material slot, and all the
+/// meshes without a texture one shared slot.  Returns the slots and,
+/// per mesh, the slot it draws with.
+fn material_slots(names: &[Option<String>]) -> (Vec<Option<String>>, Vec<u32>) {
+    let mut slots: Vec<Option<String>> = Vec::new();
+    let ids = names
+        .iter()
+        .map(|name| {
+            let i = slots.iter().position(|s| s == name).unwrap_or_else(|| {
+                slots.push(name.clone());
+                slots.len() - 1
+            });
+            i as u32
+        })
+        .collect();
+    (slots, ids)
 }
 
 fn kind_label(v: &ElementValue) -> String {
@@ -309,5 +329,42 @@ fn kind_label(v: &ElementValue) -> String {
         ElementValue::I32(v) => format!("i32 {v}"),
         ElementValue::Opaque(id) => format!("Opaque(type={id})"),
         ElementValue::Array(v) => format!("Array ({} entries)", v.len()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The model names `data/hd/...`; the archive files it under
+    /// `data/data/hd/...`.
+    #[test]
+    fn a_texture_is_also_looked_up_under_the_archive_data_folder() {
+        let c = texture_lookup_candidates(
+            "data/hd/character/npc/cain1/textures/cain1_body_alb.texture",
+        );
+        assert!(c.contains(
+            &"data/data/hd/character/npc/cain1/textures/cain1_body_alb.texture".to_string()
+        ));
+    }
+
+    #[test]
+    fn meshes_sharing_a_texture_share_a_material() {
+        let names = [
+            Some("head_alb.texture".to_string()),
+            None,
+            Some("hair_alb.texture".to_string()),
+            Some("head_alb.texture".to_string()),
+        ];
+        let (textures, ids) = material_slots(&names);
+        assert_eq!(
+            textures,
+            vec![
+                Some("head_alb.texture".to_string()),
+                None,
+                Some("hair_alb.texture".to_string())
+            ]
+        );
+        assert_eq!(ids, vec![0, 1, 2, 0]);
     }
 }

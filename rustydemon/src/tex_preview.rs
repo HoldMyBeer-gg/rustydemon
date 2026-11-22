@@ -209,14 +209,14 @@ fn looks_valid(pixels: &[u32], width: usize) -> bool {
     ratio > 0.45
 }
 
-/// Convert u32 RGBA (0xAABBGGRR) to byte array [R, G, B, A, ...].
+/// Convert the decoder's pixels to the byte array [R, G, B, A, ...].
+/// `texture2ddecoder` packs each pixel as 0xAARRGGBB, blue in the low
+/// byte.
 fn u32_to_rgba(pixels: &[u32]) -> Vec<u8> {
     let mut out = Vec::with_capacity(pixels.len() * 4);
     for &p in pixels {
-        out.push((p & 0xFF) as u8); // R
-        out.push(((p >> 8) & 0xFF) as u8); // G
-        out.push(((p >> 16) & 0xFF) as u8); // B
-        out.push(((p >> 24) & 0xFF) as u8); // A
+        let [b, g, r, a] = p.to_le_bytes();
+        out.extend_from_slice(&[r, g, b, a]);
     }
     out
 }
