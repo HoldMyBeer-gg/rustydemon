@@ -1,7 +1,7 @@
 # Maintainer: jabberwock <88205+jabberwock@users.noreply.github.com>
 
 pkgname=rustydemon-bin
-pkgver=0.8.0
+pkgver=0.8.1
 pkgrel=1
 pkgdesc="CASC archive explorer for Blizzard games (prebuilt binary)"
 arch=('x86_64')
@@ -39,7 +39,7 @@ source=(
   "rustydemon.desktop"
 )
 sha256sums=(
-  'ef3e814314900e0ed1b52a9215b13a9fc65fa3171634ac8fcba20525e41964a9'
+  '586144a893e7258a0c367a7117570bb0497a82b55efe99eab5c3710891a45872'
   '745e94775f5c3d7b373299731ea6dfacf8457968870a8dfe04b7f1624b9d61c0'
   '6d21767828bf7c903d86434a9e5df4ccca18fb115cb15a0245955f7def193baa'
   '0b180da07e553036757e5ac4f386218b608f0f830066ba0d40b45b5dd8c59ab3'
