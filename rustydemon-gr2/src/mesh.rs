@@ -30,6 +30,10 @@ pub struct Mesh {
     /// Other groups are merged into the same batch for now.  `None`
     /// means the mesh has no material binding at all.
     pub material_index: Option<u32>,
+    /// `FromFileName` of the colour texture of the material this mesh
+    /// is bound to, exactly as the file spells it.  `None` when the
+    /// bound material has no `AlbedoTexture` map.
+    pub albedo_texture: Option<String>,
 }
 
 impl GrannyFile {
@@ -114,6 +118,8 @@ fn extract_mesh(mesh_fields: &[Element]) -> Option<Mesh> {
         .and_then(|first_group| find_i32(first_group, "MaterialIndex"))
         .map(|v| v as u32);
 
+    let albedo_texture = albedo_texture(mesh_fields, material_index.unwrap_or(0) as usize);
+
     Some(Mesh {
         name,
         positions,
@@ -123,7 +129,34 @@ fn extract_mesh(mesh_fields: &[Element]) -> Option<Mesh> {
         bbox_min,
         bbox_max,
         material_index,
+        albedo_texture,
     })
+}
+
+/// Colour texture of the `binding`-th material bound to a mesh.
+///
+/// A topology group's `MaterialIndex` counts into the mesh's own
+/// `MaterialBindings`, not into the file's `Materials` or `Textures`
+/// arrays.  The bound material lists its inputs in `Maps`, each a
+/// `Usage` name beside a `Map` node whose `Texture` names the file.
+fn albedo_texture(mesh_fields: &[Element], binding: usize) -> Option<String> {
+    let material = find_reference_children(
+        groups_of(mesh_fields, "MaterialBindings")?.get(binding)?,
+        "Material",
+    )?;
+    let albedo = groups_of(material, "Maps")?
+        .iter()
+        .find(|m| find_string(m, "Usage").as_deref() == Some("AlbedoTexture"))?;
+    let file = find_reference_children(albedo, "Map")?;
+    find_string(find_reference_children(file, "Texture")?, "FromFileName")
+}
+
+/// Entries of a named array-of-struct field.
+fn groups_of<'a>(elements: &'a [Element], name: &str) -> Option<&'a [Vec<Element>]> {
+    match &find_elem(elements, name)?.value {
+        ElementValue::ArrayOfReferences(g) | ElementValue::ReferenceArray(g) => Some(g),
+        _ => None,
+    }
 }
 
 /// Read an indices array from the `PrimaryTopology` struct, handling
@@ -237,4 +270,98 @@ fn find_f32_array(elements: &[Element], name: &str) -> Option<[f32; 4]> {
         }
         Some(out)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn string(name: &str, value: &str) -> Element {
+        Element {
+            name: name.to_string(),
+            value: ElementValue::String(value.to_string()),
+        }
+    }
+
+    fn reference(name: &str, children: Vec<Element>) -> Element {
+        Element {
+            name: name.to_string(),
+            value: ElementValue::Reference(children),
+        }
+    }
+
+    fn array(name: &str, entries: Vec<Vec<Element>>) -> Element {
+        Element {
+            name: name.to_string(),
+            value: ElementValue::ReferenceArray(entries),
+        }
+    }
+
+    /// One entry of a material's `Maps`: a usage name and the file
+    /// node that carries the texture.
+    fn map(usage: &str, file: &str) -> Vec<Element> {
+        vec![
+            string("Usage", usage),
+            reference(
+                "Map",
+                vec![
+                    string("Name", "file1"),
+                    reference("Texture", vec![string("FromFileName", file)]),
+                ],
+            ),
+        ]
+    }
+
+    fn binding(name: &str, maps: Vec<Vec<Element>>) -> Vec<Element> {
+        vec![reference(
+            "Material",
+            vec![
+                string("Name", name),
+                array("Maps", maps),
+                reference("Texture", vec![]),
+            ],
+        )]
+    }
+
+    #[test]
+    fn the_albedo_map_of_the_bound_material_is_the_mesh_texture() {
+        let mesh = vec![array(
+            "MaterialBindings",
+            vec![binding(
+                "body",
+                vec![
+                    map("NormalTexture", "data/hd/cain1_body_nrm.texture"),
+                    map("AlbedoTexture", "data/hd/cain1_body_alb.texture"),
+                    map("ORMTexture", "data/hd/cain1_body_orm.texture"),
+                ],
+            )],
+        )];
+        assert_eq!(
+            albedo_texture(&mesh, 0).as_deref(),
+            Some("data/hd/cain1_body_alb.texture")
+        );
+    }
+
+    #[test]
+    fn the_material_index_picks_the_binding() {
+        let mesh = vec![array(
+            "MaterialBindings",
+            vec![
+                binding("a", vec![map("AlbedoTexture", "a_alb.texture")]),
+                binding("b", vec![map("AlbedoTexture", "b_alb.texture")]),
+            ],
+        )];
+        assert_eq!(albedo_texture(&mesh, 1).as_deref(), Some("b_alb.texture"));
+    }
+
+    #[test]
+    fn a_mesh_without_an_albedo_map_has_no_texture() {
+        let no_albedo = vec![array(
+            "MaterialBindings",
+            vec![binding("a", vec![map("NormalTexture", "a_nrm.texture")])],
+        )];
+        assert_eq!(albedo_texture(&no_albedo, 0), None);
+        assert_eq!(albedo_texture(&[], 0), None);
+        assert_eq!(albedo_texture(&no_albedo, 5), None);
+    }
 }
