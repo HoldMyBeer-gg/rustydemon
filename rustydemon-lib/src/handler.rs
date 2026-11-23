@@ -235,7 +235,8 @@ impl CascHandler {
                 Err(local_err) => {
                     #[cfg(feature = "cdn")]
                     if let Some(fetcher) = cdn_fetcher.as_ref() {
-                        match fetcher.fetch(ekey) {
+                        let at = local_index.cdn_archive_location(ekey);
+                        match fetcher.fetch_block(ekey, at.as_ref()) {
                             Ok(bytes) => return Ok(bytes),
                             Err(cdn_err) => {
                                 return Err(CascError::Config(format!(
@@ -749,12 +750,14 @@ impl CascHandler {
                 #[cfg(feature = "cdn")]
                 {
                     if let Some(fetcher) = self.cdn.as_ref() {
-                        let cdn_bytes = fetcher.fetch(ekey).map_err(|cdn_err| {
-                            CascError::Config(format!(
-                                "read {} failed locally ({local_err}) and via CDN ({cdn_err})",
-                                ekey.to_hex()
-                            ))
-                        })?;
+                        let at = local_index.cdn_archive_location(ekey);
+                        let cdn_bytes =
+                            fetcher.fetch_block(ekey, at.as_ref()).map_err(|cdn_err| {
+                                CascError::Config(format!(
+                                    "read {} failed locally ({local_err}) and via CDN ({cdn_err})",
+                                    ekey.to_hex()
+                                ))
+                            })?;
                         return blte::decode(&cdn_bytes, ekey, self.validate_hashes);
                     }
                 }
@@ -858,6 +861,8 @@ impl CascHandler {
                 mpk: Some(Arc::clone(archive)),
                 #[cfg(feature = "cdn")]
                 cdn: None,
+                #[cfg(feature = "cdn")]
+                cdn_archive: None,
             });
         }
 
@@ -876,6 +881,8 @@ impl CascHandler {
                 mpk: None,
                 #[cfg(feature = "cdn")]
                 cdn: None,
+                #[cfg(feature = "cdn")]
+                cdn_archive: None,
             });
         }
 
@@ -923,6 +930,8 @@ impl CascHandler {
             mpk: None,
             #[cfg(feature = "cdn")]
             cdn: self.cdn.clone(),
+            #[cfg(feature = "cdn")]
+            cdn_archive: local_index.cdn_archive_location(&ekey),
         })
     }
 }
@@ -955,6 +964,10 @@ pub struct PreparedLoad {
     mpk: Option<Arc<MpkArchive>>,
     #[cfg(feature = "cdn")]
     cdn: Option<std::sync::Arc<crate::cdn::CdnFetcher>>,
+    /// Where the block sits inside a CDN archive, when the local index
+    /// knows; a block that is not on disk is fetched from there.
+    #[cfg(feature = "cdn")]
+    cdn_archive: Option<crate::types::CdnArchiveLocation>,
 }
 
 impl PreparedLoad {
@@ -1000,7 +1013,8 @@ impl PreparedLoad {
                 #[cfg(feature = "cdn")]
                 {
                     if let Some(fetcher) = self.cdn.as_ref() {
-                        let cdn_bytes = fetcher.fetch(&self.ekey).map_err(|cdn_err| {
+                        let at = self.cdn_archive.as_ref();
+                        let cdn_bytes = fetcher.fetch_block(&self.ekey, at).map_err(|cdn_err| {
                             CascError::Config(format!(
                                 "read {} failed locally ({local_err}) and via CDN ({cdn_err})",
                                 self.ekey.to_hex()
@@ -1155,6 +1169,7 @@ mod missing_key_tests {
             static_container: None,
             mpk: None,
             cdn: Some(unreachable_cdn(scratch_dir("preparedload-cache"))),
+            cdn_archive: None,
         };
 
         let err = load.execute().expect_err("encrypted block must not decode");
@@ -1193,6 +1208,7 @@ mod missing_key_tests {
             static_container: None,
             mpk: None,
             cdn: Some(unreachable_cdn(scratch_dir("nolocal-cache"))),
+            cdn_archive: None,
         };
 
         let err = load
@@ -1205,6 +1221,57 @@ mod missing_key_tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A game that streams its data lists a block in an archive index
+    /// before the block is on disk.  It is read out of that archive on the
+    /// CDN, by byte range.
+    #[test]
+    fn a_block_not_on_disk_is_read_from_its_cdn_archive() {
+        let dir = scratch_dir("streamed");
+        let mut blte = Vec::new();
+        blte.extend_from_slice(&crate::blte::BLTE_MAGIC.to_le_bytes());
+        blte.extend_from_slice(&[0u8; 4]); // headerSize = 0
+        blte.push(b'N');
+        blte.extend_from_slice(b"a texture");
+        let size = blte.len() as u32;
+
+        let (host, server) = crate::cdn::tests::serve_once("206 Partial Content", blte);
+        let cache = scratch_dir("streamed-cache");
+        let cdn = crate::cdn::CdnFetcher::new(vec![host], "tpr/wow".into(), cache.clone()).unwrap();
+
+        // The archive index entry points at `data.007`, which was never
+        // downloaded.
+        let load = PreparedLoad {
+            storage_dir: Some(dir.clone()),
+            archive_index: 7,
+            offset: 500,
+            size,
+            ekey: Md5Hash::default(),
+            validate_hashes: false,
+            static_container: None,
+            mpk: None,
+            cdn: Some(Arc::new(cdn)),
+            cdn_archive: Some(crate::types::CdnArchiveLocation {
+                archive: "c405cf87ca4ac10b3d7ae2d378ec1fd6".into(),
+                offset: 500,
+                size,
+            }),
+        };
+
+        assert_eq!(load.execute().unwrap(), b"a texture");
+        let head = server.join().unwrap().to_lowercase();
+        assert!(
+            head.contains("/tpr/wow/data/c4/05/c405cf87ca4ac10b3d7ae2d378ec1fd6 "),
+            "{head}"
+        );
+        assert!(
+            head.contains(&format!("range: bytes=500-{}", 500 + size - 1)),
+            "{head}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&cache);
     }
 }
 

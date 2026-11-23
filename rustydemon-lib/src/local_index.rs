@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     error::CascError,
-    types::{EKey9, IndexEntry, Md5Hash},
+    types::{CdnArchiveLocation, EKey9, IndexEntry, Md5Hash},
 };
 
 /// Local CASC index handler.
@@ -31,6 +31,10 @@ pub struct LocalIndexHandler {
     storages: Vec<PathBuf>,
     /// 9-byte EKey prefix → location in local data archives.
     index: HashMap<EKey9, IndexEntry>,
+    /// Names of the CDN archives whose indices were merged in, in the
+    /// order of the CDN config.  [`IndexEntry::index`] of an entry read
+    /// from an archive index points into this list.
+    archive_hashes: Vec<String>,
 }
 
 impl LocalIndexHandler {
@@ -58,6 +62,7 @@ impl LocalIndexHandler {
         let mut handler = LocalIndexHandler {
             storages: Vec::with_capacity(data_dirs.len()),
             index: HashMap::new(),
+            archive_hashes: Vec::new(),
         };
 
         for dir in data_dirs {
@@ -129,6 +134,7 @@ impl LocalIndexHandler {
         }
 
         let mut added = 0usize;
+        self.archive_hashes = archive_hashes.to_vec();
 
         for (archive_ordinal, hash) in archive_hashes.iter().enumerate() {
             // Archive ordinals past u8 would exceed the current IndexEntry
@@ -171,6 +177,7 @@ impl LocalIndexHandler {
                     offset: entry.archive_offset as u32,
                     size: entry.encoded_size,
                     storage: data_storage_id,
+                    from_archive_index: true,
                 };
                 if let std::collections::hash_map::Entry::Vacant(v) = self.index.entry(ekey9) {
                     v.insert(new_entry);
@@ -195,6 +202,20 @@ impl LocalIndexHandler {
     /// Look up an encoding key, returning its archive location (or `None`).
     pub fn get_entry(&self, ekey: &Md5Hash) -> Option<&IndexEntry> {
         self.index.get(&EKey9::from_full(ekey))
+    }
+
+    /// Where `ekey`'s block sits on the CDN, when its entry was read from
+    /// an archive index.  A game that streams its data (World of Warcraft)
+    /// lists every archive's contents locally but downloads the blocks
+    /// only as they are needed, so this is how a block that is not on disk
+    /// yet can still be fetched.
+    pub fn cdn_archive_location(&self, ekey: &Md5Hash) -> Option<CdnArchiveLocation> {
+        let entry = self.get_entry(ekey).filter(|e| e.from_archive_index)?;
+        Some(CdnArchiveLocation {
+            archive: self.archive_hashes.get(entry.index as usize)?.clone(),
+            offset: u64::from(entry.offset),
+            size: entry.size,
+        })
     }
 
     /// Resolve an ekey to its on-disk archive path: `<storage>/data.NNN`.
@@ -269,6 +290,7 @@ impl LocalIndexHandler {
                 offset,
                 size,
                 storage: storage_id,
+                from_archive_index: false,
             };
 
             // Pad the 9-byte key to 16 bytes for EKey9 construction.
@@ -347,4 +369,89 @@ fn skip_bytes<R: Read>(r: &mut R, n: usize) -> Result<(), CascError> {
         remaining -= take;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A one-page archive index holding `entries` (ekey, size, offset).
+    fn index_file(entries: &[([u8; 16], u32, u32)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for (ekey, size, offset) in entries {
+            out.extend_from_slice(ekey);
+            out.extend_from_slice(&size.to_be_bytes());
+            out.extend_from_slice(&offset.to_be_bytes());
+        }
+        out.resize(4096, 0);
+        // One page hash and one table-of-contents entry, neither read.
+        out.resize(out.len() + 16 + 24, 0);
+        let mut footer = [0u8; 36];
+        footer[16] = 1; // version
+        footer[19] = 4; // page size in KiB
+        footer[20] = 4; // offset bytes
+        footer[21] = 4; // size bytes
+        footer[22] = 16; // ekey length
+        footer[23] = 8; // footer hash bytes
+        footer[24..28].copy_from_slice(&(entries.len() as u32).to_le_bytes());
+        out.extend_from_slice(&footer);
+        out
+    }
+
+    fn empty_handler(dir: &Path) -> LocalIndexHandler {
+        LocalIndexHandler {
+            storages: vec![dir.to_path_buf()],
+            index: HashMap::new(),
+            archive_hashes: Vec::new(),
+        }
+    }
+
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("rd-local-index-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn an_entry_from_an_archive_index_knows_its_cdn_archive() {
+        let dir = scratch_dir("archive");
+        let archives = vec!["00".repeat(16), "c4".repeat(16)];
+        fs::write(
+            dir.join(format!("{}.index", archives[1])),
+            index_file(&[([0xAA; 16], 6613, 251_782_117)]),
+        )
+        .unwrap();
+
+        let mut handler = empty_handler(&dir);
+        handler.merge_archive_indices(&dir, &archives, 0).unwrap();
+
+        let at = handler
+            .cdn_archive_location(&Md5Hash([0xAA; 16]))
+            .expect("the entry came from an archive index");
+        assert_eq!(at.archive, archives[1]);
+        assert_eq!(at.offset, 251_782_117);
+        assert_eq!(at.size, 6613);
+        assert!(handler.cdn_archive_location(&Md5Hash([0xBB; 16])).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_entry_from_a_local_idx_has_no_cdn_archive() {
+        let dir = scratch_dir("idx");
+        let mut handler = empty_handler(&dir);
+        handler.archive_hashes = vec!["c4".repeat(16)];
+        handler.index.insert(
+            EKey9::from_full(&Md5Hash([0xAA; 16])),
+            IndexEntry {
+                index: 0,
+                offset: 10,
+                size: 20,
+                ..IndexEntry::default()
+            },
+        );
+        assert!(handler.cdn_archive_location(&Md5Hash([0xAA; 16])).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
