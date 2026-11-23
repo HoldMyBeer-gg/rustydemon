@@ -112,6 +112,22 @@ pub struct IndexEntry {
     /// Always `0` for single-storage installs; `1` for D2R 3.1.2's
     /// secondary `ecache/` storage.
     pub storage: u8,
+    /// The entry was read from an archive index (`<hash>.index`), so
+    /// `index` is also the position of its archive in the CDN config's
+    /// `archives` list and `offset` is where the block sits inside that
+    /// archive on the CDN.
+    pub from_archive_index: bool,
+}
+
+/// Where a block sits inside an archive on the CDN.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CdnArchiveLocation {
+    /// Lowercase hex name of the archive.
+    pub archive: String,
+    /// Byte offset of the block within the archive.
+    pub offset: u64,
+    /// Encoded size of the block.
+    pub size: u32,
 }
 
 // ── Locale / content flags ────────────────────────────────────────────────────

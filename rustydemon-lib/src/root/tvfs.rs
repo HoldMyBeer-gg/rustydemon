@@ -86,7 +86,8 @@ impl FileOpener for LocalFileOpener<'_> {
         };
         #[cfg(feature = "cdn")]
         if let Some(fetcher) = self.cdn.as_ref() {
-            match fetcher.fetch(ekey) {
+            let at = self.local_index.cdn_archive_location(ekey);
+            match fetcher.fetch_block(ekey, at.as_ref()) {
                 Ok(raw) => return blte::decode(&raw, ekey, false),
                 Err(cdn_err) => {
                     return Err(CascError::Config(format!(
