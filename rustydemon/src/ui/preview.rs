@@ -82,14 +82,17 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     // anything recognisable comes out.  Deferred because we can't
     // mutate `app` while `sel` is borrowed.
     let mut override_change: Option<Option<usize>> = None;
+    let mut export_choice: Option<ExportChoice> = None;
     if sel.data.is_some() {
         let names = crate::preview::plugin_names();
+        // Plugin-provided exports (e.g. "Export As PNG", "Export As BK2").
+        let labels: Vec<&str> = sel
+            .preview
+            .iter()
+            .flat_map(|p| p.extra_exports.iter().map(|a| a.label))
+            .collect();
         theme::section_label(ui, "Viewer");
-        ui.horizontal(|ui| {
-            if let Some(change) = viewer_combo(ui, sel.preview_override, &names) {
-                override_change = Some(change);
-            }
-        });
+        (override_change, export_choice) = viewer_row(ui, sel.preview_override, &names, &labels);
     }
 
     // ── Plugin-provided preview ───────────────────────────────────────────────
@@ -189,7 +192,6 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     // of `app.selected`) is live, so collect intents here and run them after.
     let mut pcx_load_palette = false;
     let mut pcx_clear_palette = false;
-    let mut export_choice: Option<ExportChoice> = None;
     let mut audio_action: Option<crate::app::AudioAction> = None;
 
     if is_pcx {
@@ -320,18 +322,6 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
         }
     }
 
-    // ── Export buttons ─────────────────────────────────────────────────────────
-    if sel.data.is_some() {
-        theme::section_label(ui, "Export");
-        // Plugin-provided exports (e.g. "Export As PNG", "Export As BK2").
-        let labels: Vec<&str> = sel
-            .preview
-            .iter()
-            .flat_map(|p| p.extra_exports.iter().map(|a| a.label))
-            .collect();
-        export_choice = export_menu(ui, &labels);
-    }
-
     // Drop the `sel` immutable borrow before touching `app` mutably.
     let _ = sel;
 
@@ -447,12 +437,20 @@ pub fn apply_preview_override(
             model_file,
         )
     };
+    let character = || {
+        crate::preview::character::lookup(
+            &app.character_looks,
+            handler_ref.map(|h| h.as_ref()),
+            model_file,
+        )
+    };
     let messiah_repo = || handler_ref?.mpk_repository();
     let siblings = crate::preview::SiblingFetcher {
         by_name: &by_name,
         by_fdid: &by_fdid,
         texture_info: &texture_info,
         monster_skins: &monster_skins,
+        character: &character,
         messiah_repo: &messiah_repo,
     };
 
@@ -525,6 +523,7 @@ fn reload_current_pcx(app: &mut CascExplorerApp, ctx: &egui::Context) {
             by_fdid: &no_fdid,
             texture_info: &no_tex_info,
             monster_skins: &no_skins,
+            character: &|| Ok(None),
             messiah_repo: &no_repo,
         };
         sel.preview = crate::preview::run(sel.result.filename.as_deref(), &data, ctx, &siblings);
@@ -647,6 +646,22 @@ pub(crate) fn viewer_combo(
     change
 }
 
+/// The row under the "Viewer" heading: the viewer dropdown, then the export
+/// button.  Export sits here, above the preview, because a model's text can
+/// run to hundreds of lines and anything below it is a long scroll away.
+fn viewer_row(
+    ui: &mut egui::Ui,
+    current: Option<usize>,
+    names: &[String],
+    export_labels: &[&str],
+) -> (Option<Option<usize>>, Option<ExportChoice>) {
+    ui.horizontal(|ui| {
+        let change = viewer_combo(ui, current, names);
+        (change, export_menu(ui, export_labels))
+    })
+    .inner
+}
+
 /// A read-only block of monospace text, published under `name`.
 pub(crate) fn text_block(ui: &mut egui::Ui, text: &str, name: &str) {
     let resp = ui.add(
@@ -743,6 +758,28 @@ mod export_menu_tests {
             );
         });
         assert_eq!(names, ["Export"]);
+    }
+
+    /// Export is reachable without scrolling past the preview: it shares
+    /// the row of the viewer dropdown.  (Nodes come back in no drawing
+    /// order, so this checks who is in the row, not who is first.)
+    #[test]
+    fn the_export_button_sits_beside_the_viewer_dropdown() {
+        let mut row: Vec<(Role, String)> = nodes(|ui| {
+            super::viewer_row(ui, None, &["BLP".to_string()], &["Export As PNG"]);
+        })
+        .iter()
+        .filter(|n| matches!(n.role(), Role::Button | Role::ComboBox))
+        .filter_map(|n| Some((n.role(), n.label()?.to_owned())))
+        .collect();
+        row.sort_by(|a, b| b.1.cmp(&a.1));
+        assert_eq!(
+            row,
+            [
+                (Role::ComboBox, "Viewer".to_string()),
+                (Role::Button, "Export".to_string())
+            ]
+        );
     }
 
     #[test]

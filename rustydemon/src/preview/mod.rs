@@ -14,6 +14,7 @@ pub mod adt;
 pub mod adt_lite;
 pub mod audio;
 pub mod blp;
+pub mod character;
 pub mod creature_skins;
 pub mod d3_ani;
 #[cfg(test)]
@@ -31,6 +32,7 @@ pub mod db2;
 pub mod dds;
 #[cfg(test)]
 mod dds_tests;
+pub mod geosets;
 pub mod gltf;
 #[cfg(test)]
 mod gltf_tests;
@@ -264,6 +266,11 @@ pub struct SiblingFetcher<'a> {
     /// none) that the game's creature tables give the file being previewed.
     /// `None` when it is not a creature model or the tables are unreadable.
     pub monster_skins: &'a dyn Fn() -> Option<[u32; 3]>,
+    /// The default look of the player character whose body the file being
+    /// previewed is: the textures to paint and the model parts to show.
+    /// `Ok(None)` when it is not a character body; `Err` says which of the
+    /// game's tables could not be used.
+    pub character: &'a dyn Fn() -> Result<Option<character::Look>, String>,
     /// Diablo Immortal's resource registry, for previews that follow a
     /// mesh to its materials and textures. `None` for other games.
     pub messiah_repo: &'a dyn Fn() -> Option<Arc<rustydemon_messiah::repository::Repository>>,

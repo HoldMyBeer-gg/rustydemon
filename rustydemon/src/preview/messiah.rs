@@ -318,6 +318,7 @@ mod tests {
             by_fdid: &none,
             texture_info: &no_info,
             monster_skins: &no_skins,
+            character: &|| Ok(None),
             messiah_repo: &no_repo,
         };
         MessiahMeshPreview.build(
@@ -413,6 +414,7 @@ mod tests {
             by_fdid: &none,
             texture_info: &no_info,
             monster_skins: &no_skins,
+            character: &|| Ok(None),
             messiah_repo: &no_repo,
         };
         let out = MessiahTexturePreview.build("x.6", &data, &egui::Context::default(), &siblings);
@@ -445,6 +447,7 @@ mod tests {
             by_fdid: &none,
             texture_info: &no_info,
             monster_skins: &no_skins,
+            character: &|| Ok(None),
             messiah_repo: &with_repo,
         };
         let out = MessiahMeshPreview.build(
@@ -494,6 +497,7 @@ mod tests {
             by_fdid: &none,
             texture_info: &no_info,
             monster_skins: &no_skins,
+            character: &|| Ok(None),
             messiah_repo: &with_repo,
         };
         let dir = scratch("mesh");
@@ -519,6 +523,7 @@ mod tests {
             by_fdid: &none,
             texture_info: &no_info,
             monster_skins: &no_skins,
+            character: &|| Ok(None),
             messiah_repo: &no_repo,
         };
         let dir = scratch("tex");

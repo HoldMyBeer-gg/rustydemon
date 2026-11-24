@@ -22,6 +22,8 @@ use wow_alchemy_data::types::VWowStructR;
 use wow_alchemy_m2::skin::SkinVersion;
 use wow_alchemy_m2::Skin;
 
+use super::character;
+use super::geosets;
 use super::m2_lite::M2Lite;
 
 use super::{
@@ -183,7 +185,36 @@ impl PreviewPlugin for M2Preview {
         // filled from the game's creature tables.
         let monster_skins = (siblings.monster_skins)();
         let mut skinned: u32 = 0;
+        // A character body's empty slots are painted from the choices the
+        // character creation screen starts with.
+        let (look, look_problem) = match (siblings.character)() {
+            Ok(look) => (look, None),
+            Err(problem) => (None, Some(problem)),
+        };
+        let decode = |fdid: u32| (siblings.by_fdid)(fdid).as_deref().and_then(decode_blp);
+        let mut painted: Vec<String> = Vec::new();
         for (slot, &fdid) in texture_fdids.iter().enumerate() {
+            let sheet = look
+                .as_ref()
+                .filter(|_| fdid == 0)
+                .and_then(|look| {
+                    let kind = *m2.texture_types.get(slot)?;
+                    look.sheets.iter().find(|s| s.texture_type == kind)
+                })
+                .and_then(|plan| Some((plan, character::compose(plan, &decode)?)));
+            if let Some((plan, (rgba, width, height))) = sheet {
+                painted.push(format!(
+                    "slot {slot}: {width}x{height} from {} texture(s)",
+                    plan.paints.len()
+                ));
+                tex_loaded += 1;
+                materials.push(MeshMaterial {
+                    rgba: Some(rgba),
+                    width,
+                    height,
+                });
+                continue;
+            }
             let fdid = if fdid != 0 {
                 fdid
             } else {
@@ -237,13 +268,24 @@ impl PreviewPlugin for M2Preview {
         // pass, specular pass, env map pass).  For our single-texture
         // renderer we take `material_layer == 0` as the base/diffuse pass
         // and skip higher layers.
+        // A character body holds every glove, boot and hairstyle at once;
+        // draw the undressed set, not all of them on top of each other.
+        let section_ids: Vec<u16> = skin.submeshes.iter().map(|s| s.id).collect();
+        let character = geosets::is_character(&m2.texture_types);
+        let visible = if let Some(look) = &look {
+            geosets::chosen(&section_ids, &look.geosets)
+        } else if character {
+            geosets::undressed(&section_ids)
+        } else {
+            vec![true; section_ids.len()]
+        };
         let batches: Vec<MeshBatch> = if skin.texture_units.is_empty() {
             // Fallback: one batch per submesh (legacy models).
             skin.submeshes
                 .iter()
                 .enumerate()
                 .map(|(i, s)| MeshBatch {
-                    start_index: s.triangle_start as u32,
+                    start_index: geosets::first_index(s.triangle_start, s.level),
                     index_count: s.triangle_count as u32,
                     material_id: i as u32,
                     blend: Blend::Opaque,
@@ -253,6 +295,12 @@ impl PreviewPlugin for M2Preview {
             skin.texture_units
                 .iter()
                 .filter(|tu| tu.material_layer == 0)
+                .filter(|tu| {
+                    visible
+                        .get(tu.skin_section_index as usize)
+                        .copied()
+                        .unwrap_or(true)
+                })
                 .filter_map(|tu| {
                     let sub = skin.submeshes.get(tu.skin_section_index as usize)?;
                     // Resolve texture: skip combo_index entries in the
@@ -265,7 +313,7 @@ impl PreviewPlugin for M2Preview {
                         tu.skin_section_index as u32
                     };
                     Some(MeshBatch {
-                        start_index: sub.triangle_start as u32,
+                        start_index: geosets::first_index(sub.triangle_start, sub.level),
                         index_count: sub.triangle_count as u32,
                         material_id,
                         blend: blend_for(m2.blend_modes.get(tu.material_index as usize).copied()),
@@ -405,6 +453,29 @@ impl PreviewPlugin for M2Preview {
                 ));
             }
         }
+        if let Some(problem) = &look_problem {
+            text.push_str(&format!("\nCharacter look not applied: {problem}"));
+        }
+        if !painted.is_empty() {
+            text.push_str(&format!(
+                "\nCharacter creation defaults painted: {}",
+                painted.join("; ")
+            ));
+        }
+        if character || look.is_some() {
+            let mut shown: Vec<u16> = section_ids
+                .iter()
+                .zip(&visible)
+                .filter_map(|(&id, &on)| on.then_some(id))
+                .collect();
+            shown.sort_unstable();
+            shown.dedup();
+            let list: Vec<String> = shown.iter().map(u16::to_string).collect();
+            text.push_str(&format!(
+                "\nCharacter body. Parts drawn: {}",
+                list.join(", ")
+            ));
+        }
         text.push_str(&format!(
             "\nLoaded SKIN with {} submesh(es), {} render batch(es)",
             skin.submeshes.len(),
@@ -462,6 +533,7 @@ mod tests {
             by_fdid: &none,
             texture_info: &no_info,
             monster_skins: &no_skins,
+            character: &|| Ok(None),
             messiah_repo: &no_repo,
         };
         M2Preview
