@@ -133,6 +133,8 @@ pub struct CascExplorerApp {
     pub handler: Option<Arc<CascHandler>>,
     /// Creature skin lookup for `handler`'s archive, built on first use.
     pub creature_skins: crate::preview::creature_skins::Cache,
+    /// The character tables of the open archive, read on first use.
+    pub character_looks: crate::preview::character::Cache,
     /// The search for installed games in the usual places, started the
     /// first time the File menu opens.  It walks the disk, so it runs once
     /// and off the UI thread.
@@ -249,6 +251,7 @@ impl CascExplorerApp {
         Self {
             handler: None,
             creature_skins: Default::default(),
+            character_looks: Default::default(),
             installs: None,
             product: String::new(),
             detected_products: vec![],
@@ -351,6 +354,7 @@ impl CascExplorerApp {
                 );
                 self.handler = Some(Arc::new(handler));
                 self.creature_skins = Default::default();
+                self.character_looks = Default::default();
                 self.search_results.clear();
                 self.selected = None;
                 self.expanded.clear();
@@ -428,12 +432,21 @@ impl CascExplorerApp {
                                 model_file,
                             )
                         };
+                        let looks_cache = &self.character_looks;
+                        let character = || {
+                            crate::preview::character::lookup(
+                                looks_cache,
+                                handler_ref.map(|h| h.as_ref()),
+                                model_file,
+                            )
+                        };
                         let messiah_repo = || handler_ref?.mpk_repository();
                         let siblings = crate::preview::SiblingFetcher {
                             by_name: &by_name,
                             by_fdid: &by_fdid,
                             texture_info: &texture_info,
                             monster_skins: &monster_skins,
+                            character: &character,
                             messiah_repo: &messiah_repo,
                         };
                         sel.preview =
@@ -497,6 +510,7 @@ impl CascExplorerApp {
         // arrives in the `Opened` branch.
         self.handler = None;
         self.creature_skins = Default::default();
+        self.character_looks = Default::default();
         self.search_results.clear();
         self.selected = None;
         self.browsed_folder = None;
@@ -946,6 +960,7 @@ fn run_export(
         by_fdid: &none,
         texture_info: &no_info,
         monster_skins: &no_skins,
+        character: &|| Ok(None),
         messiah_repo: &messiah_repo,
     };
 

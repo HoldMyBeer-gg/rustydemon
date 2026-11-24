@@ -134,6 +134,7 @@ mod tests {
             by_fdid: &none,
             texture_info: &no_info,
             monster_skins: &no_skins,
+            character: &|| Ok(None),
             messiah_repo: &no_repo,
         };
         GrpPreview.build(name, data, &egui::Context::default(), &siblings)
