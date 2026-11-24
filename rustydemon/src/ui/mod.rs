@@ -2,6 +2,7 @@ pub(crate) mod a11y;
 mod about;
 mod egg;
 mod menu;
+pub(crate) mod model_window;
 pub(crate) mod preview;
 pub(crate) mod results;
 pub(crate) mod theme;

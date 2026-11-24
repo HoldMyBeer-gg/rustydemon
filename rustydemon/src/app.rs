@@ -189,6 +189,8 @@ pub struct CascExplorerApp {
 
     // ── 3D viewport spike ─────────────────────────────────────────────────────
     pub viewport3d_open: bool,
+    /// Whether the model has a window of its own (see `ui::model_window`).
+    pub model_window_open: bool,
 
     // ── About window ──────────────────────────────────────────────────────────
     pub about_open: bool,
@@ -273,6 +275,7 @@ impl CascExplorerApp {
             cancel: Arc::new(AtomicBool::new(false)),
             loading: false,
             viewport3d_open: false,
+            model_window_open: false,
             about_open: false,
             about_logo: None,
             dyslexia_friendly: false,
@@ -887,6 +890,7 @@ impl eframe::App for CascExplorerApp {
         self.poll_background(ctx);
         let content = crate::ui::draw(ui, self);
         crate::viewport3d::show_window(ctx, &mut self.viewport3d_open, content);
+        crate::ui::model_window::show(ctx, self);
     }
 }
 
