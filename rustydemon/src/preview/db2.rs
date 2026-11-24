@@ -11,8 +11,9 @@
 //! * common: the field is not in the record at all; a side table lists the
 //!   rows that differ from a default
 //!
-//! This reads the fields the caller asks for and nothing else.  It does not
-//! read strings, relationship data, or tables with variable-size records.
+//! This reads the fields the caller asks for, and each row's parent from the
+//! relationship data.  It does not read strings or tables with variable-size
+//! records.
 //! Every offset and count comes from the file and is checked before use.
 //!
 //! Sections can be encrypted with keys that are not public.  The file layer
@@ -25,6 +26,9 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
     pub id: u32,
+    /// The row of another table this one belongs to, from the table's
+    /// relationship data; 0 when it has none.
+    pub parent: u32,
     pub fields: Vec<Vec<u64>>,
 }
 
@@ -250,6 +254,7 @@ impl Table {
             let count = file.size(s + 12)?;
             let strings = file.size(s + 16)?;
             let id_list_size = file.size(s + 24)?;
+            let relationship_size = file.size(s + 28)?;
             let copy_count = file.size(s + 36)?;
 
             let records = file.slice(at, count.checked_mul(record_size)?)?;
@@ -257,10 +262,27 @@ impl Table {
             let ids = Bytes(file.slice(ids_at, id_list_size)?);
             let copies_at = ids_at.checked_add(id_list_size)?;
             let copies = Bytes(file.slice(copies_at, copy_count.checked_mul(8)?)?);
+            // Fixed-size records have no offset map, so the relationship
+            // data follows the copies directly.
+            let relationships_at = copies_at.checked_add(copy_count * 8)?;
+            let relationships = Bytes(file.slice(relationships_at, relationship_size)?);
 
             // Encrypted with a key we lack: handed to us as zeros.
             if key != 0 && records.iter().all(|&b| b == 0) {
                 continue;
+            }
+
+            // A count, the lowest and highest parent id, then pairs of
+            // (parent id, position of the record that belongs to it).
+            let mut parents = vec![0u32; count.min(records.len())];
+            if relationship_size > 0 {
+                for i in 0..relationships.size(0)? {
+                    let entry = 12 + i.checked_mul(8)?;
+                    let record = relationships.size(entry + 4)?;
+                    if let Some(slot) = parents.get_mut(record) {
+                        *slot = relationships.u32(entry)?;
+                    }
+                }
             }
 
             let first_row = rows.len();
@@ -278,13 +300,21 @@ impl Table {
                 else {
                     return Some(Err(format!("row {id} points outside the table's data")));
                 };
-                rows.push(Row { id, fields });
+                rows.push(Row {
+                    id,
+                    parent: parents.get(r).copied().unwrap_or(0),
+                    fields,
+                });
             }
             for c in 0..copy_count {
                 let (new, source) = (copies.u32(c * 8)?, copies.u32(c * 8 + 4)?);
                 if let Some(row) = rows[first_row..].iter().find(|r| r.id == source) {
-                    let fields = row.fields.clone();
-                    rows.push(Row { id: new, fields });
+                    let (parent, fields) = (row.parent, row.fields.clone());
+                    rows.push(Row {
+                        id: new,
+                        parent,
+                        fields,
+                    });
                 }
             }
         }
@@ -352,12 +382,33 @@ pub(crate) mod tests {
         b
     }
 
+    /// A section's relationship data: a count, the lowest and highest
+    /// parent id, then one pair per record that has a parent.  Nothing at
+    /// all when no record has one.
+    fn relationships(parents: &[(u32, u32)]) -> Vec<u8> {
+        if parents.is_empty() {
+            return Vec::new();
+        }
+        let ids = || parents.iter().map(|p| p.0);
+        let mut b = u32s(&[
+            parents.len() as u32,
+            ids().min().unwrap(),
+            ids().max().unwrap(),
+        ]);
+        for (parent, record) in parents {
+            b.extend_from_slice(&u32s(&[*parent, *record]));
+        }
+        b
+    }
+
     pub struct Section {
         pub key: u64,
         pub records: Vec<Vec<u8>>,
         pub ids: Vec<u32>,
         /// `(new id, id it copies)`
         pub copies: Vec<(u32, u32)>,
+        /// `(parent id, index of the record it belongs to)`
+        pub parents: Vec<(u32, u32)>,
     }
 
     /// A whole WDC5 file with the test columns.
@@ -422,7 +473,7 @@ pub(crate) mod tests {
                 0, // string table size
                 0, // offset records end
                 s.ids.len() as u32 * 4,
-                0, // relationship data size
+                relationships(&s.parents).len() as u32,
                 0, // offset map id count
                 s.copies.len() as u32,
             ]));
@@ -434,6 +485,7 @@ pub(crate) mod tests {
             for (new, old) in &s.copies {
                 f.extend_from_slice(&u32s(&[*new, *old]));
             }
+            f.extend_from_slice(&relationships(&s.parents));
         }
         f
     }
@@ -448,6 +500,7 @@ pub(crate) mod tests {
                 records: vec![record(5000, 777, 1, 0, -3), record(6000, 1, 2, 1, 5)],
                 ids: vec![10, 20],
                 copies: vec![(30, 10)],
+                parents: vec![],
             }],
         )
     }
@@ -498,6 +551,56 @@ pub(crate) mod tests {
         assert_eq!(t.rows.len(), 3);
     }
 
+    fn with_parents(parents: Vec<(u32, u32)>) -> Vec<u8> {
+        file(
+            HAS_ID_LIST,
+            &[Section {
+                key: 0,
+                records: vec![record(5000, 777, 1, 0, -3), record(6000, 1, 2, 1, 5)],
+                ids: vec![10, 20],
+                copies: vec![(30, 10)],
+                parents,
+            }],
+        )
+    }
+
+    /// The parent is kept beside the records, listed by record position
+    /// and in any order.
+    #[test]
+    fn a_row_knows_the_parent_its_relationship_data_names() {
+        let t = Table::parse(&with_parents(vec![(77, 1), (55, 0)]), &[1]).unwrap();
+        assert_eq!(row(&t, 10).parent, 55);
+        assert_eq!(row(&t, 20).parent, 77);
+        assert_eq!(row(&t, 10).fields, [vec![777]], "fields are unchanged");
+    }
+
+    #[test]
+    fn a_copied_row_has_its_source_rows_parent() {
+        let t = Table::parse(&with_parents(vec![(55, 0), (77, 1)]), &[]).unwrap();
+        assert_eq!(row(&t, 30).parent, 55);
+    }
+
+    #[test]
+    fn a_row_with_no_relationship_data_has_parent_zero() {
+        let t = Table::parse(&two_rows(), &[]).unwrap();
+        assert!(t.rows.iter().all(|r| r.parent == 0));
+        // Only one of the two records is listed.
+        let t = Table::parse(&with_parents(vec![(77, 1)]), &[]).unwrap();
+        assert_eq!((row(&t, 10).parent, row(&t, 20).parent), (0, 77));
+    }
+
+    #[test]
+    fn a_parent_for_a_record_the_section_does_not_have_is_ignored() {
+        let t = Table::parse(&with_parents(vec![(55, 0), (99, 7)]), &[]).unwrap();
+        assert_eq!((row(&t, 10).parent, row(&t, 20).parent), (55, 0));
+    }
+
+    #[test]
+    fn relationship_data_cut_short_is_an_error() {
+        let f = with_parents(vec![(55, 0), (77, 1)]);
+        assert!(Table::parse(&f[..f.len() - 4], &[]).is_err());
+    }
+
     #[test]
     fn without_an_id_list_the_id_is_the_id_column() {
         let f = file(
@@ -507,6 +610,7 @@ pub(crate) mod tests {
                 records: vec![record(42, 9, 0, 0, 0)],
                 ids: vec![],
                 copies: vec![],
+                parents: vec![],
             }],
         );
         let t = Table::parse(&f, &[1]).unwrap();
@@ -514,6 +618,7 @@ pub(crate) mod tests {
             t.rows,
             [Row {
                 id: 42,
+                parent: 0,
                 fields: vec![vec![9]]
             }]
         );
@@ -530,12 +635,14 @@ pub(crate) mod tests {
                     records: vec![record(1, 2, 0, 0, 0)],
                     ids: vec![10],
                     copies: vec![],
+                    parents: vec![],
                 },
                 Section {
                     key: 0xDEAD_BEEF,
                     records: vec![vec![0; RECORD_SIZE]; 2],
                     ids: vec![0, 0],
                     copies: vec![],
+                    parents: vec![],
                 },
             ],
         );
@@ -553,6 +660,7 @@ pub(crate) mod tests {
                 records: vec![record(1, 2, 0, 0, 0)],
                 ids: vec![10],
                 copies: vec![],
+                parents: vec![],
             }],
         );
         assert_eq!(Table::parse(&f, &[1]).unwrap().rows.len(), 1);
@@ -573,6 +681,7 @@ pub(crate) mod tests {
                 records: vec![record(1, 2, 7, 3, 0)],
                 ids: vec![10],
                 copies: vec![],
+                parents: vec![],
             }],
         );
         assert!(Table::parse(&f, &[2]).is_err());

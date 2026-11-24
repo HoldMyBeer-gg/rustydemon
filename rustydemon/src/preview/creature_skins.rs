@@ -149,6 +149,7 @@ mod tests {
                 records: rows.iter().map(|(_, r)| r.clone()).collect(),
                 ids: rows.iter().map(|(id, _)| *id).collect(),
                 copies: vec![],
+                parents: vec![],
             }],
         )
     }
