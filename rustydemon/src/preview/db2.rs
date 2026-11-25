@@ -11,9 +11,9 @@
 //! * common: the field is not in the record at all; a side table lists the
 //!   rows that differ from a default
 //!
-//! This reads the fields the caller asks for, and each row's parent from the
-//! relationship data.  It does not read strings or tables with variable-size
-//! records.
+//! This reads the fields the caller asks for, each row's parent from the
+//! relationship data, and strings from the columns the caller says hold
+//! them.  It does not read tables with variable-size records.
 //! Every offset and count comes from the file and is checked before use.
 //!
 //! Sections can be encrypted with keys that are not public.  The file layer
@@ -40,7 +40,12 @@ pub struct Table {
     /// How many columns the table has.
     pub field_count: usize,
     pub rows: Vec<Row>,
+    /// Every section's strings, joined; see [`Table::text`].
+    strings: Vec<u8>,
 }
+
+/// The value of a text field that names no string.
+const NO_TEXT: u64 = u64::MAX;
 
 const HEADER_SIZE: usize = 204;
 const SECTION_HEADER_SIZE: usize = 40;
@@ -144,18 +149,37 @@ impl Field {
 impl Table {
     /// Read `fields` (column numbers, from 0) of every row.
     pub fn parse(data: &[u8], fields: &[usize]) -> Result<Self, String> {
-        Self::parse_inner(data, fields)
+        Self::parse_text(data, fields, &[])
+    }
+
+    /// [`parse`](Self::parse), where the columns in `text` (which must be
+    /// among `fields`) hold strings.  Such a field's value is then a
+    /// reference to hand to [`text`](Self::text).
+    pub fn parse_text(data: &[u8], fields: &[usize], text: &[usize]) -> Result<Self, String> {
+        Self::parse_inner(data, fields, text)
             .ok_or_else(|| "table is cut short or damaged".to_string())?
     }
 
+    /// The string a text column's value refers to.  `None` when the value
+    /// points outside the table's strings or they are not valid UTF-8.
+    pub fn text(&self, reference: u64) -> Option<&str> {
+        if reference == NO_TEXT {
+            return Some("");
+        }
+        let rest = self.strings.get(usize::try_from(reference).ok()?..)?;
+        let end = rest.iter().position(|&b| b == 0)?;
+        std::str::from_utf8(&rest[..end]).ok()
+    }
+
     /// Outer `None`: ran off the end of the file somewhere.
-    fn parse_inner(data: &[u8], wanted: &[usize]) -> Option<Result<Self, String>> {
+    fn parse_inner(data: &[u8], wanted: &[usize], text: &[usize]) -> Option<Result<Self, String>> {
         let file = Bytes(data);
         if file.slice(0, 4)? != b"WDC5" {
             return Some(Err("not a WDC5 database table".into()));
         }
         // After the magic: a version, then a 128-byte build name.
         let h = 136;
+        let record_total = file.size(h)?;
         let record_size = file.size(h + 8)?;
         let layout_hash = file.u32(h + 20)?;
         let flags = file.u16(h + 36)?;
@@ -245,6 +269,27 @@ impl Table {
         if pallet_used > pallet_size || common_used > common_size {
             return Some(Err("side tables are smaller than the columns claim".into()));
         }
+        // Where in `wanted` each text column is, and where in a record.
+        let mut text_at = Vec::with_capacity(text.len());
+        for &column in text {
+            let Some(place) = wanted.iter().position(|&w| w == column) else {
+                return Some(Err(format!(
+                    "text column {column} is not among the columns read"
+                )));
+            };
+            let field = columns[column];
+            if !matches!(field.kind, Kind::Plain { element_bits: 32 }) || field.offset_bits % 8 != 0
+            {
+                return Some(Err(format!("column {column} does not hold text")));
+            }
+            text_at.push((place, field.offset_bits / 8));
+        }
+        // A text field holds the distance from itself to its string, as if
+        // every section's records came first and every section's strings
+        // followed.  So the strings are kept joined, in section order.
+        let records_end = record_total.checked_mul(record_size)?;
+        let mut strings: Vec<u8> = Vec::new();
+        let mut records_seen = 0usize;
 
         let mut rows: Vec<Row> = Vec::new();
         for section in 0..section_count {
@@ -252,13 +297,13 @@ impl Table {
             let key = file.u64(s)?;
             let at = file.size(s + 8)?;
             let count = file.size(s + 12)?;
-            let strings = file.size(s + 16)?;
+            let strings_size = file.size(s + 16)?;
             let id_list_size = file.size(s + 24)?;
             let relationship_size = file.size(s + 28)?;
             let copy_count = file.size(s + 36)?;
 
             let records = file.slice(at, count.checked_mul(record_size)?)?;
-            let ids_at = at.checked_add(records.len())?.checked_add(strings)?;
+            let ids_at = at.checked_add(records.len())?.checked_add(strings_size)?;
             let ids = Bytes(file.slice(ids_at, id_list_size)?);
             let copies_at = ids_at.checked_add(id_list_size)?;
             let copies = Bytes(file.slice(copies_at, copy_count.checked_mul(8)?)?);
@@ -266,6 +311,13 @@ impl Table {
             // data follows the copies directly.
             let relationships_at = copies_at.checked_add(copy_count * 8)?;
             let relationships = Bytes(file.slice(relationships_at, relationship_size)?);
+
+            let first_record = records_seen;
+            records_seen = records_seen.checked_add(count)?;
+            if !text.is_empty() {
+                strings
+                    .extend_from_slice(file.slice(at.checked_add(records.len())?, strings_size)?);
+            }
 
             // Encrypted with a key we lack: handed to us as zeros.
             if key != 0 && records.iter().all(|&b| b == 0) {
@@ -293,13 +345,26 @@ impl Table {
                     let own = columns.get(id_column)?.read(record, 0, &pallet, &common);
                     *own?.first()? as u32
                 };
-                let Some(fields) = wanted
+                let Some(mut fields) = wanted
                     .iter()
                     .map(|&f| columns[f].read(record, id, &pallet, &common))
                     .collect::<Option<Vec<_>>>()
                 else {
                     return Some(Err(format!("row {id} points outside the table's data")));
                 };
+                for &(place, byte) in &text_at {
+                    let here = (first_record + r) * record_size + byte;
+                    for value in &mut fields[place] {
+                        *value = match *value {
+                            0 => NO_TEXT,
+                            // A distance that lands before the strings
+                            // wraps to a number past them: no text.
+                            v => (here as u64)
+                                .wrapping_add(v)
+                                .wrapping_sub(records_end as u64),
+                        };
+                    }
+                }
                 rows.push(Row {
                     id,
                     parent: parents.get(r).copied().unwrap_or(0),
@@ -323,6 +388,7 @@ impl Table {
             layout_hash,
             field_count,
             rows,
+            strings,
         }))
     }
 }
@@ -409,6 +475,20 @@ pub(crate) mod tests {
         pub copies: Vec<(u32, u32)>,
         /// `(parent id, index of the record it belongs to)`
         pub parents: Vec<(u32, u32)>,
+        /// This section's string block: zero-terminated text.
+        pub strings: Vec<u8>,
+    }
+
+    /// What to store in column 0 of record `record` (counted through the
+    /// whole file) so that it names the text at `at` in the string blocks
+    /// (counted through all of them, in section order).
+    ///
+    /// The stored number is a distance from the field itself to the text,
+    /// measured as if every section's records came first and every
+    /// section's strings followed.
+    pub fn text_ref(sections: &[Section], record: usize, at: usize) -> u32 {
+        let records: usize = sections.iter().map(|s| s.records.len()).sum();
+        ((records - record) * RECORD_SIZE + at) as u32
     }
 
     /// A whole WDC5 file with the test columns.
@@ -435,7 +515,7 @@ pub(crate) mod tests {
             total_records,
             n_fields,
             RECORD_SIZE as u32,
-            0,           // string table size
+            sections.iter().map(|s| s.strings.len() as u32).sum(),
             0x1111_1111, // table hash
             0xABCD_0123, // layout hash
             1,
@@ -470,7 +550,7 @@ pub(crate) mod tests {
             h.extend_from_slice(&u32s(&[
                 at,
                 s.records.len() as u32,
-                0, // string table size
+                s.strings.len() as u32,
                 0, // offset records end
                 s.ids.len() as u32 * 4,
                 relationships(&s.parents).len() as u32,
@@ -481,6 +561,7 @@ pub(crate) mod tests {
             for r in &s.records {
                 f.extend_from_slice(r);
             }
+            f.extend_from_slice(&s.strings);
             f.extend_from_slice(&u32s(&s.ids));
             for (new, old) in &s.copies {
                 f.extend_from_slice(&u32s(&[*new, *old]));
@@ -501,6 +582,7 @@ pub(crate) mod tests {
                 ids: vec![10, 20],
                 copies: vec![(30, 10)],
                 parents: vec![],
+                strings: vec![],
             }],
         )
     }
@@ -560,6 +642,7 @@ pub(crate) mod tests {
                 ids: vec![10, 20],
                 copies: vec![(30, 10)],
                 parents,
+                strings: vec![],
             }],
         )
     }
@@ -601,6 +684,87 @@ pub(crate) mod tests {
         assert!(Table::parse(&f[..f.len() - 4], &[]).is_err());
     }
 
+    /// Two sections, each with its own string block; column 0 names text.
+    fn named() -> Vec<u8> {
+        let mut sections = vec![
+            Section {
+                key: 0,
+                records: vec![vec![0; RECORD_SIZE]; 2],
+                ids: vec![10, 20],
+                copies: vec![(30, 20)],
+                parents: vec![],
+                strings: b"\0Human\0Dwarf\0".to_vec(),
+            },
+            Section {
+                key: 0,
+                records: vec![vec![0; RECORD_SIZE]; 1],
+                ids: vec![40],
+                copies: vec![],
+                parents: vec![],
+                strings: b"\0Skyborne\0".to_vec(),
+            },
+        ];
+        // "Human" at 1 and "Dwarf" at 7 in the first block (13 bytes);
+        // "Skyborne" at 1 in the second, so 14 through both.
+        for (section, record, global, at) in [(0, 0, 0, 1), (0, 1, 1, 7), (1, 0, 2, 14)] {
+            let value = text_ref(&sections, global, at);
+            sections[section].records[record] = record_with_text(value);
+        }
+        file(HAS_ID_LIST, &sections)
+    }
+
+    fn record_with_text(value: u32) -> Vec<u8> {
+        record(value, 5, 0, 0, 0)
+    }
+
+    fn name(t: &Table, id: u32) -> Option<&str> {
+        t.text(row(t, id).fields[0][0])
+    }
+
+    #[test]
+    fn a_text_column_gives_each_rows_string() {
+        let t = Table::parse_text(&named(), &[0, 1], &[0]).unwrap();
+        assert_eq!(name(&t, 10), Some("Human"));
+        assert_eq!(name(&t, 20), Some("Dwarf"));
+        assert_eq!(row(&t, 10).fields[1], [5], "other columns are unchanged");
+    }
+
+    #[test]
+    fn text_in_a_later_sections_block_is_found() {
+        let t = Table::parse_text(&named(), &[0], &[0]).unwrap();
+        assert_eq!(name(&t, 40), Some("Skyborne"));
+    }
+
+    #[test]
+    fn a_copied_row_has_its_source_rows_text() {
+        let t = Table::parse_text(&named(), &[0], &[0]).unwrap();
+        assert_eq!(name(&t, 30), Some("Dwarf"));
+    }
+
+    #[test]
+    fn a_row_with_no_text_reads_as_empty() {
+        let mut sections = vec![Section {
+            key: 0,
+            records: vec![record_with_text(0)],
+            ids: vec![10],
+            copies: vec![],
+            parents: vec![],
+            strings: b"\0Human\0".to_vec(),
+        }];
+        let t = Table::parse_text(&file(HAS_ID_LIST, &sections), &[0], &[0]).unwrap();
+        assert_eq!(name(&t, 10), Some(""));
+        // A reference past the string blocks is no text, not a panic.
+        sections[0].records[0] = record_with_text(5000);
+        let t = Table::parse_text(&file(HAS_ID_LIST, &sections), &[0], &[0]).unwrap();
+        assert_eq!(name(&t, 10), None);
+    }
+
+    #[test]
+    fn a_text_column_must_be_one_of_the_columns_read() {
+        let err = Table::parse_text(&named(), &[1], &[0]).unwrap_err();
+        assert!(err.contains("text"), "{err}");
+    }
+
     #[test]
     fn without_an_id_list_the_id_is_the_id_column() {
         let f = file(
@@ -611,6 +775,7 @@ pub(crate) mod tests {
                 ids: vec![],
                 copies: vec![],
                 parents: vec![],
+                strings: vec![],
             }],
         );
         let t = Table::parse(&f, &[1]).unwrap();
@@ -636,6 +801,7 @@ pub(crate) mod tests {
                     ids: vec![10],
                     copies: vec![],
                     parents: vec![],
+                    strings: vec![],
                 },
                 Section {
                     key: 0xDEAD_BEEF,
@@ -643,6 +809,7 @@ pub(crate) mod tests {
                     ids: vec![0, 0],
                     copies: vec![],
                     parents: vec![],
+                    strings: vec![],
                 },
             ],
         );
@@ -661,6 +828,7 @@ pub(crate) mod tests {
                 ids: vec![10],
                 copies: vec![],
                 parents: vec![],
+                strings: vec![],
             }],
         );
         assert_eq!(Table::parse(&f, &[1]).unwrap().rows.len(), 1);
@@ -682,6 +850,7 @@ pub(crate) mod tests {
                 ids: vec![10],
                 copies: vec![],
                 parents: vec![],
+                strings: vec![],
             }],
         );
         assert!(Table::parse(&f, &[2]).is_err());

@@ -1298,6 +1298,45 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
     }
 }
 
+/// What one frame of mouse input asks the camera to do.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+struct Gesture {
+    yaw: f32,
+    pitch: f32,
+    pan_x: f32,
+    pan_y: f32,
+    zoom: f32,
+}
+
+/// Turn a drag (in points, y down) and the scroll wheel into camera
+/// movement, the way Blender's viewport does: a plain drag orbits, Shift
+/// pans, Ctrl zooms (up is closer).  The wheel always zooms.
+fn gesture(drag: Vec2, shift: bool, ctrl: bool, scroll: f32) -> Gesture {
+    let zoom = scroll * 0.0015;
+    if ctrl {
+        Gesture {
+            zoom: zoom - drag.y * 0.005,
+            ..Default::default()
+        }
+    } else if shift {
+        // Pan speed scaled to the viewport so it feels consistent across
+        // model sizes: about one world unit per full-width drag.
+        Gesture {
+            pan_x: drag.x * 0.005,
+            pan_y: -drag.y * 0.005,
+            zoom,
+            ..Default::default()
+        }
+    } else {
+        Gesture {
+            yaw: -drag.x * 0.01,
+            pitch: -drag.y * 0.01,
+            zoom,
+            ..Default::default()
+        }
+    }
+}
+
 /// Render `mesh` into the inline preview pane. Allocates a fixed-height
 /// rect, reads drag + scroll input for the orbit camera, computes the
 /// equivalent pixel size from the egui DPI scale, and hands everything
@@ -1305,42 +1344,32 @@ impl egui_wgpu::CallbackTrait for MeshCallback {
 ///
 /// - **Drag** = orbit (yaw/pitch)
 /// - **Shift+Drag** = pan (translate the orbit center)
-/// - **Scroll** = zoom
+/// - **Ctrl+Drag** or **Scroll** = zoom
 pub fn paint_mesh(ui: &mut egui::Ui, mesh: Arc<Mesh3dCpu>) {
     let width = ui.available_width().max(64.0);
-    let size = Vec2::new(width, 240.0);
+    paint_mesh_sized(ui, mesh, Vec2::new(width, 240.0));
+}
+
+/// What the viewport tells screen readers and automation it is.
+pub const CANVAS_NAME: &str =
+    "3D preview: drag to rotate, Shift+drag to pan, Ctrl+drag or scroll to zoom";
+
+/// [`paint_mesh`] into a rect of `size` points.  Any mouse button drags.
+pub fn paint_mesh_sized(ui: &mut egui::Ui, mesh: Arc<Mesh3dCpu>, size: Vec2) {
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
     // A name in the accessibility tree, so screen readers announce the
     // viewport and automation can find it to drag.
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(
-            egui::Role::Canvas,
-            true,
-            "3D preview: drag to rotate, Shift+drag to pan, scroll to zoom",
-        )
-    });
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Canvas, true, CANVAS_NAME));
 
-    let drag = response.drag_delta();
-    let shift_held = ui.input(|i| i.modifiers.shift);
-
-    // Shift+drag = pan, plain drag = orbit.
-    let (yaw_delta, pitch_delta, pan_x_delta, pan_y_delta) = if shift_held {
-        // Pan speed scaled to the viewport so it feels consistent
-        // across model sizes.  The 0.005 factor gives ~1 world-unit
-        // per full-width drag at distance_mul=1.
-        (0.0, 0.0, drag.x * 0.005, -drag.y * 0.005)
-    } else {
-        (-drag.x * 0.01, -drag.y * 0.01, 0.0, 0.0)
-    };
-
-    // Scroll wheel → zoom multiplier. Only consume scroll while hovered
-    // so it doesn't fight the surrounding scroll area.
-    let zoom_delta = if response.hovered() {
-        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-        scroll * 0.0015
+    let (shift, ctrl) = ui.input(|i| (i.modifiers.shift, i.modifiers.ctrl));
+    // Only consume scroll while hovered so it doesn't fight the
+    // surrounding scroll area.
+    let scroll = if response.hovered() {
+        ui.input(|i| i.smooth_scroll_delta.y)
     } else {
         0.0
     };
+    let g = gesture(response.drag_delta(), shift, ctrl, scroll);
 
     let ppp = ui.ctx().pixels_per_point();
     let pixel_width = (rect.width() * ppp).round().max(1.0) as u32;
@@ -1350,11 +1379,11 @@ pub fn paint_mesh(ui: &mut egui::Ui, mesh: Arc<Mesh3dCpu>) {
         rect,
         MeshCallback {
             mesh,
-            yaw_delta,
-            pitch_delta,
-            zoom_delta,
-            pan_x_delta,
-            pan_y_delta,
+            yaw_delta: g.yaw,
+            pitch_delta: g.pitch,
+            zoom_delta: g.zoom,
+            pan_x_delta: g.pan_x,
+            pan_y_delta: g.pan_y,
             pixel_width,
             pixel_height,
         },
@@ -1427,6 +1456,58 @@ mod window_tests {
         }
         let rect = rect.expect("the window was drawn");
         assert!(bounds.contains_rect(rect), "{rect:?} leaves {bounds:?}");
+    }
+}
+
+#[cfg(test)]
+mod gesture_tests {
+    use super::{gesture, Gesture};
+    use egui::vec2;
+
+    #[test]
+    fn a_plain_drag_orbits() {
+        let g = gesture(vec2(10.0, -20.0), false, false, 0.0);
+        assert_eq!(
+            g,
+            Gesture {
+                yaw: -10.0 * 0.01,
+                pitch: 20.0 * 0.01,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn a_shift_drag_pans_and_does_not_orbit() {
+        let g = gesture(vec2(10.0, -20.0), true, false, 0.0);
+        assert_eq!(
+            g,
+            Gesture {
+                pan_x: 10.0 * 0.005,
+                pan_y: 20.0 * 0.005,
+                ..Default::default()
+            }
+        );
+    }
+
+    /// Blender's Ctrl+drag: pushing the mouse up moves closer, the same
+    /// direction as scrolling up.
+    #[test]
+    fn a_ctrl_drag_zooms_up_is_closer() {
+        let up = gesture(vec2(30.0, -40.0), false, true, 0.0);
+        assert!(up.zoom > 0.0, "{up:?}");
+        assert_eq!((up.yaw, up.pitch, up.pan_x, up.pan_y), (0.0, 0.0, 0.0, 0.0));
+        let wheel_up = gesture(vec2(0.0, 0.0), false, false, 100.0);
+        assert!(wheel_up.zoom > 0.0, "{wheel_up:?}");
+        let down = gesture(vec2(0.0, 40.0), false, true, 0.0);
+        assert_eq!(down.zoom, -up.zoom);
+    }
+
+    #[test]
+    fn the_wheel_zooms_during_any_drag() {
+        let g = gesture(vec2(10.0, 0.0), false, false, 200.0);
+        assert_eq!(g.zoom, 200.0 * 0.0015);
+        assert_eq!(g.yaw, -10.0 * 0.01);
     }
 }
 

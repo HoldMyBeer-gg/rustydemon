@@ -164,6 +164,28 @@ bitflags::bitflags! {
     }
 }
 
+impl LocaleFlags {
+    /// The flag for a language code as Blizzard writes it (`enUS`, `deDE`).
+    pub fn from_code(code: &str) -> Option<Self> {
+        Some(match code {
+            "enUS" => Self::EN_US,
+            "koKR" => Self::KO_KR,
+            "frFR" => Self::FR_FR,
+            "deDE" => Self::DE_DE,
+            "zhCN" => Self::ZH_CN,
+            "esES" => Self::ES_ES,
+            "zhTW" => Self::ZH_TW,
+            "enGB" => Self::EN_GB,
+            "esMX" => Self::ES_MX,
+            "ruRU" => Self::RU_RU,
+            "ptBR" => Self::PT_BR,
+            "itIT" => Self::IT_IT,
+            "ptPT" => Self::PT_PT,
+            _ => return None,
+        })
+    }
+}
+
 bitflags::bitflags! {
     /// Per-file content flags stored in the root manifest.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -82,6 +82,7 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     // anything recognisable comes out.  Deferred because we can't
     // mutate `app` while `sel` is borrowed.
     let mut override_change: Option<Option<usize>> = None;
+    let mut open_model_window = false;
     let mut export_choice: Option<ExportChoice> = None;
     if sel.data.is_some() {
         let names = crate::preview::plugin_names();
@@ -123,11 +124,12 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
                     variants.choose(k);
                 }
             });
+        }
+        if let Some(mesh) = super::model_window::mesh_of(preview) {
             theme::section_label(ui, "Mesh");
-            crate::viewport3d::paint_mesh(ui, variants.mesh());
-        } else if let Some(mesh) = preview.mesh3d.clone() {
-            theme::section_label(ui, "Mesh");
-            crate::viewport3d::paint_mesh(ui, mesh);
+            let mut open = app.model_window_open;
+            super::model_window::pane(ui, mesh, &mut open);
+            open_model_window = open && !app.model_window_open;
         }
 
         // Text block (formatted summary or full text file). The outer
@@ -325,6 +327,10 @@ fn draw_preview_body(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
     // Drop the `sel` immutable borrow before touching `app` mutably.
     let _ = sel;
 
+    if open_model_window {
+        app.model_window_open = true;
+    }
+
     if let Some(new_override) = override_change {
         // Defer the actual swap to the next frame: dropping the old
         // PreviewOutput's GPU texture mid-frame (after egui already
@@ -442,6 +448,7 @@ pub fn apply_preview_override(
             &app.character_looks,
             handler_ref.map(|h| h.as_ref()),
             model_file,
+            &app.worn_items,
         )
     };
     let messiah_repo = || handler_ref?.mpk_repository();

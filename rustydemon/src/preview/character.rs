@@ -15,6 +15,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::gear::{Gear, Outfit};
+use super::item_sets::ItemSet;
+
+/// The model texture slot type of the body skin sheet.
+const BODY_SKIN: u32 = 1;
+/// The blend mode that lays a texture over what is there by its alpha.
+const OVER: u32 = 15;
 /// A layer mask that means "the whole sheet".
 const WHOLE_SHEET: u32 = u32::MAX;
 
@@ -22,6 +29,8 @@ const WHOLE_SHEET: u32 = u32::MAX;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Model {
     pub id: u32,
+    /// 0 male, 1 female.
+    pub sex: u32,
     /// The creature display that names the body's `.m2`.
     pub display: u32,
     /// Which set of sheets, rectangles and layers the body uses.
@@ -130,12 +139,31 @@ pub struct Look {
     /// `(group, variant)` of each model part the choices pick.
     pub geosets: Vec<(u32, u32)>,
     pub sheets: Vec<SheetPlan>,
+    /// Things worth telling the user about how the look came out.
+    pub notes: Vec<String>,
 }
 
 impl Data {
+    /// Whether the body `model_file` is female.  `None` when no character
+    /// uses that file.
+    pub fn is_female(&self, model_file: u32) -> Option<bool> {
+        self.models
+            .iter()
+            .find(|m| self.display_files.get(&m.display) == Some(&model_file))
+            .map(|m| m.sex == 1)
+    }
+
     /// The default look of the character whose body is the `.m2` with
     /// FileDataID `model_file`.  `None` when no character uses that file.
+    #[cfg(test)]
     pub fn look(&self, model_file: u32) -> Option<Look> {
+        self.look_wearing(model_file, &Outfit::default())
+    }
+
+    /// [`look`](Self::look), wearing `outfit`: its textures are painted
+    /// over the skin, each into the rectangle it names, and its model parts
+    /// replace what their groups showed.
+    pub fn look_wearing(&self, model_file: u32, outfit: &Outfit) -> Option<Look> {
         let model = self
             .models
             .iter()
@@ -192,6 +220,9 @@ impl Data {
                 geosets.push((group, 0));
             }
         }
+        // What is worn wins over what was chosen: a helm hides the hair.
+        geosets.retain(|g| !outfit.geosets.iter().any(|worn| worn.0 == g.0));
+        geosets.extend_from_slice(&outfit.geosets);
         geosets.sort_unstable();
         geosets.dedup();
 
@@ -203,7 +234,7 @@ impl Data {
                 .filter(|l| l.layout == model.layout && l.texture_type == sheet.texture_type)
                 .collect();
             layers.sort_by_key(|l| l.order);
-            let paints: Vec<Paint> = layers
+            let mut paints: Vec<Paint> = layers
                 .iter()
                 .filter_map(|l| {
                     Some(Paint {
@@ -213,6 +244,19 @@ impl Data {
                     })
                 })
                 .collect();
+            if sheet.texture_type == BODY_SKIN {
+                paints.extend(outfit.paints.iter().filter_map(|&(kind, file)| {
+                    let section = self
+                        .sections
+                        .iter()
+                        .find(|s| s.layout == sheet.layout && s.kind == kind)?;
+                    Some(Paint {
+                        file,
+                        rect: section.rect,
+                        blend: OVER,
+                    })
+                }));
+            }
             if !paints.is_empty() {
                 sheets.push(SheetPlan {
                     texture_type: sheet.texture_type,
@@ -222,7 +266,11 @@ impl Data {
                 });
             }
         }
-        Some(Look { geosets, sheets })
+        Some(Look {
+            geosets,
+            sheets,
+            notes: Vec::new(),
+        })
     }
 
     /// The rectangle of `sheet` that a layer with this section mask covers.
@@ -240,11 +288,11 @@ impl Data {
 /// One of the game's tables: where it is and which of its columns are read.
 /// Tables carry no column names, so the layout this was worked out for is
 /// listed by its hash; another layout is refused, not guessed at.
-struct Source {
-    name: &'static str,
-    fdid: u32,
-    layout: u32,
-    columns: &'static [usize],
+pub(super) struct Source {
+    pub name: &'static str,
+    pub fdid: u32,
+    pub layout: u32,
+    pub columns: &'static [usize],
 }
 
 // WoW Forever (wowf), build 1.60.1.
@@ -252,8 +300,8 @@ const CHR_MODEL: Source = Source {
     name: "ChrModel",
     fdid: 3_384_313,
     layout: 0x03FA_B755,
-    // DisplayID, CharComponentTextureLayoutID
-    columns: &[4, 5],
+    // Sex, DisplayID, CharComponentTextureLayoutID
+    columns: &[3, 4, 5],
 };
 const OPTION: Source = Source {
     name: "ChrCustomizationOption",
@@ -290,7 +338,7 @@ const GEOSET: Source = Source {
     // GeosetType, GeosetID
     columns: &[0, 1],
 };
-const TEXTURE_FILE: Source = Source {
+pub(super) const TEXTURE_FILE: Source = Source {
     name: "TextureFileData",
     fdid: 982_459,
     layout: 0xBD7C_74C2,
@@ -334,8 +382,11 @@ const DISPLAY_INFO: Source = Source {
 };
 
 impl Source {
-    /// This table's rows, as `(id, parent, the columns asked for)`.
-    fn rows(&self, fetch: &dyn Fn(u32) -> Option<Vec<u8>>) -> Result<Vec<Row>, String> {
+    /// This table, with the columns asked for, once its layout is checked.
+    pub(super) fn table(
+        &self,
+        fetch: &dyn Fn(u32) -> Option<Vec<u8>>,
+    ) -> Result<super::db2::Table, String> {
         let name = self.name;
         let bytes = fetch(self.fdid).ok_or_else(|| format!("{name} could not be read"))?;
         let table =
@@ -346,6 +397,12 @@ impl Source {
                 table.layout_hash
             ));
         }
+        Ok(table)
+    }
+
+    /// This table's rows, as `(id, parent, the columns asked for)`.
+    fn rows(&self, fetch: &dyn Fn(u32) -> Option<Vec<u8>>) -> Result<Vec<Row>, String> {
+        let table = self.table(fetch)?;
         Ok(table
             .rows
             .into_iter()
@@ -415,8 +472,9 @@ impl Data {
                 .iter()
                 .map(|r| Model {
                     id: r.id,
-                    display: r.values[0],
-                    layout: r.values[1],
+                    sex: r.values[0],
+                    display: r.values[1],
+                    layout: r.values[2],
                 })
                 .collect(),
             options: ordered(&OPTION)?,
@@ -470,29 +528,97 @@ impl Data {
     }
 }
 
+/// Everything read from one open archive's tables.  The item tables are
+/// kept apart from the character ones: a body is still shown with its skin
+/// when they cannot be used.
+pub struct Tables {
+    pub data: Data,
+    pub gear: Result<Gear, String>,
+    pub sets: Result<Vec<ItemSet>, String>,
+}
+
 /// The tables of one open archive, read the first time a model asks.  An
 /// error is remembered too, so a game without them is asked once.
-pub type Cache = std::cell::OnceCell<Result<Data, String>>;
+pub type Cache = std::cell::OnceCell<Result<Tables, String>>;
 
-/// The default look of the character whose body is `model_file`, reading
-/// the tables into `cache` on first use.  `Ok(None)` for a file that is no
-/// character body; `Err` says which table could not be used.
+/// The tables of `handler`'s archive, read into `cache` on first use.
+pub fn tables<'a>(
+    cache: &'a Cache,
+    handler: &rustydemon_lib::CascHandler,
+) -> Result<&'a Tables, String> {
+    let tables = cache.get_or_init(|| {
+        // Rows for unreleased content are encrypted; take the rest.  These
+        // tables hold text, so the installed language's copy is the one.
+        let fetch = |fdid| {
+            handler
+                .open_text_file_by_fdid_partial(fdid)
+                .ok()
+                .map(|f| f.data)
+        };
+        Ok(Tables {
+            data: Data::load(&fetch)?,
+            gear: Gear::load(&fetch),
+            sets: fetch(super::item_sets::FDID)
+                .ok_or_else(|| "ItemSet could not be read".to_string())
+                .and_then(|bytes| super::item_sets::parse(&bytes)),
+        })
+    });
+    tables.as_ref().map_err(String::clone)
+}
+
+/// The look of the character whose body is `model_file`, wearing the items
+/// `worn`, reading the tables into `cache` on first use.  `Ok(None)` for a
+/// file that is no character body; `Err` says which table could not be
+/// used.
 pub fn lookup(
     cache: &Cache,
     handler: Option<&rustydemon_lib::CascHandler>,
     model_file: Option<u32>,
+    worn: &[u32],
 ) -> Result<Option<Look>, String> {
     let (Some(handler), Some(model_file)) = (handler, model_file) else {
         return Ok(None);
     };
-    let data = cache.get_or_init(|| {
-        // Rows for unreleased content are encrypted; take the rest.
-        Data::load(&|fdid| handler.open_file_by_fdid_partial(fdid).ok().map(|f| f.data))
-    });
-    match data {
-        Ok(data) => Ok(data.look(model_file)),
-        Err(e) => Err(e.clone()),
-    }
+    let tables = tables(cache, handler)?;
+    let Some(female) = tables.data.is_female(model_file) else {
+        return Ok(None);
+    };
+    let mut notes = Vec::new();
+    let outfit = match (&tables.gear, worn.is_empty()) {
+        (_, true) => Outfit::default(),
+        (Ok(gear), false) => {
+            let outfit = gear.outfit(worn, female);
+            notes.push(format!(
+                "Wearing {} item(s): {} texture(s) painted on",
+                worn.len(),
+                outfit.paints.len()
+            ));
+            if outfit.models > 0 {
+                notes.push(format!(
+                    "{} piece(s) are models (helm, shoulders) and are not drawn yet",
+                    outfit.models
+                ));
+            }
+            if outfit.unknown > 0 {
+                notes.push(format!(
+                    "{} item(s) have no appearance in the tables",
+                    outfit.unknown
+                ));
+            }
+            outfit
+        }
+        (Err(problem), false) => {
+            notes.push(format!("Items not shown: {problem}"));
+            Outfit::default()
+        }
+    };
+    Ok(tables
+        .data
+        .look_wearing(model_file, &outfit)
+        .map(|mut look| {
+            look.notes = notes;
+            look
+        }))
 }
 
 /// A decoded texture: RGBA bytes, width, height.
@@ -583,6 +709,7 @@ mod tests {
         Data {
             models: vec![Model {
                 id: 7,
+                sex: 1,
                 display: 70,
                 layout: 3,
             }],
@@ -758,6 +885,45 @@ mod tests {
         d.sections.clear();
         let look = d.look(BODY_FILE).unwrap();
         assert_eq!(look.sheets[0].paints.len(), 1, "skin only");
+    }
+
+    #[test]
+    fn a_worn_piece_is_painted_over_the_skin_in_its_rectangle() {
+        let outfit = Outfit {
+            // Rectangle type 10 exists in this layout; 3 does not.
+            paints: vec![(10, 700), (3, 701)],
+            ..Default::default()
+        };
+        let look = data().look_wearing(BODY_FILE, &outfit).unwrap();
+        let body = look.sheets.iter().find(|s| s.texture_type == 1).unwrap();
+        assert_eq!(
+            body.paints.last(),
+            Some(&Paint {
+                file: 700,
+                rect: [4, 0, 4, 2],
+                blend: 15
+            })
+        );
+        assert_eq!(body.paints.len(), 3, "skin, face, the one piece that fits");
+        // Hair and the other sheets are untouched.
+        assert_eq!(look.sheets[1], data().look(BODY_FILE).unwrap().sheets[1]);
+    }
+
+    #[test]
+    fn a_worn_pieces_parts_replace_what_the_choices_picked() {
+        let outfit = Outfit {
+            geosets: vec![(0, 9), (4, 4)],
+            ..Default::default()
+        };
+        let look = data().look_wearing(BODY_FILE, &outfit).unwrap();
+        // A helm's hair part wins over the hairstyle; the glove cuff is new.
+        assert_eq!(look.geosets, [(0, 9), (4, 4), (33, 0)]);
+    }
+
+    #[test]
+    fn the_models_sex_is_known() {
+        assert_eq!(data().is_female(BODY_FILE), Some(true));
+        assert_eq!(data().is_female(1234), None);
     }
 
     fn solid(rgba: [u8; 4], w: u32, h: u32) -> Image {

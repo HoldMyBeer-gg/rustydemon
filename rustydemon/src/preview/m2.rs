@@ -456,6 +456,9 @@ impl PreviewPlugin for M2Preview {
         if let Some(problem) = &look_problem {
             text.push_str(&format!("\nCharacter look not applied: {problem}"));
         }
+        for note in look.iter().flat_map(|l| &l.notes) {
+            text.push_str(&format!("\n{note}"));
+        }
         if !painted.is_empty() {
             text.push_str(&format!(
                 "\nCharacter creation defaults painted: {}",

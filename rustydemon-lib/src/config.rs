@@ -4,7 +4,11 @@ use std::{
     path::Path,
 };
 
-use crate::{error::CascError, game::GameType, types::Md5Hash};
+use crate::{
+    error::CascError,
+    game::GameType,
+    types::{LocaleFlags, Md5Hash},
+};
 
 // ── KeyValueConfig ─────────────────────────────────────────────────────────────
 
@@ -162,6 +166,28 @@ impl VerBarConfig {
 
 /// Parsed configuration for a local CASC installation.
 ///
+/// The language of the text an install has on disk, from the `Tags` column
+/// of its `.build.info` row.
+///
+/// The column lists what was installed, one group per kind of content,
+/// groups joined by `:`.  A group reads like
+/// `Windows x86_64 US? acct-USA? geoip-US? enUS text?`: the word before
+/// `text?` is the language.  Several text groups give several languages.
+/// `None` when no group names a language this library knows.
+pub fn text_locale_of_tags(tags: &str) -> Option<LocaleFlags> {
+    let mut found = LocaleFlags::NONE;
+    for group in tags.split(':') {
+        let mut words = group.split_ascii_whitespace().rev();
+        if words.next() != Some("text?") {
+            continue;
+        }
+        if let Some(locale) = words.next().and_then(LocaleFlags::from_code) {
+            found |= locale;
+        }
+    }
+    (!found.is_empty()).then_some(found)
+}
+
 /// Loads and cross-references `.build.info`, the build config, and the CDN
 /// config from the game's data folder.
 #[derive(Debug)]
@@ -189,6 +215,8 @@ pub struct CascConfig {
     cdn_hosts: Vec<String>,
     /// CDN URL path from `.build.info` (e.g. `tpr/osi` for D2R).
     cdn_path: String,
+    /// The language of the installed text; see [`text_locale_of_tags`].
+    text_locale: Option<LocaleFlags>,
 }
 
 impl CascConfig {
@@ -314,6 +342,7 @@ impl CascConfig {
             cdn: KeyValueConfig::default(),
             data_folder: None,
             cdn_hosts: Vec::new(),
+            text_locale: None,
             cdn_path: String::new(),
         })
     }
@@ -329,6 +358,7 @@ impl CascConfig {
             cdn: KeyValueConfig::default(),
             data_folder: None,
             cdn_hosts: Vec::new(),
+            text_locale: None,
             cdn_path: String::new(),
         }
     }
@@ -421,6 +451,7 @@ impl CascConfig {
             .map(std::borrow::ToOwned::to_owned)
             .collect();
         let cdn_path = pick_col("CDNPath");
+        let text_locale = text_locale_of_tags(&pick_col("Tags"));
 
         // Helper: open a two-level hash-keyed config file (aa/bb/aabb…).
         // Falls back to CDN (when the `cdn` feature is enabled) so a fresh
@@ -508,6 +539,7 @@ impl CascConfig {
             data_folder: Some(data_folder),
             cdn_hosts,
             cdn_path,
+            text_locale,
         })
     }
 
@@ -515,6 +547,14 @@ impl CascConfig {
     /// Empty for static-container installs loaded via [`Self::load_local_static`].
     pub fn cdn_hosts(&self) -> &[String] {
         &self.cdn_hosts
+    }
+
+    /// The language of the text this install has on disk, when its
+    /// `.build.info` says.  Files that exist once per language (the game's
+    /// data tables) should be opened in this one: the others are not on
+    /// disk.
+    pub fn text_locale(&self) -> Option<LocaleFlags> {
+        self.text_locale
     }
 
     /// CDN URL path from `.build.info` (e.g. `tpr/osi`).  Empty for
@@ -847,6 +887,41 @@ mod resolve_folder_case_tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.path);
         }
+    }
+}
+
+#[cfg(test)]
+mod text_locale_tests {
+    use super::text_locale_of_tags;
+    use crate::types::LocaleFlags;
+
+    #[test]
+    fn the_word_before_text_is_the_language() {
+        let tags = "Windows x86_64 US? acct-USA? geoip-US? enUS speech?:\
+                    Windows x86_64 US? acct-USA? geoip-US? enUS text?";
+        assert_eq!(text_locale_of_tags(tags), Some(LocaleFlags::EN_US));
+    }
+
+    #[test]
+    fn speech_alone_is_not_text() {
+        // German voices, no text group at all.
+        assert_eq!(text_locale_of_tags("Windows x86_64 EU? deDE speech?"), None);
+    }
+
+    #[test]
+    fn several_text_groups_give_several_languages() {
+        let tags = "Windows EU? deDE text?:Windows EU? frFR text?:Windows EU? deDE speech?";
+        assert_eq!(
+            text_locale_of_tags(tags),
+            Some(LocaleFlags::DE_DE | LocaleFlags::FR_FR)
+        );
+    }
+
+    #[test]
+    fn an_unknown_language_or_no_tags_is_none() {
+        assert_eq!(text_locale_of_tags("Windows xxYY text?"), None);
+        assert_eq!(text_locale_of_tags("text?"), None);
+        assert_eq!(text_locale_of_tags(""), None);
     }
 }
 
