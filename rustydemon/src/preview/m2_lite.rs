@@ -53,6 +53,10 @@ pub struct M2Lite {
     /// number within the section gives an index into this table, whose
     /// entry is the bone.
     pub bone_lookup: Vec<u16>,
+    /// Where other models hang on this one: `(attachment id, position)` in
+    /// model space at rest.  11 is the helm, 5 and 6 the right and left
+    /// shoulder.  Empty if the table is unreadable.
+    pub attachments: Vec<(u32, [f32; 3])>,
 }
 
 /// What the rigged export needs from one bone.  Animation tracks are
@@ -90,6 +94,9 @@ const F_BONE_LOOKUP: usize = 0x78;
 const F_TEXTURE_LOOKUP: usize = 0x80;
 /// Six floats: minimum corner, then maximum corner.
 const F_BOUNDING_BOX: usize = 0xA0;
+const F_ATTACHMENTS: usize = 0xF0;
+/// An attachment record: id, bone, a spare, the position and a track.
+const ATTACHMENT_SIZE: usize = 40;
 /// The header must reach at least the end of the last field read.
 const HEADER_MIN: usize = F_BOUNDING_BOX + 24;
 
@@ -248,6 +255,18 @@ impl M2Lite {
                     .collect()
             })
             .unwrap_or_default();
+        let attachments = array(body, F_ATTACHMENTS, ATTACHMENT_SIZE, "attachments")
+            .map(|t| {
+                t.as_chunks::<ATTACHMENT_SIZE>()
+                    .0
+                    .iter()
+                    .map(|a| {
+                        let id = u32::from_le_bytes([a[0], a[1], a[2], a[3]]);
+                        (id, [8, 12, 16].map(|axis| f32_at(a, axis)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let texture_lookup = array(body, F_TEXTURE_LOOKUP, 2, "texture lookups")?
             .as_chunks::<2>()
             .0
@@ -305,7 +324,14 @@ impl M2Lite {
             bone_indices,
             bones,
             bone_lookup,
+            attachments,
         })
+    }
+
+    /// Where the attachment point with this id sits, if the model has it.
+    #[allow(dead_code)] // The CLI shares this file and hangs nothing on a model.
+    pub fn attachment(&self, id: u32) -> Option<[f32; 3]> {
+        self.attachments.iter().find(|a| a.0 == id).map(|a| a.1)
     }
 }
 
@@ -437,6 +463,41 @@ pub(crate) mod tests {
         f.extend(chunk(b"SFID", &le(&[111, 222])));
         f.extend(chunk(b"TXID", &le(&[0, 333])));
         f
+    }
+
+    /// One 40-byte attachment record: id, bone, a spare, the position and
+    /// an empty track.
+    fn attachment(id: u32, bone: u16, at: [f32; 3]) -> Vec<u8> {
+        let mut a = Vec::with_capacity(40);
+        a.extend_from_slice(&id.to_le_bytes());
+        a.extend_from_slice(&bone.to_le_bytes());
+        a.extend_from_slice(&[0u8; 2]);
+        for f in at {
+            a.extend_from_slice(&f.to_le_bytes());
+        }
+        a.extend_from_slice(&[0u8; 20]);
+        a
+    }
+
+    #[test]
+    fn reads_where_things_attach() {
+        let mut b = rigged();
+        let mut points = attachment(11, 2, [0.0, 0.0, 1.75]);
+        points.extend(attachment(6, 1, [0.0, 0.25, 1.5]));
+        put(&mut b, 0xF0, 2, &points);
+        let m = M2Lite::parse(&b).unwrap();
+        assert_eq!(m.attachment(11), Some([0.0, 0.0, 1.75]));
+        assert_eq!(m.attachment(6), Some([0.0, 0.25, 1.5]));
+        assert_eq!(m.attachment(5), None);
+    }
+
+    #[test]
+    fn an_attachment_table_past_the_end_of_the_file_does_not_fail_the_model() {
+        let mut b = rigged();
+        b[0xF0..0xF4].copy_from_slice(&1000u32.to_le_bytes());
+        let m = M2Lite::parse(&b).unwrap();
+        assert_eq!(m.attachment(11), None);
+        assert_eq!(m.positions.len(), 2);
     }
 
     #[test]
