@@ -14,6 +14,7 @@ pub mod adt;
 pub mod adt_lite;
 pub mod audio;
 pub mod blp;
+pub mod bodies;
 pub mod character;
 pub mod creature_skins;
 pub mod d3_ani;

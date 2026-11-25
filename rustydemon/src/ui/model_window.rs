@@ -16,12 +16,16 @@ use crate::preview::{Mesh3dCpu, PreviewOutput};
 use crate::ui::theme::rd;
 
 pub const TITLE: &str = "Rusty Demon - Model";
+/// In the View menu.
+pub const MENU: &str = "Character Viewer";
 /// On the button that opens the window.
 pub const OPEN: &str = "Open in window";
 /// In the preview pane, where the model would be.
 pub const MOVED: &str = "Shown in the model window.";
 /// In the window, when the selection is not a model.
-pub const NOTHING: &str = "Select a model in the main window.";
+pub const NOTHING: &str = "Type a race above, or select a model in the main window.";
+/// The name of the character search box.
+pub const BODY_SEARCH: &str = "Character";
 /// The name of the set search box.
 pub const SEARCH: &str = "Armour set";
 /// On the button that removes what is worn.
@@ -109,6 +113,52 @@ fn armour(
     asked
 }
 
+/// The character row's state for one frame.
+struct Character<'a> {
+    typed: &'a mut String,
+    /// `(body file, label)` of each body that matches.
+    suggestions: &'a [(u32, String)],
+    /// Replaces the row when the game's race list cannot be used.
+    problem: Option<&'a str>,
+}
+
+/// The character row: a box to type a race into and the bodies that match
+/// as buttons under it.  Returns the file of the body asked for.
+fn character(ui: &mut egui::Ui, row: Character<'_>) -> Option<u32> {
+    if let Some(problem) = row.problem {
+        ui.label(
+            egui::RichText::new(format!("Characters are not available: {problem}"))
+                .color(rd::FG_MUTED),
+        );
+        return None;
+    }
+    let search = ui.add(
+        egui::TextEdit::singleline(row.typed)
+            .hint_text("Character, e.g. Skyborne female")
+            .desired_width(260.0),
+    );
+    crate::ui::a11y::name(ui.ctx(), search.id, BODY_SEARCH);
+    let mut asked = None;
+    if !row.suggestions.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            for (file, label) in row.suggestions {
+                if ui.button(label).clicked() {
+                    asked = Some(*file);
+                }
+            }
+        });
+    }
+    asked
+}
+
+/// What the user asked for in the window's rows.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Asked {
+    /// The body file to show.
+    open: Option<u32>,
+    dress: Option<Dress>,
+}
+
 /// The armour row's state for one frame.
 struct Armour<'a> {
     typed: &'a mut String,
@@ -117,22 +167,31 @@ struct Armour<'a> {
     problem: Option<&'a str>,
 }
 
-/// What the window shows.  Returns what was asked for in the armour row.
-fn body(ui: &mut egui::Ui, mesh: Option<Arc<Mesh3dCpu>>, row: Armour<'_>) -> Option<Dress> {
+/// What the window shows.  Returns what was asked for in its rows.
+fn body(
+    ui: &mut egui::Ui,
+    mesh: Option<Arc<Mesh3dCpu>>,
+    who: Character<'_>,
+    row: Armour<'_>,
+) -> Asked {
     let frame = egui::Frame::central_panel(ui.style()).fill(rd::BG_APP);
     frame
-        .show(ui, |ui| match mesh {
-            Some(mesh) => {
-                let asked = armour(ui, row.typed, row.suggestions, row.wearing, row.problem);
-                ui.label(egui::RichText::new(HINT).color(rd::FG_MUTED));
-                let size = ui.available_size().max(egui::Vec2::splat(64.0));
-                crate::viewport3d::paint_mesh_sized(ui, mesh, size);
-                asked
-            }
-            None => {
-                ui.label(egui::RichText::new(NOTHING).color(rd::FG_MUTED));
-                None
-            }
+        .show(ui, |ui| {
+            let open = character(ui, who);
+            let dress = match mesh {
+                Some(mesh) => {
+                    let dress = armour(ui, row.typed, row.suggestions, row.wearing, row.problem);
+                    ui.label(egui::RichText::new(HINT).color(rd::FG_MUTED));
+                    let size = ui.available_size().max(egui::Vec2::splat(64.0));
+                    crate::viewport3d::paint_mesh_sized(ui, mesh, size);
+                    dress
+                }
+                None => {
+                    ui.label(egui::RichText::new(NOTHING).color(rd::FG_MUTED));
+                    None
+                }
+            };
+            Asked { open, dress }
         })
         .inner
 }
@@ -174,6 +233,25 @@ pub fn show(ctx: &egui::Context, app: &mut CascExplorerApp) {
             }
         }
     }
+    // The same goes for the list of bodies.
+    let mut bodies: Vec<(u32, String)> = Vec::new();
+    let mut body_problem = None;
+    if !app.body_query.trim().is_empty() {
+        if let Some(handler) = app.handler.as_ref() {
+            let all = crate::preview::character::tables(&app.character_looks, handler)
+                .and_then(|t| t.bodies.as_ref().map_err(String::clone));
+            match all {
+                Ok(all) => {
+                    bodies = crate::preview::bodies::suggest(all, &app.body_query, SUGGESTIONS)
+                        .into_iter()
+                        .map(|b| (b.file, b.label()))
+                        .collect();
+                }
+                Err(e) => body_problem = Some(e),
+            }
+        }
+    }
+    let mut who = std::mem::take(&mut app.body_query);
     let mut typed = std::mem::take(&mut app.set_query);
     let wearing = app.worn_name.clone();
 
@@ -188,11 +266,21 @@ pub fn show(ctx: &egui::Context, app: &mut CascExplorerApp) {
             wearing: wearing.as_deref(),
             problem: problem.as_deref(),
         };
-        let asked = body(ui, mesh.clone(), row);
+        let who = Character {
+            typed: &mut who,
+            suggestions: &bodies,
+            problem: body_problem.as_deref(),
+        };
+        let asked = body(ui, mesh.clone(), who, row);
         (asked, ui.input(|i| i.viewport().close_requested()))
     });
+    app.body_query = who;
     app.set_query = typed;
-    match asked {
+    if let Some(file) = asked.open {
+        app.body_query.clear();
+        app.open_file_data_id(file, ctx);
+    }
+    match asked.dress {
         Some(Dress::Wear(set)) => {
             app.worn_items = set.items;
             app.worn_name = Some(set.name);
@@ -275,10 +363,76 @@ mod tests {
     #[test]
     fn the_window_draws_the_model_with_the_controls_spelled_out() {
         let (canvas, words) = drawn(|ui| {
-            body(ui, Some(triangle()), no_armour(&mut String::new()));
+            body(
+                ui,
+                Some(triangle()),
+                nobody(&mut String::new()),
+                no_armour(&mut String::new()),
+            );
         });
         assert!(canvas);
         assert!(words.contains(&HINT.to_string()), "{words:?}");
+    }
+
+    fn nobody(typed: &mut String) -> Character<'_> {
+        Character {
+            typed,
+            suggestions: &[],
+            problem: None,
+        }
+    }
+
+    #[test]
+    fn the_character_row_has_a_named_box_and_a_button_per_body() {
+        let found = [(7001, "Skyborne, female".to_string())];
+        let nodes = nodes(|ui| {
+            let row = Character {
+                typed: &mut "sky".to_string(),
+                suggestions: &found,
+                problem: None,
+            };
+            character(ui, row);
+        });
+        let named = |role, name: &str| {
+            nodes
+                .iter()
+                .any(|n| n.role() == role && n.label() == Some(name))
+        };
+        assert!(named(Role::TextInput, BODY_SEARCH));
+        assert!(named(Role::Button, "Skyborne, female"));
+    }
+
+    #[test]
+    fn a_body_list_that_cannot_be_used_says_why() {
+        let (_, words) = drawn(|ui| {
+            let row = Character {
+                typed: &mut String::new(),
+                suggestions: &[],
+                problem: Some("ChrRaces could not be read"),
+            };
+            character(ui, row);
+        });
+        assert!(
+            words
+                .iter()
+                .any(|w| w.contains("ChrRaces could not be read")),
+            "{words:?}"
+        );
+    }
+
+    #[test]
+    fn a_character_can_be_asked_for_with_no_model_selected() {
+        let nodes = nodes(|ui| {
+            body(
+                ui,
+                None,
+                nobody(&mut String::new()),
+                no_armour(&mut String::new()),
+            );
+        });
+        assert!(nodes
+            .iter()
+            .any(|n| n.role() == Role::TextInput && n.label() == Some(BODY_SEARCH)));
     }
 
     fn no_armour(typed: &mut String) -> Armour<'_> {
@@ -359,7 +513,12 @@ mod tests {
     #[test]
     fn the_window_says_what_to_do_when_the_selection_is_not_a_model() {
         let (canvas, words) = drawn(|ui| {
-            body(ui, None, no_armour(&mut String::new()));
+            body(
+                ui,
+                None,
+                nobody(&mut String::new()),
+                no_armour(&mut String::new()),
+            );
         });
         assert!(!canvas);
         assert!(words.contains(&NOTHING.to_string()), "{words:?}");

@@ -143,6 +143,8 @@ pub struct CascExplorerApp {
     pub worn_drawn: Vec<u32>,
     /// What is typed in the model window's set search box.
     pub set_query: String,
+    /// What is typed in the model window's character box.
+    pub body_query: String,
     /// The search for installed games in the usual places, started the
     /// first time the File menu opens.  It walks the disk, so it runs once
     /// and off the UI thread.
@@ -266,6 +268,7 @@ impl CascExplorerApp {
             worn_name: None,
             worn_drawn: Vec::new(),
             set_query: String::new(),
+            body_query: String::new(),
             installs: None,
             product: String::new(),
             detected_products: vec![],
@@ -704,6 +707,19 @@ impl CascExplorerApp {
             let results = handler.search_by_text(&query, 0);
             let _ = tx.send(BgResult::SearchComplete { results, query });
         });
+    }
+
+    /// Select the file with this FileDataID, as if it were clicked in the
+    /// tree.  Says so in the status bar when the archive has no such file.
+    pub fn open_file_data_id(&mut self, id: u32, ctx: &Context) {
+        let Some(handler) = self.handler.as_ref() else {
+            return;
+        };
+        let hash = rustydemon_lib::jenkins96::file_data_id_hash(id);
+        match handler.search_by_hash(hash).into_iter().next() {
+            Some(result) => self.select_result(result, ctx),
+            None => self.status = format!("File {id} is not in this archive."),
+        }
     }
 
     /// Select a search result and load its raw bytes in the background.

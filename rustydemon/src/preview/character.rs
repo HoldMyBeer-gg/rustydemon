@@ -15,6 +15,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::bodies::Body;
 use super::gear::{Attached, Gear, Outfit};
 use super::item_sets::ItemSet;
 
@@ -533,6 +534,7 @@ pub struct Tables {
     pub data: Data,
     pub gear: Result<Gear, String>,
     pub sets: Result<Vec<ItemSet>, String>,
+    pub bodies: Result<Vec<Body>, String>,
 }
 
 /// The tables of one open archive, read the first time a model asks.  An
@@ -553,8 +555,10 @@ pub fn tables<'a>(
                 .ok()
                 .map(|f| f.data)
         };
+        let data = Data::load(&fetch)?;
         Ok(Tables {
-            data: Data::load(&fetch)?,
+            bodies: super::bodies::load(&fetch, &data),
+            data,
             gear: Gear::load(&fetch),
             sets: fetch(super::item_sets::FDID)
                 .ok_or_else(|| "ItemSet could not be read".to_string())

@@ -216,6 +216,7 @@ pub fn draw_menu(ui: &mut egui::Ui, app: &mut CascExplorerApp) {
                         app.expansion_dirty = true;
                     }
                     ui.separator();
+                    model_window_item(ui, &mut app.model_window_open);
                     ui.checkbox(&mut app.viewport3d_open, "3D Test Viewport");
                     let mut dys = app.dyslexia_friendly;
                     if ui.checkbox(&mut dys, "Dyslexia-friendly type").changed() {
@@ -297,6 +298,11 @@ fn collect_folder_paths(
     }
 }
 
+/// The View menu's item for the model window.
+fn model_window_item(ui: &mut egui::Ui, open: &mut bool) {
+    ui.checkbox(open, crate::ui::model_window::MENU);
+}
+
 #[cfg(test)]
 mod a11y_tests {
     use crate::ui::a11y::testing::nodes;
@@ -317,6 +323,17 @@ mod a11y_tests {
         assert_eq!(item.label(), Some("Open Game Directory…"));
         let shortcut = item.keyboard_shortcut().expect("a published shortcut");
         assert!(shortcut.ends_with('O'), "{shortcut}");
+    }
+
+    /// The model window can be opened with no model selected: it has its
+    /// own box for picking a character.
+    #[test]
+    fn the_view_menu_opens_the_model_window() {
+        let mut open = false;
+        let all = nodes(|ui| super::model_window_item(ui, &mut open));
+        assert!(all.iter().any(
+            |n| n.role() == Role::CheckBox && n.label() == Some(crate::ui::model_window::MENU)
+        ));
     }
 
     fn edit_item_disabled(has_selection: bool, name: &str) -> bool {
