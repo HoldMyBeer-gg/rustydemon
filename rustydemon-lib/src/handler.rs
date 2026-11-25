@@ -778,6 +778,24 @@ impl CascHandler {
         self.open_by_ckey_partial(&ckey)
     }
 
+    /// [`open_file_by_fdid_partial`](Self::open_file_by_fdid_partial) for a
+    /// file that holds text: the copy in the language this install has on
+    /// disk is opened.  The game's data tables exist once per language under
+    /// one FileDataID, and without this the first one listed is taken,
+    /// which may be a language that has to be downloaded.
+    pub fn open_text_file_by_fdid_partial(
+        &self,
+        id: u32,
+    ) -> Result<blte::PartialDecode, CascError> {
+        let hash = self
+            .root
+            .hash_for_file_data_id(id)
+            .ok_or_else(|| CascError::FileNotFound(format!("FileDataId {id}")))?;
+        let locale = self.config.text_locale().unwrap_or(self.locale);
+        let ckey = self.resolve_hash_in(hash, locale)?;
+        self.open_by_ckey_partial(&ckey)
+    }
+
     /// [`open_by_ckey`](Self::open_by_ckey), but blocks encrypted with a key
     /// we do not hold come back as zeros.  See [`blte::decode_partial`].
     ///
@@ -816,7 +834,13 @@ impl CascHandler {
 
     /// Resolve a filename hash to a content key using the root manifest.
     fn resolve_hash(&self, hash: u64) -> Result<Md5Hash, CascError> {
-        let entries = self.root.get_entries(hash, self.locale);
+        self.resolve_hash_in(hash, self.locale)
+    }
+
+    /// [`resolve_hash`](Self::resolve_hash), preferring the copy of the
+    /// file in `locale`.
+    fn resolve_hash_in(&self, hash: u64, locale: LocaleFlags) -> Result<Md5Hash, CascError> {
+        let entries = self.root.get_entries(hash, locale);
 
         if entries.is_empty() {
             // Fall back to any locale.
