@@ -15,7 +15,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::gear::{Gear, Outfit};
+use super::gear::{Attached, Gear, Outfit};
 use super::item_sets::ItemSet;
 
 /// The model texture slot type of the body skin sheet.
@@ -139,18 +139,18 @@ pub struct Look {
     /// `(group, variant)` of each model part the choices pick.
     pub geosets: Vec<(u32, u32)>,
     pub sheets: Vec<SheetPlan>,
+    /// Models worn on the body's attachment points.
+    pub attached: Vec<Attached>,
     /// Things worth telling the user about how the look came out.
     pub notes: Vec<String>,
 }
 
 impl Data {
-    /// Whether the body `model_file` is female.  `None` when no character
-    /// uses that file.
-    pub fn is_female(&self, model_file: u32) -> Option<bool> {
+    /// The character whose body is `model_file`, if one uses that file.
+    pub fn model_of(&self, model_file: u32) -> Option<&Model> {
         self.models
             .iter()
             .find(|m| self.display_files.get(&m.display) == Some(&model_file))
-            .map(|m| m.sex == 1)
     }
 
     /// The default look of the character whose body is the `.m2` with
@@ -164,10 +164,7 @@ impl Data {
     /// over the skin, each into the rectangle it names, and its model parts
     /// replace what their groups showed.
     pub fn look_wearing(&self, model_file: u32, outfit: &Outfit) -> Option<Look> {
-        let model = self
-            .models
-            .iter()
-            .find(|m| self.display_files.get(&m.display) == Some(&model_file))?;
+        let model = self.model_of(model_file)?;
 
         // The first choice of each of the model's options.
         let options: HashSet<u32> = self
@@ -269,6 +266,7 @@ impl Data {
         Some(Look {
             geosets,
             sheets,
+            attached: outfit.attached.clone(),
             notes: Vec::new(),
         })
     }
@@ -580,14 +578,14 @@ pub fn lookup(
         return Ok(None);
     };
     let tables = tables(cache, handler)?;
-    let Some(female) = tables.data.is_female(model_file) else {
+    let Some(model) = tables.data.model_of(model_file) else {
         return Ok(None);
     };
     let mut notes = Vec::new();
     let outfit = match (&tables.gear, worn.is_empty()) {
         (_, true) => Outfit::default(),
         (Ok(gear), false) => {
-            let outfit = gear.outfit(worn, female);
+            let outfit = gear.outfit(worn, &gear.wearer(model.id, model.sex == 1));
             notes.push(format!(
                 "Wearing {} item(s): {} texture(s) painted on",
                 worn.len(),
@@ -595,7 +593,7 @@ pub fn lookup(
             ));
             if outfit.models > 0 {
                 notes.push(format!(
-                    "{} piece(s) are models (helm, shoulders) and are not drawn yet",
+                    "{} model(s) (helm, shoulders) have no file that fits this body",
                     outfit.models
                 ));
             }
@@ -922,8 +920,8 @@ mod tests {
 
     #[test]
     fn the_models_sex_is_known() {
-        assert_eq!(data().is_female(BODY_FILE), Some(true));
-        assert_eq!(data().is_female(1234), None);
+        assert_eq!(data().model_of(BODY_FILE).map(|m| m.sex), Some(1));
+        assert_eq!(data().model_of(1234), None);
     }
 
     fn solid(rgba: [u8; 4], w: u32, h: u32) -> Image {

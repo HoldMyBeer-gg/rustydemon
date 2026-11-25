@@ -54,6 +54,155 @@ fn blend_for(mode: Option<u16>) -> Blend {
     }
 }
 
+/// Texture type of the slot an item's model leaves for the item's skin.
+const ITEM_SKIN: u32 = 2;
+
+/// A model's geometry, ready to draw or to join to another's.
+struct Part {
+    positions: Vec<[f32; 3]>,
+    uvs: Vec<[f32; 2]>,
+    indices: Vec<u32>,
+    batches: Vec<MeshBatch>,
+    materials: Vec<MeshMaterial>,
+}
+
+impl Part {
+    /// Join `other` to this one, moved so its origin sits at `at`.
+    fn hang(&mut self, other: Part, at: [f32; 3]) {
+        let vertex = self.positions.len() as u32;
+        let index = self.indices.len() as u32;
+        let material = self.materials.len() as u32;
+        self.positions.extend(
+            other
+                .positions
+                .iter()
+                .map(|p| [p[0] + at[0], p[1] + at[1], p[2] + at[2]]),
+        );
+        self.uvs.extend(other.uvs);
+        self.indices
+            .extend(other.indices.iter().map(|i| i + vertex));
+        self.batches.extend(other.batches.iter().map(|b| MeshBatch {
+            start_index: b.start_index + index,
+            material_id: b.material_id + material,
+            ..*b
+        }));
+        self.materials.extend(other.materials);
+    }
+}
+
+/// The file a texture slot of a worn model shows: the one the model names,
+/// else the item's own skin in the slot made for it.
+fn worn_texture(named: u32, slot_type: u32, item_texture: u32) -> u32 {
+    match (named, slot_type) {
+        (0, ITEM_SKIN) => item_texture,
+        _ => named,
+    }
+}
+
+/// The draws of a skin, one per base texture unit.  `visible` says which
+/// sections to keep; `None` keeps them all.
+fn batches_of(
+    skin: &Skin,
+    m2: &M2Lite,
+    material_count: usize,
+    visible: Option<&[bool]>,
+) -> Vec<MeshBatch> {
+    if skin.texture_units.is_empty() {
+        // Fallback: one batch per submesh (legacy models).
+        return skin
+            .submeshes
+            .iter()
+            .enumerate()
+            .map(|(i, s)| MeshBatch {
+                start_index: geosets::first_index(s.triangle_start, s.level),
+                index_count: s.triangle_count as u32,
+                material_id: i as u32,
+                blend: Blend::Opaque,
+            })
+            .collect();
+    }
+    skin.texture_units
+        .iter()
+        .filter(|tu| tu.material_layer == 0)
+        .filter(|tu| {
+            visible
+                .and_then(|v| v.get(tu.skin_section_index as usize))
+                .copied()
+                .unwrap_or(true)
+        })
+        .filter_map(|tu| {
+            let sub = skin.submeshes.get(tu.skin_section_index as usize)?;
+            // Resolve texture: skip combo_index entries in the lookup
+            // table, take texture_count, first is diffuse.
+            let combo_idx = tu.texture_combo_index as usize;
+            let tex_idx = m2.texture_lookup.get(combo_idx).copied().unwrap_or(-1);
+            let material_id = if tex_idx >= 0 && (tex_idx as usize) < material_count {
+                tex_idx as u32
+            } else {
+                tu.skin_section_index as u32
+            };
+            Some(MeshBatch {
+                start_index: geosets::first_index(sub.triangle_start, sub.level),
+                index_count: sub.triangle_count as u32,
+                material_id,
+                blend: blend_for(m2.blend_modes.get(tu.material_index as usize).copied()),
+            })
+        })
+        .collect()
+}
+
+/// The geometry of a model a character wears, textured with the item's
+/// skin.  The error says what could not be read.
+fn worn_part(
+    piece: &super::gear::Attached,
+    fetch: &dyn Fn(u32) -> Option<Vec<u8>>,
+) -> Result<Part, String> {
+    let missing = |what: &str, file: u32| format!("{what} {file} is not in this install");
+    let bytes = fetch(piece.model).ok_or_else(|| missing("file", piece.model))?;
+    let m2 = M2Lite::parse(&bytes)?;
+    let skin_id = *m2.skin_fdids.first().ok_or("it lists no skin file")?;
+    let skin_bytes = fetch(skin_id).ok_or_else(|| missing("skin file", skin_id))?;
+    let skin = Skin::wow_read(&mut Cursor::new(skin_bytes.as_slice()), SkinVersion::V3)
+        .map_err(|e| format!("its skin could not be read: {e}"))?;
+    let materials: Vec<MeshMaterial> = m2
+        .texture_types
+        .iter()
+        .enumerate()
+        .map(|(slot, &kind)| {
+            let named = m2.texture_fdids.get(slot).copied().unwrap_or(0);
+            let file = worn_texture(named, kind, piece.texture);
+            let decoded = (file != 0)
+                .then(|| fetch(file))
+                .flatten()
+                .as_deref()
+                .and_then(decode_blp);
+            match decoded {
+                Some((rgba, width, height)) => MeshMaterial {
+                    rgba: Some(rgba),
+                    width,
+                    height,
+                },
+                None => MeshMaterial {
+                    rgba: None,
+                    width: 1,
+                    height: 1,
+                },
+            }
+        })
+        .collect();
+    Ok(Part {
+        indices: skin
+            .triangles
+            .iter()
+            .map(|&i| skin.indices.get(i as usize).copied().unwrap_or(0) as u32)
+            .collect(),
+        batches: batches_of(&skin, &m2, materials.len(), None),
+        positions: m2.positions,
+        uvs: m2.uvs,
+        materials,
+    })
+}
+
 const NO_MESH: &str = "\n\nThis model has no mesh to draw. Spell effects made only of \
                        particles and camera paths are stored as M2 files too.";
 
@@ -279,48 +428,47 @@ impl PreviewPlugin for M2Preview {
         } else {
             vec![true; section_ids.len()]
         };
-        let batches: Vec<MeshBatch> = if skin.texture_units.is_empty() {
-            // Fallback: one batch per submesh (legacy models).
-            skin.submeshes
-                .iter()
-                .enumerate()
-                .map(|(i, s)| MeshBatch {
-                    start_index: geosets::first_index(s.triangle_start, s.level),
-                    index_count: s.triangle_count as u32,
-                    material_id: i as u32,
-                    blend: Blend::Opaque,
-                })
-                .collect()
-        } else {
-            skin.texture_units
-                .iter()
-                .filter(|tu| tu.material_layer == 0)
-                .filter(|tu| {
-                    visible
-                        .get(tu.skin_section_index as usize)
-                        .copied()
-                        .unwrap_or(true)
-                })
-                .filter_map(|tu| {
-                    let sub = skin.submeshes.get(tu.skin_section_index as usize)?;
-                    // Resolve texture: skip combo_index entries in the
-                    // lookup table, take texture_count, first is diffuse.
-                    let combo_idx = tu.texture_combo_index as usize;
-                    let tex_idx = m2.texture_lookup.get(combo_idx).copied().unwrap_or(-1);
-                    let material_id = if tex_idx >= 0 && (tex_idx as usize) < materials.len() {
-                        tex_idx as u32
-                    } else {
-                        tu.skin_section_index as u32
-                    };
-                    Some(MeshBatch {
-                        start_index: geosets::first_index(sub.triangle_start, sub.level),
-                        index_count: sub.triangle_count as u32,
-                        material_id,
-                        blend: blend_for(m2.blend_modes.get(tu.material_index as usize).copied()),
-                    })
-                })
-                .collect()
+        let batches = batches_of(&skin, &m2, materials.len(), Some(&visible));
+
+        // What the character wears as models of their own: a helm, a pair
+        // of shoulder pads.  Each hangs where the body's skeleton says.
+        let mut body = Part {
+            positions,
+            uvs,
+            indices,
+            batches,
+            materials,
         };
+        let own = (body.indices.len(), body.batches.len(), body.materials.len());
+        let mut worn: Vec<String> = Vec::new();
+        for piece in look.iter().flat_map(|l| &l.attached) {
+            let Some(at) = m2.attachment(piece.point) else {
+                worn.push(format!(
+                    "model {} not drawn: the body has no attachment point {}",
+                    piece.model, piece.point
+                ));
+                continue;
+            };
+            match worn_part(piece, siblings.by_fdid) {
+                Ok(part) => {
+                    worn.push(format!(
+                        "model {} on attachment point {}: {} vertices",
+                        piece.model,
+                        piece.point,
+                        part.positions.len()
+                    ));
+                    body.hang(part, at);
+                }
+                Err(problem) => worn.push(format!("model {} not drawn: {problem}", piece.model)),
+            }
+        }
+        let Part {
+            positions,
+            uvs,
+            indices,
+            batches,
+            materials,
+        } = body;
 
         let (mn, mx) = compute_bbox(&positions);
         let mesh = Arc::new(Mesh3dCpu {
@@ -395,7 +543,9 @@ impl PreviewPlugin for M2Preview {
             build: Arc::new(move |raw, _path| {
                 let m2 = M2Lite::parse(raw)?;
                 let mut textures = Vec::new();
-                for (slot, material) in mesh_for_glb.materials.iter().enumerate() {
+                // The rig is the body's; what it wears stays out of it.
+                let (indices, batches, materials) = own;
+                for (slot, material) in mesh_for_glb.materials[..materials].iter().enumerate() {
                     if let Some(rgba) = &material.rgba {
                         textures.push((
                             super::m2_rig::texture_name(slot),
@@ -405,8 +555,8 @@ impl PreviewPlugin for M2Preview {
                 }
                 let mut model = super::m2_rig::model(
                     &m2,
-                    &mesh_for_glb.indices,
-                    &mesh_for_glb.batches,
+                    &mesh_for_glb.indices[..indices],
+                    &mesh_for_glb.batches[..batches],
                     textures,
                 );
                 let clips = super::m2_anim::clips(raw, &|id, variation| {
@@ -458,6 +608,9 @@ impl PreviewPlugin for M2Preview {
         }
         for note in look.iter().flat_map(|l| &l.notes) {
             text.push_str(&format!("\n{note}"));
+        }
+        for line in &worn {
+            text.push_str(&format!("\nWorn {line}"));
         }
         if !painted.is_empty() {
             text.push_str(&format!(
@@ -523,6 +676,54 @@ mod tests {
         // Unknown modes and missing materials draw solid, as before.
         assert_eq!(blend_for(Some(99)), Blend::Opaque);
         assert_eq!(blend_for(None), Blend::Opaque);
+    }
+
+    fn part(positions: Vec<[f32; 3]>, indices: Vec<u32>, material_id: u32) -> Part {
+        Part {
+            uvs: vec![[0.5, 0.5]; positions.len()],
+            batches: vec![MeshBatch {
+                start_index: 0,
+                index_count: indices.len() as u32,
+                material_id,
+                blend: Blend::Opaque,
+            }],
+            materials: vec![MeshMaterial {
+                rgba: None,
+                width: 1,
+                height: 1,
+            }],
+            positions,
+            indices,
+        }
+    }
+
+    #[test]
+    fn a_worn_model_joins_the_body_at_its_attachment_point() {
+        let corner = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        let mut body = part(corner.to_vec(), vec![0, 1, 2], 0);
+        let helm = part(corner.to_vec(), vec![2, 1, 0], 0);
+        body.hang(helm, [0.0, 0.0, 1.75]);
+
+        assert_eq!(body.positions.len(), 6);
+        assert_eq!(body.positions[3], [0.0, 0.0, 1.75]);
+        assert_eq!(body.positions[4], [1.0, 0.0, 1.75]);
+        assert_eq!(body.uvs.len(), 6);
+        // The helm's triangles point at its own vertices, after the body's.
+        assert_eq!(body.indices, [0, 1, 2, 5, 4, 3]);
+        let helm = body.batches[1];
+        assert_eq!((helm.start_index, helm.index_count), (3, 3));
+        // And at its own texture, after the body's.
+        assert_eq!(helm.material_id, 1);
+        assert_eq!(body.materials.len(), 2);
+    }
+
+    #[test]
+    fn a_worn_models_empty_slot_takes_the_items_texture() {
+        // A slot the file names keeps its own.
+        assert_eq!(worn_texture(555, 2, 9000), 555);
+        // The item's skin goes in the slot made for it.
+        assert_eq!(worn_texture(0, 2, 9000), 9000);
+        assert_eq!(worn_texture(0, 1, 9000), 0);
     }
 
     fn build_without_skin(model: &[u8]) -> String {
