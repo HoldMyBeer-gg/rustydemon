@@ -118,7 +118,12 @@ pub fn lookup(
     cache
         .get_or_init(|| {
             // Rows for unreleased content are encrypted; take the rest.
-            let table = |fdid| handler.open_file_by_fdid_partial(fdid).ok().map(|f| f.data);
+            let table = |fdid| {
+                handler
+                    .open_text_file_by_fdid_partial(fdid)
+                    .ok()
+                    .map(|f| f.data)
+            };
             CreatureSkins::build(&table(MODEL_DATA_FDID)?, &table(DISPLAY_INFO_FDID)?).ok()
         })
         .as_ref()?
@@ -150,6 +155,7 @@ mod tests {
                 ids: rows.iter().map(|(id, _)| *id).collect(),
                 copies: vec![],
                 parents: vec![],
+                strings: vec![],
             }],
         )
     }

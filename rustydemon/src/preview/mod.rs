@@ -32,12 +32,14 @@ pub mod db2;
 pub mod dds;
 #[cfg(test)]
 mod dds_tests;
+pub mod gear;
 pub mod geosets;
 pub mod gltf;
 #[cfg(test)]
 mod gltf_tests;
 pub mod grp;
 pub mod grp_format;
+pub mod item_sets;
 pub mod m2;
 pub mod m2_anim;
 #[cfg(test)]

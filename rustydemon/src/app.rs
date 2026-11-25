@@ -135,6 +135,14 @@ pub struct CascExplorerApp {
     pub creature_skins: crate::preview::creature_skins::Cache,
     /// The character tables of the open archive, read on first use.
     pub character_looks: crate::preview::character::Cache,
+    /// Items the character in the preview is wearing, and what the set
+    /// they came from is called.
+    pub worn_items: Vec<u32>,
+    pub worn_name: Option<String>,
+    /// The items the preview was last built with.
+    pub worn_drawn: Vec<u32>,
+    /// What is typed in the model window's set search box.
+    pub set_query: String,
     /// The search for installed games in the usual places, started the
     /// first time the File menu opens.  It walks the disk, so it runs once
     /// and off the UI thread.
@@ -254,6 +262,10 @@ impl CascExplorerApp {
             handler: None,
             creature_skins: Default::default(),
             character_looks: Default::default(),
+            worn_items: Vec::new(),
+            worn_name: None,
+            worn_drawn: Vec::new(),
+            set_query: String::new(),
             installs: None,
             product: String::new(),
             detected_products: vec![],
@@ -436,11 +448,13 @@ impl CascExplorerApp {
                             )
                         };
                         let looks_cache = &self.character_looks;
+                        let worn = &self.worn_items;
                         let character = || {
                             crate::preview::character::lookup(
                                 looks_cache,
                                 handler_ref.map(|h| h.as_ref()),
                                 model_file,
+                                worn,
                             )
                         };
                         let messiah_repo = || handler_ref?.mpk_repository();

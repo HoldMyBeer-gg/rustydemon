@@ -448,6 +448,7 @@ pub fn apply_preview_override(
             &app.character_looks,
             handler_ref.map(|h| h.as_ref()),
             model_file,
+            &app.worn_items,
         )
     };
     let messiah_repo = || handler_ref?.mpk_repository();
