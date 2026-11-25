@@ -44,6 +44,34 @@ instead ([details](#usage-guide)).
 
 ---
 
+## Character Viewer (WoW)
+
+![A Skyborne character wearing an armour set in the model window](screenshots/wow_character_viewer.png)
+
+*A player character from the game's own files, dressed in an armour set picked by name.*
+
+Open it from **View > Character Viewer**. It is a window of its own, so it
+can sit beside the game or on a second screen.
+
+- **Pick a body by race and sex** - type `skyborne f` in the Character box
+  and click the match. No file numbers needed.
+- **Dress it by set name** - type part of an armour set's name, e.g.
+  `Lawbringer`, and click it. Painted pieces go onto the body's skin, robes
+  and cuffs swap in the right parts, and helms and shoulder pads are hung on
+  the skeleton. **Take off** undresses.
+- **Move the camera as in Blender** - drag to rotate, Shift+drag to pan,
+  Ctrl+drag or scroll to zoom.
+- **Export what you see** - the Export button in the main window writes the
+  dressed character as OBJ with its textures, or the body as rigged glTF.
+
+Everything comes from the tables in your install, so it shows races and sets
+a web viewer may not have yet. It is built and tested on WoW Forever
+(1.60.1). Other WoW versions are untested: where a table's layout differs,
+that part is refused with a message naming the table. Other games have no
+character viewer; their models still open in the same window.
+
+---
+
 ## Features
 
 - **Regedit-style global search** - searches *every* entry in the archive manifest,
@@ -67,6 +95,9 @@ instead ([details](#usage-guide)).
   local CASC install without launching the GUI. Supports path/glob/FDID
   selection, parallel workers, dry-run, flatten, and overwrite. See
   [CLI](#cli) below.
+- **WoW character viewer** - pick a body by race and sex, dress it in an
+  armour set by name, and export the result. See
+  [Character Viewer](#character-viewer-wow) above.
 - **Auto product detection** - reads `.build.info` so you never need to know internal product codes (`fenris`, `wow`, `wowf`, etc.)
 - **Cross-platform** - Windows · macOS · Linux · Steam Deck (touch-ready via egui)
 - **Steam Diablo IV support** - native reader for the Steam-distribution
